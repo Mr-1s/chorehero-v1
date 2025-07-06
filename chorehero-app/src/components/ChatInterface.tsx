@@ -120,7 +120,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             table: 'chat_messages',
             filter: `booking_id=eq.${bookingId}`,
           },
-          (payload) => {
+          (payload: any) => {
             const newMessage = payload.new as ChatMessage;
             setMessages(prev => [...prev, newMessage]);
             scrollToBottom();
@@ -158,11 +158,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
       // Mark unread messages as read
       const unreadMessages = data?.filter(
-        msg => msg.sender_id !== user?.id && !msg.read_at
+        (msg: ChatMessage) => msg.sender_id !== user?.id && !msg.read_at
       ) || [];
       
       if (unreadMessages.length > 0) {
-        await markMultipleMessagesAsRead(unreadMessages.map(msg => msg.id));
+        await markMultipleMessagesAsRead(unreadMessages.map((msg: ChatMessage) => msg.id));
       }
       
       setTimeout(scrollToBottom, 100);

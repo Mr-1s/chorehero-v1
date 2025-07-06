@@ -113,7 +113,7 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({ route, navigatio
           table: 'bookings',
           filter: `id=eq.${bookingId}`,
         },
-        (payload) => {
+        (payload: any) => {
           const updatedBooking = payload.new as Booking;
           setBooking(updatedBooking);
           

@@ -271,7 +271,7 @@ class StripeService {
         throw error;
       }
 
-      const paymentMethods = data.map(pm => ({
+      const paymentMethods = data.map((pm: any) => ({
         id: pm.stripe_payment_method_id,
         type: pm.type,
         card: {
@@ -582,9 +582,9 @@ class StripeService {
         throw paymentsError;
       }
 
-      const totalEarnings = payments?.reduce((sum, payment) => sum + payment.cleaner_amount, 0) || 0;
+      const totalEarnings = payments?.reduce((sum: number, payment: any) => sum + payment.cleaner_amount, 0) || 0;
       const totalJobs = payments?.length || 0;
-      const averageRating = payments?.reduce((sum, payment) => {
+      const averageRating = payments?.reduce((sum: number, payment: any) => {
         return sum + (payment.bookings?.[0]?.rating || 0);
       }, 0) / Math.max(totalJobs, 1);
 
@@ -603,7 +603,7 @@ class StripeService {
         throw pendingError;
       }
 
-      const pendingPayouts = pendingPayments?.reduce((sum, payment) => sum + payment.cleaner_amount, 0) || 0;
+      const pendingPayouts = pendingPayments?.reduce((sum: number, payment: any) => sum + payment.cleaner_amount, 0) || 0;
 
       return {
         success: true,

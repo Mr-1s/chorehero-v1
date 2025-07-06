@@ -363,7 +363,7 @@ export const RatingsScreen: React.FC = () => {
 
       if (error || !ratings || ratings.length === 0) return;
 
-      const averageRating = ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length;
+      const averageRating = ratings.reduce((sum: number, r: any) => sum + r.rating, 0) / ratings.length;
       const roundedRating = Math.round(averageRating * 10) / 10;
 
       // Update user's average rating

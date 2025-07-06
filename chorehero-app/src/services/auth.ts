@@ -580,7 +580,7 @@ export const authService = new AuthService();
 
 // Auth state listener
 export const onAuthStateChange = (callback: (user: AuthUser | null) => void) => {
-  return supabase.auth.onAuthStateChange(async (event, session) => {
+  return supabase.auth.onAuthStateChange(async (event: any, session: any) => {
     if (event === 'SIGNED_IN' && session?.user) {
       try {
         const userProfile = await getUserProfile(session.user.id);

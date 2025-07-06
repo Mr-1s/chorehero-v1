@@ -101,7 +101,7 @@ export const ChatScreen: React.FC = () => {
           table: 'bookings',
           filter: `id=eq.${bookingId}`,
         },
-        (payload) => {
+        (payload: any) => {
           const updatedBooking = payload.new as BookingDetails;
           setBooking(updatedBooking);
           

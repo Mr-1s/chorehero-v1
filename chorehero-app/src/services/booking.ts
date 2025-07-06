@@ -76,7 +76,7 @@ class BookingService {
           const slotEndTime = new Date(currentTime.getTime() + serviceDuration * 60 * 1000);
 
           // Check if this slot conflicts with existing bookings
-          const hasConflict = existingBookings?.some(booking => {
+          const hasConflict = existingBookings?.some((booking: any) => {
             const bookingStart = new Date(booking.scheduled_time);
             const bookingEnd = new Date(bookingStart.getTime() + booking.estimated_duration * 60 * 1000);
             
@@ -548,7 +548,7 @@ class BookingService {
           table: 'bookings',
           filter: `id=eq.${bookingId}`,
         },
-        (payload) => {
+        (payload: any) => {
           callback(payload.new as Booking);
         }
       )
