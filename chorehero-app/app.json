@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "ChoreHero",
+    "slug": "chorehero-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#00D4AA"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chorehero.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ChoreHero needs camera access to record cleaner profile videos and share service photos.",
+        "NSMicrophoneUsageDescription": "ChoreHero needs microphone access to record cleaner profile videos.",
+        "NSLocationWhenInUseUsageDescription": "ChoreHero needs location access to show cleaners near you and track service progress.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ChoreHero needs location access to track service progress and ensure cleaner safety.",
+        "NSPhotoLibraryUsageDescription": "ChoreHero needs photo library access to upload service photos and profile images.",
+        "NSContactsUsageDescription": "ChoreHero needs contacts access to help you invite friends and family.",
+        "UIBackgroundModes": [
+        "location",
+        "background-processing"
+      ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#00D4AA"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.chorehero.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-av",
+      "expo-location",
+      "expo-notifications",
+      "expo-image-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ChoreHero to access your camera to record profile videos and share service photos."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id"
+      }
+    }
+  }
+}
