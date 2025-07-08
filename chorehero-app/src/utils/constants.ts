@@ -243,3 +243,166 @@ export const FEATURE_FLAGS = {
   express_booking: true,
   real_time_tracking: true,
 };
+
+// TikTok-Style Animations
+export const ANIMATIONS = {
+  duration: {
+    quick: 200,
+    medium: 400,
+    slow: 600,
+    celebration: 1000,
+  },
+  easing: {
+    bounce: 'bounce',
+    ease: 'ease',
+    elastic: 'elastic',
+  },
+};
+
+// Haptic Feedback Patterns
+export const HAPTIC_PATTERNS = {
+  light: 'impactLight',
+  medium: 'impactMedium',
+  heavy: 'impactHeavy',
+  success: 'notificationSuccess',
+  warning: 'notificationWarning',
+  error: 'notificationError',
+  selection: 'selection',
+};
+
+// Gamification System
+export const GAMIFICATION = {
+  achievements: {
+    SPEED_DEMON: {
+      id: 'speed_demon',
+      name: 'Speed Demon',
+      description: 'Book in under 15 seconds',
+      icon: '⚡',
+      points: 50,
+    },
+    STREAK_MASTER: {
+      id: 'streak_master',
+      name: 'Streak Master',
+      description: 'Maintain a 7-day booking streak',
+      icon: '🔥',
+      points: 100,
+    },
+    SOCIAL_BUTTERFLY: {
+      id: 'social_butterfly',
+      name: 'Social Butterfly',
+      description: 'Share 5 cleaner profiles',
+      icon: '🦋',
+      points: 30,
+    },
+    EXPLORER: {
+      id: 'explorer',
+      name: 'Explorer',
+      description: 'Try 5 different cleaners',
+      icon: '🗺️',
+      points: 75,
+    },
+    REVIEWER: {
+      id: 'reviewer',
+      name: 'Reviewer',
+      description: 'Leave 10 detailed reviews',
+      icon: '⭐',
+      points: 60,
+    },
+    EARLY_BIRD: {
+      id: 'early_bird',
+      name: 'Early Bird',
+      description: 'Book before 8 AM',
+      icon: '🌅',
+      points: 25,
+    },
+  },
+  rewards: {
+    STREAK_7: { discount: 10, message: 'Week streak! 10% off' },
+    STREAK_30: { discount: 20, message: 'Month streak! 20% off' },
+    QUICK_BOOK: { points: 10, message: 'Lightning fast!' },
+    VIDEO_REVIEW: { points: 25, message: 'Thanks for the review!' },
+    FIRST_BOOKING: { points: 50, message: 'Welcome to ChoreHero!' },
+    REFERRAL: { points: 100, message: 'Thanks for spreading the word!' },
+  },
+  streaks: {
+    DAILY_MULTIPLIER: 1.1,
+    WEEKLY_BONUS: 50,
+    MONTHLY_BONUS: 200,
+    MAX_STREAK_BONUS: 500,
+  },
+};
+
+// Video Configuration
+export const VIDEO_CONFIG = {
+  maxDuration: 30, // seconds
+  aspectRatio: 9 / 16, // TikTok style
+  quality: 'high',
+  fps: 30,
+  filters: ['normal', 'bright', 'warm', 'cool', 'vintage', 'dramatic'],
+  music: {
+    enabled: true,
+    fadeDuration: 500,
+    defaultVolume: 0.7,
+  },
+  autoplay: {
+    enabled: true,
+    threshold: 0.8, // 80% of video visible
+    delay: 300,
+  },
+  gestures: {
+    doubleTapLike: true,
+    swipeThreshold: 50,
+    longPressMenu: true,
+  },
+  overlay: {
+    fadeInDuration: 200,
+    fadeOutDuration: 200,
+    autoHideDelay: 3000,
+  },
+};
+
+// TikTok-Style UI Configuration
+export const TIKTOK_UI = {
+  videoPlayer: {
+    backgroundColor: '#000000',
+    controlsColor: '#FFFFFF',
+    progressBarColor: '#FF6B6B',
+    overlayOpacity: 0.8,
+  },
+  feedSettings: {
+    preloadCount: 3,
+    cacheCount: 10,
+    infiniteScroll: true,
+    snapToVideo: true,
+  },
+  interactions: {
+    likeAnimationDuration: 800,
+    shareAnimationDuration: 600,
+    bookButtonPulseDuration: 1200,
+    feedbackVibrationIntensity: 'medium',
+  },
+  quickActions: {
+    bookingTimeout: 15000, // 15 seconds for speed booking
+    undoTimeout: 5000, // 5 seconds to undo actions
+    celebrationDuration: 3000,
+  },
+};
+
+// Social Features Configuration
+export const SOCIAL_CONFIG = {
+  liveActivity: {
+    refreshInterval: 5000, // 5 seconds
+    maxItems: 50,
+    fadeoutDuration: 10000, // 10 seconds
+  },
+  leaderboard: {
+    updateInterval: 60000, // 1 minute
+    maxRank: 10,
+    timeframes: ['daily', 'weekly', 'monthly', 'all-time'],
+  },
+  sharing: {
+    platforms: ['instagram', 'tiktok', 'snapchat', 'facebook'],
+    defaultMessage: 'Check out this amazing cleaner on ChoreHero! 🧹✨',
+    hashtags: ['#ChoreHero', '#CleaningHero', '#SparkleAndShine'],
+  },
+};

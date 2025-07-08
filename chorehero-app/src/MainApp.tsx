@@ -34,14 +34,20 @@ const AuthScreenWrapper = () => {
 const AppNavigator = () => {
   const { isAuthenticated, user, isLoading } = useAuth();
 
-  if (isLoading) {
+  // Demo bypass mode - set to true to skip authentication for demo
+  const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true' || true; // Force demo mode for now
+
+  if (isLoading && !DEMO_MODE) {
     return null; // Or a loading screen
   }
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isAuthenticated ? (
+        {DEMO_MODE ? (
+          // Demo mode: Go directly to customer dashboard
+          <Stack.Screen name="CustomerDashboard" component={CustomerDashboard} />
+        ) : !isAuthenticated ? (
           <Stack.Screen name="Auth" component={AuthScreenWrapper} />
         ) : user?.role === 'customer' ? (
           <Stack.Screen name="CustomerDashboard" component={CustomerDashboard} />

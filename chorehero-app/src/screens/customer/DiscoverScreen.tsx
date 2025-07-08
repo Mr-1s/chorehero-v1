@@ -19,6 +19,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { Cleaner } from '../../types/user';
 import { COLORS, SPACING, TYPOGRAPHY } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
+import { MOCK_CLEANERS, getRandomCleaningTip } from '../../utils/mockData';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -48,52 +49,8 @@ export const DiscoverScreen: React.FC = () => {
     minimumViewTime: 100,
   });
 
-  // Mock data for development (replace with actual API call)
-  const mockCleaners: CleanerWithDistance[] = [
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      phone: '+15551234567',
-      email: 'sarah@example.com',
-      avatar_url: 'https://images.unsplash.com/photo-1494790108755-2616b25ca02c?w=150',
-      role: 'cleaner',
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z',
-      video_profile_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      verification_status: 'verified',
-      background_check_date: '2024-01-01',
-      rating_average: 4.8,
-      total_jobs: 127,
-      earnings_total: 15000,
-      availability_schedule: [],
-      service_areas: [],
-      specialties: ['Deep cleaning', 'Eco-friendly'],
-      hourly_rate: 35,
-      distance_km: 1.2,
-    },
-    {
-      id: '2',
-      name: 'Maria Rodriguez',
-      phone: '+15551234568',
-      email: 'maria@example.com',
-      avatar_url: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150',
-      role: 'cleaner',
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z',
-      video_profile_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      verification_status: 'verified',
-      background_check_date: '2024-01-01',
-      rating_average: 4.9,
-      total_jobs: 89,
-      earnings_total: 12000,
-      availability_schedule: [],
-      service_areas: [],
-      specialties: ['Move-in/out', 'Organization'],
-      hourly_rate: 40,
-      distance_km: 2.1,
-    },
-    // Add more mock cleaners as needed
-  ];
+  // Add loading tip state for better UX
+  const [currentTip, setCurrentTip] = useState(getRandomCleaningTip());
 
   // Load cleaners data
   const loadCleaners = useCallback(async (refresh = false) => {
@@ -106,14 +63,19 @@ export const DiscoverScreen: React.FC = () => {
       setError(null);
 
       // TODO: Replace with actual API call
-      // For now, use mock data
+      // For now, use mock data with realistic cleaning content
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API delay
       
-      setCleaners(mockCleaners);
+      setCleaners(MOCK_CLEANERS);
       
       // Preload first few videos
-      const videoUrls = mockCleaners.slice(0, 3).map(cleaner => cleaner.video_profile_url);
+      const videoUrls = MOCK_CLEANERS.slice(0, 3).map((cleaner: CleanerWithDistance) => cleaner.video_profile_url);
       await preloadVideos(videoUrls);
+      
+      // Update cleaning tip on refresh
+      if (refresh) {
+        setCurrentTip(getRandomCleaningTip());
+      }
       
     } catch (err) {
       console.error('Error loading cleaners:', err);
@@ -224,6 +186,7 @@ export const DiscoverScreen: React.FC = () => {
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Finding amazing cleaners near you...</Text>
+        <Text style={styles.loadingTip}>{currentTip}</Text>
       </View>
     );
   }
@@ -319,6 +282,14 @@ const styles = StyleSheet.create({
     color: COLORS.text.secondary,
     textAlign: 'center',
     marginTop: SPACING.lg,
+    marginBottom: SPACING.lg,
+  },
+  loadingTip: {
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.sizes.base,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    paddingHorizontal: SPACING.xl,
   },
   errorContainer: {
     flex: 1,
