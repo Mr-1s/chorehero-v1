@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -428,7 +430,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   );
 
   const renderStep2 = () => (
-    <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={scrollRef} style={styles.stepContainer} showsVerticalScrollIndicator={false}>
       <Text style={styles.stepTitle}>Professional Background</Text>
       <Text style={styles.stepSubtitle}>Tell us about your cleaning experience</Text>
 
@@ -454,23 +456,25 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       </View>
 
       <Text style={styles.inputLabel}>Previous Employer/Experience</Text>
-      <TextInput
+          <TextInput
         style={[styles.textInput, styles.textArea]}
         value={data.previousEmployer}
         onChangeText={(text) => updateData('previousEmployer', text)}
         placeholder="Previous cleaning companies, independent work, or relevant experience..."
         multiline
-        numberOfLines={3}
+            numberOfLines={3}
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 300, animated: true }), 150)}
       />
 
       <Text style={styles.inputLabel}>References</Text>
-      <TextInput
+          <TextInput
         style={[styles.textInput, styles.textArea]}
         value={data.references}
         onChangeText={(text) => updateData('references', text)}
         placeholder="Previous employers or clients who can vouch for your work..."
         multiline
-        numberOfLines={3}
+            numberOfLines={3}
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 380, animated: true }), 150)}
       />
 
       <View style={styles.switchRow}>
@@ -855,32 +859,33 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
 
       {/* Progress Bar */}
       {renderProgressBar()}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        {/* Current Step Content */}
+        <View style={styles.content}>
+          {renderCurrentStep()}
+        </View>
 
-      {/* Current Step Content */}
-      <View style={styles.content}>
-        {renderCurrentStep()}
-      </View>
-
-      {/* Bottom Button */}
-      <View style={styles.bottomContainer}>
-        <TouchableOpacity 
-          style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
-          onPress={handleNext}
-          disabled={isLoading}
-        >
-          <LinearGradient
-            colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
-            style={styles.continueButtonGradient}
+        {/* Bottom Button */}
+        <View style={styles.bottomContainer}>
+          <TouchableOpacity 
+            style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+            onPress={handleNext}
+            disabled={isLoading}
           >
-            <Text style={styles.continueButtonText}>
-              {isLoading ? 'Submitting Application...' : currentStep === totalSteps ? 'Submit Application' : 'Continue'}
-            </Text>
-            {!isLoading && currentStep < totalSteps && (
-              <Ionicons name="arrow-forward" size={20} color="#ffffff" />
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+            <LinearGradient
+              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+              style={styles.continueButtonGradient}
+            >
+              <Text style={styles.continueButtonText}>
+                {isLoading ? 'Submitting Application...' : currentStep === totalSteps ? 'Submit Application' : 'Continue'}
+              </Text>
+              {!isLoading && currentStep < totalSteps && (
+                <Ionicons name="arrow-forward" size={20} color="#ffffff" />
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };

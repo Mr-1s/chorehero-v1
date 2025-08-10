@@ -92,30 +92,13 @@ class UserService {
         };
       }
 
-      // Create user profile in database
+      // Do NOT insert into public.users here due to RLS; onboarding will create the profile
       const newUser: User = {
         id: authData.user.id,
         email: email.toLowerCase(),
         created_at: authData.user.created_at || new Date().toISOString(),
-        profile_completed: false // This will be managed in the app logic, not the database
+        profile_completed: false
       };
-
-      // Store minimal user record for now (full profile will be completed during onboarding)
-      // Note: We'll set basic required fields, role will be set during onboarding
-      const { error: dbError } = await supabase
-        .from('users')
-        .insert([{
-          id: newUser.id,
-          phone: 'pending', // Temporary, will be updated during onboarding
-          email: newUser.email,
-          name: 'New User', // Temporary, will be updated during onboarding
-          role: 'customer', // Default role, will be updated during account type selection
-        }]);
-
-      if (dbError) {
-        console.error('Database error creating user:', dbError);
-        // Continue anyway - user auth was created successfully
-      }
 
       return {
         success: true,
