@@ -368,7 +368,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   );
 
   const renderStep1 = () => (
-    <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.stepContainer}
+      contentContainerStyle={{ paddingBottom: 140 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.stepTitle}>Professional Profile</Text>
       <Text style={styles.stepSubtitle}>Let's set up your cleaner profile</Text>
 
@@ -387,6 +393,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             value={data.firstName}
             onChangeText={(text) => updateData('firstName', text)}
             placeholder="Sarah"
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 140, animated: true }), 150)}
           />
         </View>
         <View style={styles.inputHalf}>
@@ -396,6 +403,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             value={data.lastName}
             onChangeText={(text) => updateData('lastName', text)}
             placeholder="Johnson"
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 160, animated: true }), 150)}
           />
         </View>
       </View>
@@ -408,6 +416,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         placeholder="sarah.johnson@example.com"
         keyboardType="email-address"
         autoCapitalize="none"
+        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 190, animated: true }), 150)}
       />
 
       <Text style={styles.inputLabel}>Phone Number *</Text>
@@ -417,6 +426,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         onChangeText={(text) => updateData('phone', text)}
         placeholder="+1 (555) 123-4567"
         keyboardType="phone-pad"
+        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 240, animated: true }), 150)}
       />
 
       <Text style={styles.inputLabel}>Date of Birth *</Text>
@@ -425,12 +435,19 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         value={data.dateOfBirth}
         onChangeText={(text) => updateData('dateOfBirth', text)}
         placeholder="MM/DD/YYYY"
+        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 300, animated: true }), 150)}
       />
     </ScrollView>
   );
 
   const renderStep2 = () => (
-    <ScrollView ref={scrollRef} style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.stepContainer}
+      contentContainerStyle={{ paddingBottom: 140 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.stepTitle}>Professional Background</Text>
       <Text style={styles.stepSubtitle}>Tell us about your cleaning experience</Text>
 
@@ -518,7 +535,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   );
 
   const renderStep3 = () => (
-    <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.stepContainer}
+      contentContainerStyle={{ paddingBottom: 140 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.stepTitle}>Service Area & Availability</Text>
       <Text style={styles.stepSubtitle}>Where and when do you want to work?</Text>
 
@@ -630,7 +653,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   );
 
   const renderStep4 = () => (
-    <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.stepContainer}
+      contentContainerStyle={{ paddingBottom: 140 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.stepTitle}>Equipment & Pricing</Text>
       <Text style={styles.stepSubtitle}>Set up your service offerings</Text>
 
@@ -731,7 +760,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     );
 
     return (
-      <ScrollView ref={scrollRef} style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.stepContainer}
+        contentContainerStyle={{ paddingBottom: 140 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.stepTitle}>Skills Assessment</Text>
         <Text style={styles.stepSubtitle}>Rate your abilities (optional but recommended)</Text>
 
@@ -762,7 +797,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   };
 
   const renderStep6 = () => (
-    <ScrollView style={styles.stepContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      ref={scrollRef}
+      style={styles.stepContainer}
+      contentContainerStyle={{ paddingBottom: 140 }}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.stepTitle}>Legal & Verification</Text>
       <Text style={styles.stepSubtitle}>Final step to complete your application</Text>
 

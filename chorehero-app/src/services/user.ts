@@ -18,44 +18,12 @@ export interface AuthResponse {
 }
 
 class UserService {
-  // Check if user already exists by email
-  async checkUserExists(email: string): Promise<boolean> {
-    try {
-      // In production, this would query your database
-      // For now, simulate with Supabase structure
-      const { data, error } = await supabase
-        .from('users')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 means no rows found, which is expected for new users
-        console.error('Error checking user existence:', error);
-        return false;
-      }
-
-      return !!data;
-    } catch (error) {
-      console.error('Error in checkUserExists:', error);
-      return false;
-    }
-  }
+  // Deprecated: we no longer check existence via public.users to avoid RLS before auth
+  // Supabase auth will return a clear error if the email already exists
 
   // Sign up new user
   async signUp(email: string, password: string): Promise<AuthResponse> {
     try {
-      // First check if user already exists
-      const userExists = await this.checkUserExists(email);
-      
-      if (userExists) {
-        return {
-          success: false,
-          error: 'An account with this email already exists. Please sign in instead.',
-          requiresSignIn: true
-        };
-      }
-
       // Create real Supabase Auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.toLowerCase(),
@@ -137,39 +105,21 @@ class UserService {
         };
       }
 
-      // Get user profile from database
+      // Try to load a profile if one exists (non-blocking)
       const existingUser = await this.getUserByEmail(email);
-      
       if (existingUser) {
-        return {
-          success: true,
-          user: existingUser
-        };
-      } else {
-        // User exists in auth but not in our users table, create minimal profile
-        const newUser: User = {
-          id: authData.user.id,
-          email: email.toLowerCase(),
-          created_at: authData.user.created_at || new Date().toISOString(),
-          profile_completed: false
-        };
-
-        // Try to create user record with required fields
-        await supabase
-          .from('users')
-          .insert([{
-            id: newUser.id,
-            phone: 'pending',
-            email: newUser.email,
-            name: 'Returning User',
-            role: 'customer', // Default role
-          }]);
-
-        return {
-          success: true,
-          user: newUser
-        };
+        return { success: true, user: existingUser };
       }
+
+      // No public.users row yet: return minimal auth user; onboarding will create profile
+      const newUser: User = {
+        id: authData.user.id,
+        email: email.toLowerCase(),
+        created_at: authData.user.created_at || new Date().toISOString(),
+        profile_completed: false
+      };
+
+      return { success: true, user: newUser };
     } catch (error) {
       console.error('Sign in error:', error);
       return {
