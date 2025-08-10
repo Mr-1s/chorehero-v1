@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Database } from '../types/database';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://qjwsmenxziizljhtnxyx.supabase.co';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFqd3NtZW54emlpemxqaHRueHl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTE4NzExNjQsImV4cCI6MjA2NzQ0NzE2NH0.I4GX6g0cPPkh8YXy_iZ7V5idZ7otg1B-rRsdye8B78o';
 const isDevelopmentMode = process.env.EXPO_PUBLIC_DEV_MODE === 'true';
 
 // Create a mock client for development mode
@@ -66,21 +66,6 @@ export const signOut = async () => {
   if (error) throw error;
 };
 
-// Database query helpers
-export const getUserProfile = async (userId: string) => {
-  const { data, error } = await supabase
-    .from('users')
-    .select(`
-      *,
-      customer_profiles(*),
-      cleaner_profiles(*)
-    `)
-    .eq('id', userId)
-    .single();
-  
-  if (error) throw error;
-  return data;
-};
 
 // Real-time subscription helpers
 export const subscribeToBookingUpdates = (

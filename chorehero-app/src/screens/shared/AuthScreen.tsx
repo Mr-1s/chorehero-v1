@@ -1,486 +1,611 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
+  SafeAreaView,
+  StatusBar,
+  TextInput,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Image,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
-import { authService, PhoneVerificationResponse } from '../../services/auth';
-import { COLORS, TYPOGRAPHY, SPACING, BORDER_RADIUS } from '../../utils/constants';
-import { AuthUser } from '../../types/user';
-import { ApiResponse } from '../../types/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../hooks/useAuth';
+import { userService } from '../../services/user';
+import { demoAuth } from '../../services/demoAuth';
+import type { StackNavigationProp } from '@react-navigation/stack';
+
+type StackParamList = {
+  AuthScreen: undefined;
+  AccountTypeSelection: undefined;
+  MainTabs: undefined;
+};
+
+type AuthScreenNavigationProp = StackNavigationProp<StackParamList, 'AuthScreen'>;
 
 interface AuthScreenProps {
-  onAuthSuccess: (authUser: AuthUser) => void;
-  onAuthNeedsOnboarding: (userId: string, phone: string) => void;
+  navigation: AuthScreenNavigationProp;
 }
 
-type AuthStep = 'phone' | 'verification' | 'role_selection' | 'profile_setup';
-
-export const AuthScreen: React.FC<AuthScreenProps> = ({
-  onAuthSuccess,
-  onAuthNeedsOnboarding,
-}) => {
-  // State management
-  const [currentStep, setCurrentStep] = useState<AuthStep>('phone');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'customer' | 'cleaner' | null>(null);
-  const [userDetails, setUserDetails] = useState({
-    name: '',
-    email: '',
-  });
-  
-  // Loading and error states
+const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isVerificationSent, setIsVerificationSent] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const { refreshSession, setDemoUser, clearDemo } = useAuth();
 
-  // Resend cooldown timer
-  useEffect(() => {
-    let timer: any;
-    if (resendCooldown > 0) {
-      timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+  const handleAuth = async () => {
+    if (!email || !password) {
+      Alert.alert('Missing Information', 'Please enter both email and password');
+      return;
     }
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [resendCooldown]);
 
-  // Format phone number for display
-  const formatPhoneDisplay = (phone: string): string => {
-    const cleaned = phone.replace(/\D/g, '');
-    if (cleaned.length === 10) {
-      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
-    }
-    return phone;
-  };
-
-  // Handle phone number submission
-  const handlePhoneSubmit = async () => {
-    if (!phoneNumber.trim()) {
-      setError('Please enter your phone number');
+    if (!isLogin && password !== confirmPassword) {
+      Alert.alert('Password Mismatch', 'Passwords do not match');
       return;
     }
 
     setIsLoading(true);
-    setError(null);
-
     try {
-      const response: ApiResponse<PhoneVerificationResponse> = await authService.sendVerificationCode(phoneNumber);
-      
-      if (response.success && response.data.success) {
-        setIsVerificationSent(true);
-        setCurrentStep('verification');
-        setResendCooldown(60); // 60 second cooldown
-      } else {
-        setError(response.error || response.data.message);
-      }
-    } catch (err) {
-      setError('Network error. Please try again.');
-      console.error('Phone verification error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle verification code submission
-  const handleVerificationSubmit = async () => {
-    if (!verificationCode.trim() || verificationCode.length !== 6) {
-      setError('Please enter the 6-digit verification code');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await authService.verifyPhoneCode(phoneNumber, verificationCode);
-      
-      if (response.success) {
-        if (response.data) {
-          // User exists - sign them in
-          onAuthSuccess(response.data);
+      if (isLogin) {
+        // Handle sign in
+        const response = await userService.signIn(email, password);
+        
+        if (response.success) {
+          await refreshSession();
+          navigation.navigate('MainTabs');
         } else {
-          // New user - proceed to onboarding
-          setCurrentStep('role_selection');
+          Alert.alert('Sign In Failed', response.error || 'Invalid credentials');
         }
       } else {
-        setError(response.error || 'Invalid verification code');
+        // Handle sign up with duplicate detection
+        const response = await userService.signUp(email, password);
+        
+        if (response.success) {
+          // New account created successfully – ensure we are NOT in demo mode
+          try { await clearDemo(); } catch {}
+          navigation.navigate('AccountTypeSelection');
+        } else if (response.error && response.error.includes('email')) {
+          // Email confirmation required
+          Alert.alert(
+            'Check Your Email',
+            response.error + '\n\nIf the confirmation link doesn\'t work, please contact support.',
+            [
+              { text: 'OK', style: 'default' },
+              { 
+                text: 'Try Demo Instead', 
+                onPress: handleDemoAccess
+              }
+            ]
+          );
+        } else if (response.requiresSignIn) {
+          // User already exists, prompt to sign in
+          Alert.alert(
+            'Account Already Exists',
+            response.error || 'An account with this email already exists.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Sign In Instead', 
+                onPress: () => {
+                  setIsLogin(true);
+                  setConfirmPassword('');
+                }
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Sign Up Failed', response.error || 'Failed to create account');
+        }
       }
-    } catch (err) {
-      setError('Verification failed. Please try again.');
-      console.error('Verification error:', err);
+    } catch (error) {
+      Alert.alert('Error', 'Authentication failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle role selection
-  const handleRoleSelection = (role: 'customer' | 'cleaner') => {
-    setSelectedRole(role);
-    setCurrentStep('profile_setup');
-  };
-
-  // Handle profile setup completion
-  const handleProfileSetup = async () => {
-    if (!userDetails.name.trim()) {
-      setError('Please enter your name');
-      return;
-    }
-
-    if (!selectedRole) {
-      setError('Please select your role');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Get current user ID from auth session
-      const currentUserResponse = await authService.getCurrentUser();
-      
-      if (!currentUserResponse.success || !currentUserResponse.data?.session) {
-        throw new Error('Authentication session not found');
-      }
-
-      const session = currentUserResponse.data.session;
-      const userId = currentUserResponse.data.user.id;
-
-      const response = await authService.completeRegistration(
-        userId, // User ID from the auth response
+  const handleDemoAccess = () => {
+    Alert.alert(
+      'Demo Access',
+      'Explore ChoreHero with limited functionality. To access all features and save your data, create a real account.',
+      [
         {
-          name: userDetails.name,
-          role: selectedRole,
-          email: userDetails.email || undefined,
-          phone: phoneNumber,
+          text: 'Demo as Customer',
+          onPress: async () => {
+            try {
+              console.log('🎯 Setting demo customer from AuthScreen');
+              await setDemoUser('customer');
+              console.log('✅ Demo customer set, navigating to MainTabs');
+              navigation.navigate('MainTabs');
+            } catch (error) {
+              console.error('❌ Error setting demo customer:', error);
+              navigation.navigate('MainTabs');
+            }
+          }
+        },
+        {
+          text: 'Demo as Cleaner',
+          onPress: async () => {
+            try {
+              console.log('🎯 Setting demo cleaner (Sarah) from AuthScreen');
+              await setDemoUser('cleaner', 'sarah');
+              console.log('✅ Demo cleaner set, navigating to MainTabs');
+              navigation.navigate('MainTabs');
+            } catch (error) {
+              console.error('❌ Error setting demo cleaner:', error);
+              navigation.navigate('MainTabs');
+            }
+          }
+        },
+        {
+          text: 'Create Real Account',
+          onPress: () => navigation.navigate('AccountTypeSelection')
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
         }
-      );
-
-      if (response.success) {
-        // Create auth user object for callback
-        const authUser: AuthUser = {
-          user: response.data,
-          session: {
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-            expires_at: session.expires_at,
-          },
-        };
-        onAuthSuccess(authUser);
-      } else {
-        setError(response.error || 'Registration failed');
-      }
-    } catch (err) {
-      setError('Registration failed. Please try again.');
-      console.error('Registration error:', err);
-    } finally {
-      setIsLoading(false);
-    }
+      ]
+    );
   };
-
-  // Handle resend verification code
-  const handleResendCode = async () => {
-    if (resendCooldown > 0) return;
-
-    setIsLoading(true);
-    try {
-      await authService.sendVerificationCode(phoneNumber);
-      setResendCooldown(60);
-    } catch (err) {
-      setError('Failed to resend code');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Render phone input step
-  const renderPhoneStep = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>Welcome to ChoreHero</Text>
-      <Text style={styles.subtitle}>Enter your phone number to get started</Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="(555) 123-4567"
-        value={formatPhoneDisplay(phoneNumber)}
-        onChangeText={(text) => setPhoneNumber(text.replace(/\D/g, ''))}
-        keyboardType="phone-pad"
-        maxLength={14}
-        autoFocus
-      />
-      
-      <TouchableOpacity
-        style={[styles.button, !phoneNumber.trim() && styles.buttonDisabled]}
-        onPress={handlePhoneSubmit}
-        disabled={!phoneNumber.trim() || isLoading}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={COLORS.text.inverse} />
-        ) : (
-          <Text style={styles.buttonText}>Send Code</Text>
-        )}
-      </TouchableOpacity>
-    </View>
-  );
-
-  // Render verification step
-  const renderVerificationStep = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>Verify Your Phone</Text>
-      <Text style={styles.subtitle}>
-        Enter the 6-digit code sent to {formatPhoneDisplay(phoneNumber)}
-      </Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="123456"
-        value={verificationCode}
-        onChangeText={setVerificationCode}
-        keyboardType="number-pad"
-        maxLength={6}
-        autoFocus
-      />
-      
-      <TouchableOpacity
-        style={[styles.button, verificationCode.length !== 6 && styles.buttonDisabled]}
-        onPress={handleVerificationSubmit}
-        disabled={verificationCode.length !== 6 || isLoading}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={COLORS.text.inverse} />
-        ) : (
-          <Text style={styles.buttonText}>Verify</Text>
-        )}
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={styles.linkButton}
-        onPress={handleResendCode}
-        disabled={resendCooldown > 0 || isLoading}
-      >
-        <Text style={[styles.linkText, resendCooldown > 0 && styles.linkTextDisabled]}>
-          {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={styles.linkButton}
-        onPress={() => setCurrentStep('phone')}
-      >
-        <Text style={styles.linkText}>Change Phone Number</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  // Render role selection step
-  const renderRoleSelectionStep = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>I am a...</Text>
-      <Text style={styles.subtitle}>Choose how you'll use ChoreHero</Text>
-      
-      <TouchableOpacity
-        style={styles.roleButton}
-        onPress={() => handleRoleSelection('customer')}
-      >
-        <Text style={styles.roleButtonTitle}>Customer</Text>
-        <Text style={styles.roleButtonSubtitle}>
-          I need cleaning services for my home
-        </Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={styles.roleButton}
-        onPress={() => handleRoleSelection('cleaner')}
-      >
-        <Text style={styles.roleButtonTitle}>Cleaner</Text>
-        <Text style={styles.roleButtonSubtitle}>
-          I want to provide cleaning services
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  // Render profile setup step
-  const renderProfileSetupStep = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>Complete Your Profile</Text>
-      <Text style={styles.subtitle}>
-        {selectedRole === 'customer' 
-          ? 'Tell us a bit about yourself' 
-          : 'Set up your cleaner profile'}
-      </Text>
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Full Name"
-        value={userDetails.name}
-        onChangeText={(text) => setUserDetails({...userDetails, name: text})}
-        autoCapitalize="words"
-        autoFocus
-      />
-      
-      <TextInput
-        style={styles.input}
-        placeholder="Email (optional)"
-        value={userDetails.email}
-        onChangeText={(text) => setUserDetails({...userDetails, email: text})}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
-      
-      <TouchableOpacity
-        style={[styles.button, !userDetails.name.trim() && styles.buttonDisabled]}
-        onPress={handleProfileSetup}
-        disabled={!userDetails.name.trim() || isLoading}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={COLORS.text.inverse} />
-        ) : (
-          <Text style={styles.buttonText}>
-            {selectedRole === 'customer' ? 'Get Started' : 'Continue Setup'}
-          </Text>
-        )}
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={styles.linkButton}
-        onPress={() => setCurrentStep('role_selection')}
-      >
-        <Text style={styles.linkText}>Back</Text>
-      </TouchableOpacity>
-    </View>
-  );
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      
+      <LinearGradient
+        colors={['#06b6d4', '#0891b2']}
+        style={styles.gradient}
       >
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Logo Section */}
+          <View style={styles.logoSection}>
+          <View style={styles.logoContainer}>
+            <Image 
+              source={require('../../../assets/app-icon.png')} 
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
-        )}
-        
-        {currentStep === 'phone' && renderPhoneStep()}
-        {currentStep === 'verification' && renderVerificationStep()}
-        {currentStep === 'role_selection' && renderRoleSelectionStep()}
-        {currentStep === 'profile_setup' && renderProfileSetupStep()}
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <View style={styles.logoTextContainer}>
+            <Text style={styles.choreText}>Chore</Text>
+            <Text style={styles.heroText}>Hero</Text>
+          </View>
+        </View>
+
+        {/* Auth Form */}
+        <View style={styles.formContainer}>
+          <View style={styles.formCard}>
+            {/* Tab Switcher */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[styles.tab, isLogin && styles.activeTab]}
+                onPress={() => setIsLogin(true)}
+              >
+                <Text style={[styles.tabText, isLogin && styles.activeTabText]}>
+                  Sign In
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tab, !isLogin && styles.activeTab]}
+                onPress={() => setIsLogin(false)}
+              >
+                <Text style={[styles.tabText, !isLogin && styles.activeTabText]}>
+                  Sign Up
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Form Fields */}
+            <View style={styles.formFields}>
+              <View style={styles.inputContainer}>
+                <Ionicons name="mail-outline" size={20} color="#6B7280" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Email address"
+                  placeholderTextColor="#9CA3AF"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Ionicons name="lock-closed-outline" size={20} color="#6B7280" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Password"
+                  placeholderTextColor="#9CA3AF"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity
+                  style={styles.eyeIcon}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons 
+                    name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                    size={20} 
+                    color="#6B7280" 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {!isLogin && (
+                <View style={styles.inputContainer}>
+                  <Ionicons name="lock-closed-outline" size={20} color="#6B7280" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Confirm password"
+                    placeholderTextColor="#9CA3AF"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirmPassword}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    <Ionicons 
+                      name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
+                      size={20} 
+                      color="#6B7280" 
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Remember Me */}
+            {isLogin && (
+              <TouchableOpacity 
+                style={styles.rememberMeContainer}
+                onPress={() => setRememberMe(!rememberMe)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                </View>
+                <Text style={styles.rememberMeText}>Remember me</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Auth Button */}
+            <TouchableOpacity
+              style={[styles.authButton, isLoading && styles.authButtonDisabled]}
+              onPress={handleAuth}
+              disabled={isLoading}
+            >
+              <LinearGradient
+                colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+                style={styles.authButtonGradient}
+              >
+                <Text style={styles.authButtonText}>
+                  {isLoading ? 'Please wait...' : isLogin ? 'Sign In' : 'Create Account'}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Forgot Password */}
+            {isLogin && (
+              <TouchableOpacity style={styles.forgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Demo Access */}
+          <TouchableOpacity style={styles.demoButton} onPress={handleDemoAccess}>
+            <Text style={styles.demoButtonText}>Continue as Guest</Text>
+          </TouchableOpacity>
+
+          {/* Social Login Placeholder */}
+          <View style={styles.socialContainer}>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <View style={styles.socialButtons}>
+              <TouchableOpacity style={styles.socialButton}>
+                <Ionicons name="logo-google" size={20} color="#DB4437" />
+                <Text style={styles.socialButtonText}>Google</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.socialButton}>
+                <Ionicons name="logo-apple" size={20} color="#000000" />
+                <Text style={styles.socialButtonText}>Apple</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+          {/* Terms */}
+          <View style={styles.termsContainer}>
+            <Text style={styles.termsText}>
+              By continuing, you agree to our{' '}
+              <Text style={styles.linkText}>Terms of Service</Text>
+              {' '}and{' '}
+              <Text style={styles.linkText}>Privacy Policy</Text>
+            </Text>
+          </View>
+        </ScrollView>
+      </LinearGradient>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+  },
+  gradient: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: SPACING.lg,
+    justifyContent: 'space-between',
+    paddingBottom: 20,
   },
-  stepContainer: {
+  logoSection: {
+    alignItems: 'center',
+    paddingTop: 9,
+    paddingBottom: 0,
+  },
+  logoContainer: {
+    marginBottom: 0,
     alignItems: 'center',
   },
-  title: {
-    fontSize: TYPOGRAPHY.sizes.xxxl,
-    fontWeight: TYPOGRAPHY.weights.bold,
-    color: COLORS.text.primary,
-    textAlign: 'center',
-    marginBottom: SPACING.md,
+  logoImage: {
+    width: 240,
+    height: 240,
+    marginBottom: -54,
   },
-  subtitle: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    color: COLORS.text.secondary,
-    textAlign: 'center',
-    marginBottom: SPACING.xl,
-    lineHeight: TYPOGRAPHY.lineHeights.relaxed * TYPOGRAPHY.sizes.lg,
+  logoTextContainer: {
+    flexDirection: 'row',
+    marginBottom: 19,
+    marginTop: 0,
   },
-  input: {
-    width: '100%',
-    height: 56,
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.lg,
-    paddingHorizontal: SPACING.md,
-    fontSize: TYPOGRAPHY.sizes.lg,
-    color: COLORS.text.primary,
-    marginBottom: SPACING.lg,
-    borderWidth: 1,
-    borderColor: COLORS.text.disabled,
+
+  choreText: {
+    fontSize: 45,
+    fontWeight: '800',
+    color: '#e6b200',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+    fontFamily: 'System',
   },
-  button: {
-    width: '100%',
-    height: 56,
-    backgroundColor: COLORS.primary,
-    borderRadius: BORDER_RADIUS.lg,
-    justifyContent: 'center',
+  heroText: {
+    fontSize: 45,
+    fontWeight: '800',
+    color: '#047b9b',
+    letterSpacing: 1,
+    textShadowColor: '#2cedef',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+    fontFamily: 'System',
+  },
+  taglineText: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  formContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  formCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 24,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
     alignItems: 'center',
-    marginBottom: SPACING.md,
+    borderRadius: 8,
   },
-  buttonDisabled: {
-    backgroundColor: COLORS.text.disabled,
+  activeTab: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  buttonText: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: TYPOGRAPHY.weights.semibold,
-    color: COLORS.text.inverse,
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6B7280',
   },
-  roleButton: {
-    width: '100%',
-    backgroundColor: COLORS.surface,
-    borderRadius: BORDER_RADIUS.lg,
-    padding: SPACING.lg,
-    marginBottom: SPACING.md,
+  activeTabText: {
+    color: '#1F2937',
+    fontWeight: '600',
+  },
+  formFields: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: COLORS.text.disabled,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+    backgroundColor: '#ffffff',
   },
-  roleButtonTitle: {
-    fontSize: TYPOGRAPHY.sizes.xl,
-    fontWeight: TYPOGRAPHY.weights.semibold,
-    color: COLORS.text.primary,
-    marginBottom: SPACING.xs,
+  inputIcon: {
+    marginRight: 12,
   },
-  roleButtonSubtitle: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    color: COLORS.text.secondary,
-    lineHeight: TYPOGRAPHY.lineHeights.normal * TYPOGRAPHY.sizes.base,
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#1F2937',
+    paddingVertical: 12,
   },
-  linkButton: {
-    marginTop: SPACING.md,
+  eyeIcon: {
+    padding: 8,
+    marginLeft: 8,
+  },
+  authButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  authButtonDisabled: {
+    opacity: 0.7,
+  },
+  authButtonGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  authButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  forgotPassword: {
+    alignItems: 'center',
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: '#3ad3db',
+    fontWeight: '500',
+  },
+  demoButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  demoButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#ffffff',
+  },
+  socialContainer: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  dividerText: {
+    paddingHorizontal: 16,
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  socialButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  socialButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  socialButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  termsContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  termsText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   linkText: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    color: COLORS.primary,
-    textAlign: 'center',
+    color: '#ffffff',
+    fontWeight: '600',
   },
-  linkTextDisabled: {
-    color: COLORS.text.disabled,
+  rememberMeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 4,
   },
-  errorContainer: {
-    backgroundColor: COLORS.error,
-    borderRadius: BORDER_RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.lg,
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#6B7280',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  errorText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.base,
-    textAlign: 'center',
-    fontWeight: TYPOGRAPHY.weights.medium,
+  checkboxChecked: {
+    backgroundColor: '#3ad3db',
+    borderColor: '#3ad3db',
+  },
+  rememberMeText: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
   },
 });
+
+export default AuthScreen; 

@@ -6,6 +6,7 @@ export interface BaseUser {
   avatar_url?: string;
   created_at: string;
   updated_at: string;
+  profile_completed?: boolean;
 }
 
 export interface Customer extends BaseUser {

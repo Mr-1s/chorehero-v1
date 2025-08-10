@@ -296,6 +296,58 @@ class StripeService {
     }
   }
 
+  // Enhanced payment processing with cleaner split payments
+  async processBookingPayment(
+    bookingId: string,
+    amount: number,
+    cleanerAccountId: string,
+    paymentMethodId: string,
+    tip: number = 0
+  ): Promise<ApiResponse<{
+    paymentIntent: PaymentIntent;
+    cleanerTransfer: any;
+    platformFee: number;
+  }>> {
+    try {
+      const breakdown = this.calculatePaymentBreakdown(amount, tip);
+      
+      // Create payment intent with automatic transfer to cleaner
+      const paymentIntent = await this.createPaymentIntent(
+        bookingId,
+        breakdown.total,
+        cleanerAccountId,
+        paymentMethodId,
+        tip
+      );
+      
+      if (!paymentIntent.success) {
+        return paymentIntent as any;
+      }
+      
+      // Create immediate transfer to cleaner (after platform fee)
+      const cleanerTransfer = await this.createCleanerTransfer(
+        cleanerAccountId,
+        breakdown.cleaner_amount,
+        bookingId
+      );
+      
+      return {
+        success: true,
+        data: {
+          paymentIntent: paymentIntent.data,
+          cleanerTransfer: cleanerTransfer.data,
+          platformFee: breakdown.platform_fee,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null as any,
+        error: error instanceof Error ? error.message : 'Payment processing failed',
+      };
+    }
+  }
+
   // Create payment intent for booking
   async createPaymentIntent(
     bookingId: string,

@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { chatService } from './chatService';
+import { messageService } from './messageService';
 import { ApiResponse } from '../types/api';
 import { Booking, BookingRequest, BookingResponse, ServiceType, AddOn, TimeSlot } from '../types/booking';
 import { Address } from '../types/user';
@@ -229,8 +231,7 @@ class BookingService {
         .select(`
           *,
           customer:customer_id(name, phone),
-          cleaner:cleaner_id(name, phone, avatar_url),
-          address:address_id(*)
+          cleaner:cleaner_id(name, phone, avatar_url)
         `)
         .single();
 
@@ -252,18 +253,16 @@ class BookingService {
         if (addOnsError) throw addOnsError;
       }
 
-      // Create chat thread
-      const { data: chatThread, error: chatError } = await supabase
-        .from('chat_threads')
-        .insert({
-          booking_id: booking.id,
-          customer_id: request.customer_id,
-          cleaner_id: request.cleaner_id,
-        })
-        .select()
-        .single();
+      // Create chat thread using chat service
+      const chatResult = await chatService.createOrGetChatThread({
+        customer_id: request.customer_id,
+        cleaner_id: request.cleaner_id,
+        booking_id: booking.id,
+      });
 
-      if (chatError) throw chatError;
+      if (!chatResult.success) {
+        throw new Error(chatResult.error || 'Failed to create chat thread');
+      }
 
       // Send notification to cleaner
       await this.sendBookingNotification(booking.id, 'new_booking_request');
@@ -279,7 +278,7 @@ class BookingService {
             rating: 4.8, // Would come from cleaner profile
             phone: booking.cleaner.phone,
           },
-          chat_thread_id: chatThread.id,
+          chat_thread_id: chatResult.data!.id,
         },
       };
     } catch (error) {
@@ -301,8 +300,7 @@ class BookingService {
         .from('bookings')
         .select(`
           *,
-          cleaner:cleaner_id(name, phone, avatar_url),
-          address:address_id(*)
+          cleaner:cleaner_id(name, phone, avatar_url)
         `)
         .eq('customer_id', customerId)
         .order('scheduled_time', { ascending: false });
@@ -479,30 +477,6 @@ class BookingService {
     return (messages as any)[type]?.[userType] || 'Please check your ChoreHero app for updates.';
   }
 
-  // Calculate pricing for a booking
-  calculatePricing(
-    serviceType: ServiceType,
-    addOns: string[],
-    tipAmount: number = 0
-  ): {
-    basePrice: number;
-    addOnTotal: number;
-    tipAmount: number;
-    totalPrice: number;
-  } {
-    const basePrice = SERVICE_TYPES[serviceType].base_price;
-    const addOnTotal = addOns.reduce((total, addOnId) => {
-      const addOn = ADD_ONS.find(a => a.id === addOnId);
-      return total + (addOn?.price || 0);
-    }, 0);
-    
-    return {
-      basePrice,
-      addOnTotal,
-      tipAmount,
-      totalPrice: basePrice + addOnTotal + tipAmount,
-    };
-  }
 
   // Get booking by ID
   async getBookingById(bookingId: string): Promise<ApiResponse<Booking>> {
@@ -557,6 +531,143 @@ class BookingService {
     return () => {
       subscription.unsubscribe();
     };
+  }
+
+  // Get bookings for cleaner (available jobs and assigned jobs)
+  async getCleanerJobs(
+    cleanerId: string,
+    status?: string[]
+  ): Promise<ApiResponse<Booking[]>> {
+    try {
+      let query = supabase
+        .from('bookings')
+        .select(`
+          *,
+          customer:customer_id (
+            id,
+            name,
+            avatar_url,
+            email,
+            phone
+          )
+        `)
+        .order('scheduled_time', { ascending: true });
+
+      // If cleanerId is provided, filter by cleaner or available jobs
+      if (cleanerId) {
+        query = query.or(`cleaner_id.eq.${cleanerId},cleaner_id.is.null`);
+      }
+
+      // Filter by status if provided
+      if (status && status.length > 0) {
+        query = query.in('status', status);
+      } else {
+        // Default: show available jobs, assigned jobs, and active jobs
+        query = query.in('status', [
+          'pending',      // Available to accept
+          'confirmed',    // Assigned but not started
+          'cleaner_assigned',
+          'cleaner_en_route',
+          'cleaner_arrived',
+          'in_progress'
+        ]);
+      }
+
+      const { data: bookings, error } = await query;
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        data: bookings || [],
+      };
+    } catch (error) {
+      console.error('Error fetching cleaner jobs:', error);
+      return {
+        success: false,
+        data: [],
+        error: error instanceof Error ? error.message : 'Failed to fetch jobs',
+      };
+    }
+  }
+
+  // Accept a job (assign cleaner to booking)
+  async acceptJob(
+    bookingId: string,
+    cleanerId: string
+  ): Promise<ApiResponse<Booking>> {
+    try {
+      const { data, error } = await supabase
+        .from('bookings')
+        .update({
+          cleaner_id: cleanerId,
+          status: 'confirmed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', bookingId)
+        .eq('status', 'pending') // Only accept if still pending
+        .select(`
+          *,
+          customer:customer_id (
+            id,
+            name,
+            avatar_url,
+            email,
+            phone
+          )
+        `)
+        .single();
+
+      if (error) throw error;
+
+      if (!data) {
+        throw new Error('Job no longer available');
+      }
+
+      // Send notification to customer
+      await this.sendBookingNotification(bookingId, 'cleaner_assigned');
+
+      // Create chat room for customer and cleaner
+      try {
+        console.log('🏠 Creating chat room for booking:', bookingId);
+        const chatRoomResult = await messageService.createOrGetChatRoom({
+          customer_id: data.customer_id,
+          cleaner_id: cleanerId,
+          booking_id: bookingId
+        });
+
+        if (chatRoomResult.success) {
+          console.log('✅ Chat room created successfully:', chatRoomResult.data?.id);
+          
+          // Send welcome message to chat room
+          if (chatRoomResult.data) {
+            await messageService.sendMessage({
+              roomId: chatRoomResult.data.id,
+              senderId: 'system',
+              content: `Booking confirmed! Your cleaner will arrive at ${new Date(data.scheduled_time).toLocaleString()}. Feel free to chat here for any questions or updates.`,
+              messageType: 'booking_update'
+            });
+          }
+        } else {
+          console.warn('⚠️ Failed to create chat room:', chatRoomResult.error);
+        }
+      } catch (chatError) {
+        console.warn('⚠️ Chat room creation failed:', chatError);
+        // Don't fail the entire booking if chat creation fails
+      }
+
+      return {
+        success: true,
+        data: data as Booking,
+      };
+    } catch (error) {
+      console.error('Error accepting job:', error);
+      return {
+        success: false,
+        data: null as any,
+        error: error instanceof Error ? error.message : 'Failed to accept job',
+      };
+    }
   }
 }
 

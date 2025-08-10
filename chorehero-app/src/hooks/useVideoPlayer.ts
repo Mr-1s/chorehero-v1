@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { AVPlaybackStatus } from 'expo-av';
+import { VideoPlayer } from 'expo-video';
 import { PLATFORM_CONFIG } from '../utils/constants';
 
 interface VideoPlayerState {
@@ -43,22 +43,22 @@ export const useVideoPlayer = ({
   const hasTriggeredThresholdRef = useRef(false);
   const lastPositionRef = useRef(0);
 
-  // Update video state from status
-  const updateFromStatus = useCallback((status: AVPlaybackStatus) => {
+  // Update video state from player status
+  const updateFromPlayer = useCallback((player: VideoPlayer) => {
     setState(prevState => {
       const newState = { ...prevState };
 
-      if (status.isLoaded) {
+      try {
+        newState.isPlaying = player.playing;
+        newState.isMuted = player.muted;
+        newState.currentTime = player.currentTime * 1000; // Convert to milliseconds
+        newState.duration = player.duration * 1000; // Convert to milliseconds
         newState.isLoading = false;
         newState.hasError = false;
-        newState.isPlaying = status.isPlaying || false;
-        newState.isBuffering = status.isBuffering || false;
-        newState.currentTime = status.positionMillis || 0;
-        newState.duration = status.durationMillis || 0;
 
         // Calculate watch time
-        if (status.isPlaying && watchStartTimeRef.current !== null) {
-          const currentPosition = status.positionMillis || 0;
+        if (player.playing && watchStartTimeRef.current !== null) {
+          const currentPosition = player.currentTime * 1000;
           const lastPosition = lastPositionRef.current;
           
           // Only add time if video is progressing forward (not seeking)
@@ -80,9 +80,9 @@ export const useVideoPlayer = ({
           
           lastPositionRef.current = currentPosition;
         }
-      } else if (status.error) {
-        newState.isLoading = false;
+      } catch (error) {
         newState.hasError = true;
+        newState.isLoading = false;
         newState.isPlaying = false;
       }
 
@@ -176,7 +176,7 @@ export const useVideoPlayer = ({
     ...state,
     
     // Actions
-    updateFromStatus,
+    updateFromPlayer,
     toggleMute,
     resetState,
     setLoading,

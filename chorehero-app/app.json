@@ -26,10 +26,13 @@
         "NSPhotoLibraryUsageDescription": "ChoreHero needs photo library access to upload service photos and profile images.",
         "NSContactsUsageDescription": "ChoreHero needs contacts access to help you invite friends and family.",
         "UIBackgroundModes": [
-        "location",
-        "background-processing"
-      ]
-      }
+          "location",
+          "background-processing",
+          "location",
+          "background-processing"
+        ]
+      },
+      "runtimeVersion": "1.0.0"
     },
     "android": {
       "adaptiveIcon": {
@@ -39,17 +42,32 @@
       "edgeToEdgeEnabled": true,
       "package": "com.chorehero.app",
       "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "VIBRATE",
-        "RECEIVE_BOOT_COMPLETED",
-        "WAKE_LOCK"
-      ]
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -64,12 +82,18 @@
         {
           "cameraPermission": "Allow ChoreHero to access your camera to record profile videos and share service photos."
         }
-      ]
+      ],
+      "expo-video",
+      "expo-router"
     ],
+    "owner": "chorehero-beta",
     "extra": {
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "3b52143e-253a-480c-b516-773a7da3794f"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3b52143e-253a-480c-b516-773a7da3794f"
     }
   }
 }

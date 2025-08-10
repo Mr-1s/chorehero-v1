@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TIKTOK_UI, VIDEO_CONFIG } from '../utils/constants';
 import { MOCK_CLEANERS } from '../utils/mockData';
+import { supabase } from '../services/supabase';
+import { initializeSampleData } from '../services/sampleData';
+import { Database } from '../types/database';
 
 interface VideoMetrics {
   likes: number;
@@ -38,11 +41,16 @@ interface CleanerVideo {
   };
 }
 
+type CleanerWithProfile = Database['public']['Tables']['users']['Row'] & {
+  cleaner_profiles: Database['public']['Tables']['cleaner_profiles']['Row'];
+};
+
 export const useVideoFeed = () => {
   const [videos, setVideos] = useState<CleanerVideo[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [useRealData, setUseRealData] = useState(true);
   const pageRef = useRef(1);
 
   useEffect(() => {
@@ -146,17 +154,111 @@ export const useVideoFeed = () => {
   const loadInitialVideos = async () => {
     setLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      if (useRealData) {
+        await loadVideosFromSupabase();
+      } else {
+        // Simulate API call
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        const initialVideos = generateMockVideos(TIKTOK_UI.feedSettings.preloadCount);
+        setVideos(initialVideos);
+        pageRef.current = 2;
+      }
+    } catch (error) {
+      console.error('Error loading initial videos:', error);
+      // Fallback to mock data
       const initialVideos = generateMockVideos(TIKTOK_UI.feedSettings.preloadCount);
       setVideos(initialVideos);
       pageRef.current = 2;
-    } catch (error) {
-      console.error('Error loading initial videos:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadVideosFromSupabase = async () => {
+    try {
+      // Initialize sample data if needed
+      await initializeSampleData();
+
+      const { data, error } = await supabase
+        .from('users')
+        .select(`
+          *,
+          cleaner_profiles (*)
+        `)
+        .eq('role', 'cleaner')
+        .eq('is_active', true)
+        .not('cleaner_profiles', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        const videoItems = data.map((cleaner, index) => 
+          transformCleanerToVideo(cleaner as CleanerWithProfile, index)
+        );
+        setVideos(videoItems);
+        pageRef.current = 2;
+      }
+    } catch (error) {
+      console.error('Error loading videos from Supabase:', error);
+      throw error;
+    }
+  };
+
+  const transformCleanerToVideo = (cleaner: CleanerWithProfile, index: number): CleanerVideo => {
+    const specialties = cleaner.cleaner_profiles?.specialties || ['General cleaning'];
+    const videoType = getVideoTypeFromSpecialty(specialties[0]);
+    
+    return {
+      id: `supabase_${cleaner.id}`,
+      cleaner_id: cleaner.id,
+      cleaner: {
+        id: cleaner.id,
+        name: cleaner.name,
+        avatar_url: cleaner.avatar_url || '',
+        rating: cleaner.cleaner_profiles?.rating_average || 4.9,
+        specialty: specialties[0],
+        bio: cleaner.cleaner_profiles?.bio || `${specialties.join(', ')} specialist`,
+        hourly_rate: cleaner.cleaner_profiles?.hourly_rate || 89,
+      },
+      video_url: cleaner.cleaner_profiles?.video_profile_url || `https://assets.mixkit.co/videos/7862/7862-720.mp4`,
+      thumbnail_url: `https://storage.googleapis.com/chorehero-thumbnails/${videoType}_${index}.jpg`,
+      title: getVideoTitle(videoType, cleaner.name),
+      description: getVideoDescription(videoType),
+      duration: Math.floor(Math.random() * 25) + 15,
+      created_at: cleaner.created_at,
+      metrics: {
+        likes: Math.floor(Math.random() * 1000) + 500,
+        views: Math.floor(Math.random() * 10000) + 1000,
+        shares: Math.floor(Math.random() * 100) + 50,
+        bookings: cleaner.cleaner_profiles?.total_jobs || 0,
+        liked: Math.random() > 0.8,
+        viewed: false,
+      },
+      tags: getVideoTags(videoType),
+      music: Math.random() > 0.5 ? {
+        title: 'Cleaning Vibes',
+        artist: 'ChoreHero Music',
+        url: 'https://audio.googleapis.com/chorehero-music/track_1.mp3',
+      } : undefined,
+    };
+  };
+
+  const getVideoTypeFromSpecialty = (specialty: string): string => {
+    const specialtyMap: { [key: string]: string } = {
+      'Kitchen': 'before_after_kitchen',
+      'Bathroom': 'speed_cleaning',
+      'Carpet': 'time_lapse',
+      'Windows': 'organization_tips',
+      'Full House': 'cleaning_dance',
+      'Office': 'product_review',
+    };
+    
+    return specialtyMap[specialty] || 'speed_cleaning';
   };
 
   const loadMore = useCallback(async () => {

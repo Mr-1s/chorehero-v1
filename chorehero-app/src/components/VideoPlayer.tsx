@@ -1,283 +1,156 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
+  Text,
+  TouchableOpacity,
   StyleSheet,
   Dimensions,
-  TouchableOpacity,
-  Text,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { VideoView, VideoPlayer as ExpoVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS } from '../utils/constants';
+import { BlurView } from 'expo-blur';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 interface VideoPlayerProps {
-  videoUri: string;
-  isActive: boolean;
-  onLoadStart?: () => void;
+  videoUrl: string;
+  onPlaybackStatusUpdate?: (player: ExpoVideoPlayer) => void;
   onLoad?: () => void;
+  onLoadStart?: () => void;
   onError?: (error: string) => void;
-  onPlaybackStatusUpdate?: (status: AVPlaybackStatus) => void;
-  shouldLoop?: boolean;
-  isMuted?: boolean;
-  onMuteToggle?: () => void;
-  showControls?: boolean;
+  style?: any;
   autoPlay?: boolean;
+  muted?: boolean;
+  loop?: boolean;
+  controls?: boolean;
 }
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({
-  videoUri,
-  isActive,
-  onLoadStart,
-  onLoad,
-  onError,
+const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  videoUrl,
   onPlaybackStatusUpdate,
-  shouldLoop = true,
-  isMuted = true,
-  onMuteToggle,
-  showControls = true,
-  autoPlay = true,
+  onLoad,
+  onLoadStart,
+  onError,
+  style,
+  autoPlay = false,
+  muted = false,
+  loop = false,
+  controls = true,
 }) => {
-  // Refs
-  const videoRef = useRef<Video>(null);
-  
-  // State
-  const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
+  const [player, setPlayer] = useState<ExpoVideoPlayer | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [hasError, setHasError] = useState(false);
-  const [showPlayButton, setShowPlayButton] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const statusInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // Handle video status updates
-  const handlePlaybackStatusUpdate = useCallback((newStatus: AVPlaybackStatus) => {
-    setStatus(newStatus);
-    
-    if (newStatus.isLoaded) {
-      setIsLoading(false);
-      setHasError(false);
-      
-      // Auto-hide play button when playing
-      if (newStatus.isPlaying) {
-        setShowPlayButton(false);
-      }
-    } else if (newStatus.error) {
-      setIsLoading(false);
-      setHasError(true);
-      onError?.(newStatus.error || 'Video playback error');
-    }
-    
-    onPlaybackStatusUpdate?.(newStatus);
-  }, [onPlaybackStatusUpdate, onError]);
-
-  // Play/pause toggle
-  const togglePlayPause = useCallback(async () => {
-    if (!videoRef.current || !status?.isLoaded) return;
-
-    try {
-      if (status.isPlaying) {
-        await videoRef.current.pauseAsync();
-        setShowPlayButton(true);
-      } else {
-        await videoRef.current.playAsync();
-        setShowPlayButton(false);
-      }
-    } catch (error) {
-      console.error('Error toggling play/pause:', error);
-      Alert.alert('Error', 'Unable to control video playback');
-    }
-  }, [status]);
-
-  // Mute toggle
-  const toggleMute = useCallback(async () => {
-    if (!videoRef.current || !status?.isLoaded) return;
-
-    try {
-      await videoRef.current.setIsMutedAsync(!isMuted);
-      onMuteToggle?.();
-    } catch (error) {
-      console.error('Error toggling mute:', error);
-    }
-  }, [isMuted, onMuteToggle, status]);
-
-  // Seek to position
-  const seekTo = useCallback(async (positionMillis: number) => {
-    if (!videoRef.current || !status?.isLoaded) return;
-
-    try {
-      await videoRef.current.setPositionAsync(positionMillis);
-    } catch (error) {
-      console.error('Error seeking video:', error);
-    }
-  }, [status]);
-
-  // Handle video play/pause based on active state
   useEffect(() => {
-    if (!videoRef.current || !status?.isLoaded) return;
-
-    const handleActiveState = async () => {
-      try {
-        if (isActive && autoPlay) {
-          await videoRef.current!.playAsync();
-        } else {
-          await videoRef.current!.pauseAsync();
-          setShowPlayButton(true);
-        }
-      } catch (error) {
-        console.error('Error handling active state:', error);
-      }
-    };
-
-    handleActiveState();
-  }, [isActive, autoPlay, status?.isLoaded]);
-
-  // Handle video loading start
-  const handleLoadStart = useCallback(() => {
-    setIsLoading(true);
-    setHasError(false);
-    onLoadStart?.();
-  }, [onLoadStart]);
-
-  // Handle video load complete
-  const handleLoad = useCallback(() => {
-    setIsLoading(false);
-    setHasError(false);
-    onLoad?.();
-  }, [onLoad]);
-
-  // Handle video error
-  const handleError = useCallback((error: string) => {
-    setIsLoading(false);
-    setHasError(true);
-    setShowPlayButton(false);
-    onError?.(error);
-  }, [onError]);
-
-  // Retry loading video
-  const retryLoad = useCallback(async () => {
-    if (!videoRef.current) return;
-
-    try {
-      setIsLoading(true);
-      setHasError(false);
-      await videoRef.current.unloadAsync();
-      await videoRef.current.loadAsync(
-        { uri: videoUri },
-        {
-          shouldPlay: isActive && autoPlay,
-          isLooping: shouldLoop,
-          isMuted,
-        }
-      );
-    } catch (error) {
-      console.error('Error retrying video load:', error);
-      setHasError(true);
+    // Initialize player
+    const videoPlayer = new ExpoVideoPlayer(videoUrl, true);
+    videoPlayer.muted = muted;
+    videoPlayer.loop = loop;
+    
+    setPlayer(videoPlayer);
       setIsLoading(false);
+    
+    if (onLoad) {
+      onLoad();
     }
-  }, [videoUri, isActive, autoPlay, shouldLoop, isMuted]);
+    
+    if (autoPlay) {
+      videoPlayer.play();
+      setIsPlaying(true);
+    }
 
-  // Format time for display
-  const formatTime = (millis: number): string => {
-    const totalSeconds = Math.floor(millis / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    // Status updates
+    if (onPlaybackStatusUpdate) {
+      statusInterval.current = setInterval(() => {
+        onPlaybackStatusUpdate(videoPlayer);
+      }, 1000);
+    }
+
+    // Cleanup
+    return () => {
+      if (statusInterval.current) {
+        clearInterval(statusInterval.current);
+      }
+      videoPlayer.release();
+    };
+  }, [videoUrl, autoPlay, muted, loop, onLoad, onPlaybackStatusUpdate]);
+
+  const togglePlayPause = () => {
+    if (!player) return;
+
+    if (isPlaying) {
+      player.pause();
+        } else {
+      player.play();
+        }
+    setIsPlaying(!isPlaying);
   };
 
-  // Calculate progress percentage
-  const getProgress = (): number => {
-    if (!status?.isLoaded || !status.durationMillis) return 0;
-    return (status.positionMillis || 0) / status.durationMillis;
+  const toggleMute = () => {
+    if (!player) return;
+    
+    player.muted = !player.muted;
   };
+
+  if (hasError) {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="warning" size={48} color="#ef4444" />
+          <Text style={styles.errorText}>Failed to load video</Text>
+        </View>
+      </View>
+    );
+    }
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, style]}>
+        <ActivityIndicator size="large" color="#0891b2" />
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.container}>
-      <Video
-        ref={videoRef}
+    <View style={[styles.container, style]}>
+      <VideoView
         style={styles.video}
-        source={{ uri: videoUri }}
-        resizeMode={ResizeMode.COVER}
-        isLooping={shouldLoop}
-        isMuted={isMuted}
-        shouldPlay={isActive && autoPlay}
-        onLoadStart={handleLoadStart}
-        onLoad={handleLoad}
-        onError={(error) => handleError(typeof error === 'string' ? error : 'Video load failed')}
-        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-        useNativeControls={false}
+        player={player!}
+        allowsFullscreen
+        allowsPictureInPicture
+        contentFit="cover"
       />
-
-      {/* Loading overlay */}
-      {isLoading && (
-        <View style={styles.overlay}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
-      )}
-
-      {/* Error overlay */}
-      {hasError && (
-        <View style={styles.overlay}>
-          <View style={styles.errorContainer}>
-            <Ionicons name="warning" size={48} color={COLORS.error} />
-            <Text style={styles.errorText}>Failed to load video</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={retryLoad}>
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* Play button overlay */}
-      {showPlayButton && !isLoading && !hasError && (
-        <TouchableOpacity style={styles.playButtonOverlay} onPress={togglePlayPause}>
-          <View style={styles.playButton}>
-            <Ionicons name="play" size={48} color={COLORS.text.inverse} />
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {/* Controls overlay */}
-      {showControls && status?.isLoaded && !isLoading && !hasError && (
+      
+      {controls && (
         <View style={styles.controlsContainer}>
-          {/* Mute button */}
-          {onMuteToggle && (
-            <TouchableOpacity style={styles.muteButton} onPress={toggleMute}>
+          <BlurView intensity={80} style={styles.controlsBlur}>
+            <TouchableOpacity
+              style={styles.playButton}
+              onPress={togglePlayPause}
+            >
               <Ionicons
-                name={isMuted ? 'volume-mute' : 'volume-high'}
-                size={24}
-                color={COLORS.text.inverse}
+                name={isPlaying ? "pause" : "play"} 
+                size={32} 
+                color="white" 
               />
             </TouchableOpacity>
-          )}
-
-          {/* Progress bar */}
-          <View style={styles.progressContainer}>
-            <View style={styles.progressBar}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${getProgress() * 100}%` },
-                ]}
-              />
-            </View>
             
-            {/* Time display */}
-            <View style={styles.timeContainer}>
-              <Text style={styles.timeText}>
-                {formatTime(status.positionMillis || 0)} / {formatTime(status.durationMillis || 0)}
-              </Text>
-            </View>
-          </View>
-
-          {/* Play/pause button */}
-          <TouchableOpacity style={styles.playPauseButton} onPress={togglePlayPause}>
+            <TouchableOpacity
+              style={styles.muteButton}
+              onPress={toggleMute}
+            >
             <Ionicons
-              name={status.isPlaying ? 'pause' : 'play'}
-              size={20}
-              color={COLORS.text.inverse}
+                name={muted ? "volume-mute" : "volume-high"} 
+                size={24} 
+                color="white" 
             />
           </TouchableOpacity>
+          </BlurView>
         </View>
       )}
     </View>
@@ -286,99 +159,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    width: screenWidth,
-    height: screenHeight,
-    backgroundColor: COLORS.text.primary,
-    position: 'relative',
+    backgroundColor: '#000',
   },
   video: {
     width: '100%',
     height: '100%',
   },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  errorContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    padding: SPACING.xl,
-    borderRadius: BORDER_RADIUS.lg,
-  },
-  errorText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: TYPOGRAPHY.weights.medium,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.lg,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.md,
-  },
-  retryButtonText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.semibold,
-  },
-  playButtonOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  playButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   controlsContainer: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: 20,
+    left: 20,
+    right: 20,
+  },
+  controlsBlur: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.lg,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  muteButton: {
-    padding: SPACING.sm,
-    marginRight: SPACING.md,
-  },
-  progressContainer: {
-    flex: 1,
-    marginHorizontal: SPACING.md,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 12,
     overflow: 'hidden',
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: COLORS.primary,
+  playButton: {
+    padding: 10,
   },
-  timeContainer: {
-    marginTop: SPACING.xs,
+  muteButton: {
+    padding: 10,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  timeText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.xs,
-    fontWeight: TYPOGRAPHY.weights.medium,
-  },
-  playPauseButton: {
-    padding: SPACING.sm,
-    marginLeft: SPACING.md,
+  errorText: {
+    color: '#ef4444',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
   },
 });
+
+export default VideoPlayer;

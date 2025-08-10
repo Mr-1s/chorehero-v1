@@ -1,4 +1,4 @@
-import { supabase, getUserProfile } from './supabase';
+import { supabase } from './supabase';
 import { User, AuthUser } from '../types/user';
 import { ApiResponse } from '../types/api';
 import { VALIDATION_RULES } from '../utils/constants';
@@ -127,7 +127,17 @@ class AuthService {
 
       // Check if user profile exists
       try {
-        const userProfile = await getUserProfile(data.user.id);
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select(`
+            *,
+            customer_profiles(*),
+            cleaner_profiles(*)
+          `)
+          .eq('id', data.user.id)
+          .single();
+        
+        if (profileError) throw profileError;
         
         return {
           success: true,
@@ -209,7 +219,17 @@ class AuthService {
       }
 
       // Fetch complete profile
-      const completeProfile = await getUserProfile(userId);
+      const { data: completeProfile, error: fetchError } = await supabase
+        .from('users')
+        .select(`
+          *,
+          customer_profiles(*),
+          cleaner_profiles(*)
+        `)
+        .eq('id', userId)
+        .single();
+      
+      if (fetchError) throw fetchError;
 
       return {
         success: true,
@@ -240,7 +260,17 @@ class AuthService {
         };
       }
 
-      const userProfile = await getUserProfile(session.user.id);
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select(`
+          *,
+          customer_profiles(*),
+          cleaner_profiles(*)
+        `)
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profileError) throw profileError;
 
       return {
         success: true,
@@ -308,7 +338,17 @@ class AuthService {
         throw error;
       }
 
-      const completeProfile = await getUserProfile(userId);
+      const { data: completeProfile, error: fetchError2 } = await supabase
+        .from('users')
+        .select(`
+          *,
+          customer_profiles(*),
+          cleaner_profiles(*)
+        `)
+        .eq('id', userId)
+        .single();
+      
+      if (fetchError2) throw fetchError2;
 
       return {
         success: true,
@@ -583,7 +623,17 @@ export const onAuthStateChange = (callback: (user: AuthUser | null) => void) => 
   return supabase.auth.onAuthStateChange(async (event: any, session: any) => {
     if (event === 'SIGNED_IN' && session?.user) {
       try {
-        const userProfile = await getUserProfile(session.user.id);
+        const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select(`
+          *,
+          customer_profiles(*),
+          cleaner_profiles(*)
+        `)
+        .eq('id', session.user.id)
+        .single();
+      
+      if (profileError) throw profileError;
         callback({
           user: userProfile as User,
           session: {

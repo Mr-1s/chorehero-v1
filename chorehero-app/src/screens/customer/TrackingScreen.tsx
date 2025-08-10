@@ -1,320 +1,110 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   SafeAreaView,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
-  RefreshControl,
-  Animated,
-  Dimensions,
   StatusBar,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { TrackingMap } from '../../components/TrackingMap';
-import { useLocation } from '../../hooks/useLocation';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase } from '../../services/supabase';
-import { Booking, BookingStatus } from '../../types/booking';
-import { Cleaner, Address } from '../../types/user';
-import { COLORS, TYPOGRAPHY, SPACING, BORDER_RADIUS } from '../../utils/constants';
+import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
+import { COLORS } from '../../utils/constants';
+import { MockDataToggle } from '../../utils/mockDataToggle';
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-
-interface TrackingScreenProps {
-  route: {
-    params: {
-      bookingId: string;
-    };
-  };
-  navigation: any;
+interface TrackingData {
+  id: string;
+  cleaner_name: string;
+  service_type: string;
+  status: 'scheduled' | 'en_route' | 'arrived' | 'in_progress' | 'completed';
+  scheduled_time: string;
+  estimated_completion: string;
+  location: string;
 }
 
-export const TrackingScreen: React.FC<TrackingScreenProps> = ({ route, navigation }) => {
-  const { bookingId } = route.params;
+const TrackingScreen: React.FC = () => {
   const { user } = useAuth();
-  
-  // State
-  const [booking, setBooking] = useState<Booking | null>(null);
-  const [cleaner, setCleaner] = useState<Cleaner | null>(null);
-  const [address, setAddress] = useState<Address | null>(null);
+  const [trackingData, setTrackingData] = useState<TrackingData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
-  
-  // Location tracking
-  const location = useLocation(bookingId, user?.id, {
-    trackingEnabled: true,
-    backgroundTracking: false,
-    updateInterval: 10000, // 10 seconds
-  });
 
-  // Animation values
-  const detailsAnimation = useRef(new Animated.Value(0)).current;
-  const pulseAnimation = useRef(new Animated.Value(1)).current;
-
-  // Load booking details
-  const loadBookingDetails = useCallback(async (refresh = false) => {
-    try {
-      if (refresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
-
-      // Get booking with related data
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('bookings')
-        .select(`
-          *,
-          cleaner:cleaner_id(
-            *,
-            cleaner_profiles(*)
-          ),
-          address:address_id(*)
-        `)
-        .eq('id', bookingId)
-        .single();
-
-      if (bookingError) throw bookingError;
-
-      if (!bookingData) {
-        throw new Error('Booking not found');
-      }
-
-      setBooking(bookingData as Booking);
-      setCleaner(bookingData.cleaner as Cleaner);
-      setAddress(bookingData.address as Address);
-
-    } catch (err) {
-      console.error('Error loading booking details:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load booking details');
-      Alert.alert('Error', 'Failed to load booking details. Please try again.');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [bookingId]);
-
-  // Subscribe to booking status updates
   useEffect(() => {
-    const subscription = supabase
-      .channel(`booking-${bookingId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'bookings',
-          filter: `id=eq.${bookingId}`,
-        },
-        (payload: any) => {
-          const updatedBooking = payload.new as Booking;
-          setBooking(updatedBooking);
-          
-          // Show status change notification
-          if (booking && updatedBooking.status !== booking.status) {
-            showStatusNotification(updatedBooking.status);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [bookingId, booking]);
-
-  // Load booking details on mount
-  useEffect(() => {
-    loadBookingDetails();
-  }, [loadBookingDetails]);
-
-  // Animate details panel
-  useEffect(() => {
-    Animated.timing(detailsAnimation, {
-      toValue: showDetails ? 1 : 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [showDetails]);
-
-  // Pulse animation for active tracking
-  useEffect(() => {
-    if (booking?.status === 'cleaner_en_route' || booking?.status === 'in_progress') {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnimation, {
-            toValue: 1.2,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnimation, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    }
-  }, [booking?.status]);
-
-  // Show status change notification
-  const showStatusNotification = useCallback((status: BookingStatus) => {
-    const messages = {
-      pending: 'Your booking is pending confirmation',
-      confirmed: 'Your booking has been confirmed!',
-      cleaner_assigned: 'A cleaner has been assigned to your booking',
-      cleaner_en_route: 'Your cleaner is on the way!',
-      cleaner_arrived: 'Your cleaner has arrived',
-      in_progress: 'Cleaning service has started',
-      completed: 'Your cleaning service is complete!',
-      cancelled: 'Your booking has been cancelled',
-      payment_failed: 'Payment failed. Please update your payment method.',
-    };
-
-    const message = messages[status] || 'Booking status updated';
-    
-    Alert.alert('Status Update', message, [
-      { text: 'OK' }
-    ]);
+    loadTrackingData();
   }, []);
 
-  // Handle contact cleaner
-  const handleContactCleaner = useCallback(() => {
-    if (!cleaner) return;
-    
-    Alert.alert(
-      'Contact Cleaner',
-      `Would you like to call or message ${cleaner.name}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Message', 
-          onPress: () => navigation.navigate('ChatScreen', { 
-            bookingId,
-            cleanerId: cleaner.id 
-          })
-        },
-        { 
-          text: 'Call', 
-          onPress: () => {
-            // In a real app, you'd use Linking.openURL(`tel:${cleaner.phone}`)
-            Alert.alert('Call Feature', 'Calling functionality would be implemented here');
-          }
-        },
-      ]
-    );
-  }, [cleaner, navigation, bookingId]);
+  const loadTrackingData = async () => {
+    try {
+      setIsLoading(true);
 
-  // Handle cancel booking
-  const handleCancelBooking = useCallback(() => {
-    if (!booking) return;
-    
-    const canCancel = ['pending', 'confirmed', 'cleaner_assigned'].includes(booking.status);
-    
-    if (!canCancel) {
-      Alert.alert(
-        'Cannot Cancel',
-        'This booking cannot be cancelled at this time. Please contact support for assistance.'
+      // Use mock data toggle to determine if we should show tracking data
+      const mockTrackingData: TrackingData = {
+        id: 'tracking-1',
+        cleaner_name: 'Sarah Johnson',
+        service_type: 'Deep Clean',
+        status: 'in_progress',
+        scheduled_time: 'Today 2:00 PM',
+        estimated_completion: 'Today 5:00 PM',
+        location: '123 Main St, San Francisco'
+      };
+
+      const trackingInfo = MockDataToggle.getFeatureData(
+        'CUSTOMER',
+        'TRACKING',
+        mockTrackingData,
+        null
       );
-      return;
+
+      setTrackingData(trackingInfo);
+    } catch (error) {
+      console.error('Tracking load error:', error);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    Alert.alert(
-      'Cancel Booking',
-      'Are you sure you want to cancel this booking?',
-      [
-        { text: 'Keep Booking', style: 'cancel' },
-        {
-          text: 'Cancel Booking',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { error } = await supabase
-                .from('bookings')
-                .update({ status: 'cancelled' })
-                .eq('id', bookingId);
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'scheduled': return COLORS.warning;
+      case 'en_route': return COLORS.info;
+      case 'arrived': return COLORS.primary;
+      case 'in_progress': return COLORS.success;
+      case 'completed': return COLORS.success;
+      default: return COLORS.text.secondary;
+    }
+  };
 
-              if (error) throw error;
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'scheduled': return 'Scheduled';
+      case 'en_route': return 'Cleaner En Route';
+      case 'arrived': return 'Cleaner Arrived';
+      case 'in_progress': return 'Cleaning In Progress';
+      case 'completed': return 'Completed';
+      default: return 'Unknown';
+    }
+  };
 
-              Alert.alert('Booking Cancelled', 'Your booking has been cancelled successfully.');
-              navigation.goBack();
-            } catch (err) {
-              Alert.alert('Error', 'Failed to cancel booking. Please try again.');
-            }
-          },
-        },
-      ]
-    );
-  }, [booking, bookingId, navigation]);
-
-  // Get status display info
-  const getStatusInfo = useCallback(() => {
-    if (!booking) return { text: 'Loading...', color: COLORS.text.secondary, icon: 'time' };
-
-    const statusInfo = {
-      pending: { text: 'Booking Pending', color: COLORS.warning, icon: 'hourglass' },
-      confirmed: { text: 'Booking Confirmed', color: COLORS.success, icon: 'checkmark-circle' },
-      cleaner_assigned: { text: 'Cleaner Assigned', color: COLORS.primary, icon: 'person-add' },
-      cleaner_en_route: { text: 'Cleaner En Route', color: COLORS.primary, icon: 'car' },
-      cleaner_arrived: { text: 'Cleaner Arrived', color: COLORS.success, icon: 'location' },
-      in_progress: { text: 'Cleaning in Progress', color: COLORS.primary, icon: 'brush' },
-      completed: { text: 'Service Complete', color: COLORS.success, icon: 'checkmark-done' },
-      cancelled: { text: 'Booking Cancelled', color: COLORS.error, icon: 'close-circle' },
-      payment_failed: { text: 'Payment Failed', color: COLORS.error, icon: 'warning' },
-    };
-
-    return statusInfo[booking.status] || statusInfo.pending;
-  }, [booking]);
-
-  // Get ETA display
-  const getETADisplay = useCallback(() => {
-    if (!location.eta) return null;
-    
-    const eta = new Date(location.eta.arrivalTime);
-    const now = new Date();
-    const diffMinutes = Math.ceil((eta.getTime() - now.getTime()) / (1000 * 60));
-    
-    if (diffMinutes <= 0) return 'Arriving now';
-    if (diffMinutes < 60) return `${diffMinutes} min`;
-    
-    const hours = Math.floor(diffMinutes / 60);
-    const minutes = diffMinutes % 60;
-    return `${hours}h ${minutes}m`;
-  }, [location.eta]);
-
-  const statusInfo = getStatusInfo();
-  const cleanerLocation = location.getLatestUserLocation(cleaner?.id || '');
-  const etaDisplay = getETADisplay();
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'scheduled': return 'calendar-outline';
+      case 'en_route': return 'car-outline';
+      case 'arrived': return 'location-outline';
+      case 'in_progress': return 'checkmark-circle-outline';
+      case 'completed': return 'checkmark-done-outline';
+      default: return 'help-outline';
+    }
+  };
 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
         <View style={styles.loadingContainer}>
-          <Animated.View style={[styles.loadingIndicator, { transform: [{ scale: pulseAnimation }] }]}>
-            <Ionicons name="location" size={48} color={COLORS.primary} />
-          </Animated.View>
+          <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading tracking information...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (error || !booking) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.errorContainer}>
-          <Ionicons name="warning" size={48} color={COLORS.error} />
-          <Text style={styles.errorText}>{error || 'Booking not found'}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={() => loadBookingDetails()}>
-            <Text style={styles.retryButtonText}>Try Again</Text>
-          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -326,165 +116,144 @@ export const TrackingScreen: React.FC<TrackingScreenProps> = ({ route, navigatio
       
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
-        </TouchableOpacity>
-        
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Track Service</Text>
-          <View style={styles.statusContainer}>
-            <Ionicons name={statusInfo.icon as any} size={16} color={statusInfo.color} />
-            <Text style={[styles.statusText, { color: statusInfo.color }]}>
-              {statusInfo.text}
-            </Text>
-          </View>
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.detailsToggle}
-          onPress={() => setShowDetails(!showDetails)}
-        >
-          <Ionicons 
-            name={showDetails ? 'chevron-up' : 'chevron-down'} 
-            size={24} 
-            color={COLORS.text.primary} 
-          />
+        <Text style={styles.headerTitle}>Track Service</Text>
+        <TouchableOpacity>
+          <Ionicons name="refresh" size={24} color={COLORS.text.primary} />
         </TouchableOpacity>
       </View>
 
-      {/* Map */}
-      <View style={styles.mapContainer}>
-        <TrackingMap
-          customerLocation={location.currentLocation ? {
-            id: 'customer',
-            booking_id: bookingId,
-            user_id: user?.id || '',
-            latitude: location.currentLocation.coords.latitude,
-            longitude: location.currentLocation.coords.longitude,
-            accuracy: location.currentLocation.coords.accuracy || 0,
-            timestamp: new Date().toISOString(),
-          } : null}
-          cleanerLocation={cleanerLocation}
-          destinationAddress={address!}
-          locationHistory={location.locationUpdates}
-          showTrail={true}
-          showETA={true}
-          followUser={booking.status === 'cleaner_en_route'}
-          style={styles.map}
-        />
-        
-        {/* ETA Overlay */}
-        {etaDisplay && booking.status === 'cleaner_en_route' && (
-          <View style={styles.etaOverlay}>
-            <LinearGradient
-              colors={[COLORS.primary, `${COLORS.primary}DD`]}
-              style={styles.etaGradient}
-            >
-              <Ionicons name="time" size={20} color={COLORS.text.inverse} />
-              <Text style={styles.etaText}>ETA: {etaDisplay}</Text>
-            </LinearGradient>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {trackingData ? (
+          <View style={styles.content}>
+            {/* Status Card */}
+            <View style={styles.statusCard}>
+              <LinearGradient
+                colors={[getStatusColor(trackingData.status), getStatusColor(trackingData.status) + '80']}
+                style={styles.statusGradient}
+              >
+                <View style={styles.statusHeader}>
+                  <Ionicons 
+                    name={getStatusIcon(trackingData.status) as any} 
+                    size={32} 
+                    color={COLORS.text.inverse} 
+                  />
+                  <Text style={styles.statusText}>{getStatusText(trackingData.status)}</Text>
+                </View>
+              </LinearGradient>
+            </View>
+
+            {/* Service Details */}
+            <View style={styles.detailsCard}>
+              <Text style={styles.cardTitle}>Service Details</Text>
+              
+              <View style={styles.detailRow}>
+                <Ionicons name="person-outline" size={20} color={COLORS.text.secondary} />
+                <Text style={styles.detailLabel}>Cleaner</Text>
+                <Text style={styles.detailValue}>{trackingData.cleaner_name}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons name="build-outline" size={20} color={COLORS.text.secondary} />
+                <Text style={styles.detailLabel}>Service</Text>
+                <Text style={styles.detailValue}>{trackingData.service_type}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons name="location-outline" size={20} color={COLORS.text.secondary} />
+                <Text style={styles.detailLabel}>Location</Text>
+                <Text style={styles.detailValue}>{trackingData.location}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons name="time-outline" size={20} color={COLORS.text.secondary} />
+                <Text style={styles.detailLabel}>Scheduled</Text>
+                <Text style={styles.detailValue}>{trackingData.scheduled_time}</Text>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons name="alarm-outline" size={20} color={COLORS.text.secondary} />
+                <Text style={styles.detailLabel}>Estimated Completion</Text>
+                <Text style={styles.detailValue}>{trackingData.estimated_completion}</Text>
+              </View>
+            </View>
+
+            {/* Actions */}
+            <View style={styles.actionsCard}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Ionicons name="call-outline" size={20} color={COLORS.primary} />
+                <Text style={styles.actionButtonText}>Call Cleaner</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionButton}>
+                <Ionicons name="chatbubble-outline" size={20} color={COLORS.primary} />
+                <Text style={styles.actionButtonText}>Message</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionButton}>
+                <Ionicons name="map-outline" size={20} color={COLORS.primary} />
+                <Text style={styles.actionButtonText}>View Map</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Progress Timeline */}
+            <View style={styles.timelineCard}>
+              <Text style={styles.cardTitle}>Progress</Text>
+              
+              {[
+                { key: 'scheduled', label: 'Service Scheduled', time: trackingData.scheduled_time },
+                { key: 'en_route', label: 'Cleaner En Route', time: '2:15 PM' },
+                { key: 'arrived', label: 'Cleaner Arrived', time: '2:30 PM' },
+                { key: 'in_progress', label: 'Cleaning Started', time: '2:35 PM' },
+                { key: 'completed', label: 'Service Completed', time: 'Estimated 5:00 PM' }
+              ].map((step, index) => {
+                const isCompleted = ['scheduled', 'en_route', 'arrived'].includes(step.key) && 
+                                   ['arrived', 'in_progress', 'completed'].includes(trackingData.status);
+                const isCurrent = step.key === trackingData.status;
+                
+                return (
+                  <View key={step.key} style={styles.timelineStep}>
+                    <View style={[
+                      styles.timelineMarker,
+                      isCompleted && styles.timelineMarkerCompleted,
+                      isCurrent && styles.timelineMarkerCurrent
+                    ]}>
+                      <Ionicons 
+                        name={isCompleted ? "checkmark" : "ellipse-outline"} 
+                        size={16} 
+                        color={isCompleted || isCurrent ? COLORS.text.inverse : COLORS.text.secondary} 
+                      />
+                    </View>
+                    <View style={styles.timelineContent}>
+                      <Text style={[
+                        styles.timelineLabel,
+                        (isCompleted || isCurrent) && styles.timelineLabelActive
+                      ]}>
+                        {step.label}
+                      </Text>
+                      <Text style={styles.timelineTime}>{step.time}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.emptyContainer}>
+            <EmptyState
+              {...EmptyStateConfigs.customerBookings}
+              title="No Active Service"
+              subtitle="You don't have any active cleaning services to track. Book a service to see real-time tracking."
+              actions={[
+                { 
+                  label: 'Find Cleaners', 
+                  onPress: () => {}, 
+                  icon: 'search' 
+                }
+              ]}
+            />
           </View>
         )}
-      </View>
-
-      {/* Details Panel */}
-      <Animated.View
-        style={[
-          styles.detailsPanel,
-          {
-            transform: [
-              {
-                translateY: detailsAnimation.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [200, 0],
-                }),
-              },
-            ],
-            opacity: detailsAnimation,
-          },
-        ]}
-      >
-        <ScrollView
-          style={styles.detailsContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={() => loadBookingDetails(true)}
-              tintColor={COLORS.primary}
-            />
-          }
-        >
-          {/* Cleaner Info */}
-          {cleaner && (
-            <View style={styles.cleanerSection}>
-              <Text style={styles.sectionTitle}>Your Cleaner</Text>
-              <View style={styles.cleanerInfo}>
-                <View style={styles.cleanerDetails}>
-                  <Text style={styles.cleanerName}>{cleaner.name}</Text>
-                  <View style={styles.cleanerRating}>
-                    <Ionicons name="star" size={16} color="#FFD700" />
-                    <Text style={styles.ratingText}>
-                      {cleaner.rating_average?.toFixed(1) || 'New'} • {cleaner.total_jobs || 0} jobs
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.contactButton} onPress={handleContactCleaner}>
-                  <Ionicons name="chatbubble" size={20} color={COLORS.primary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Service Details */}
-          <View style={styles.serviceSection}>
-            <Text style={styles.sectionTitle}>Service Details</Text>
-            <View style={styles.serviceInfo}>
-              <View style={styles.serviceRow}>
-                <Text style={styles.serviceLabel}>Service:</Text>
-                <Text style={styles.serviceValue}>{booking.service_type}</Text>
-              </View>
-              <View style={styles.serviceRow}>
-                <Text style={styles.serviceLabel}>Scheduled:</Text>
-                <Text style={styles.serviceValue}>
-                  {new Date(booking.scheduled_time).toLocaleString()}
-                </Text>
-              </View>
-              <View style={styles.serviceRow}>
-                <Text style={styles.serviceLabel}>Duration:</Text>
-                <Text style={styles.serviceValue}>{booking.estimated_duration} min</Text>
-              </View>
-              <View style={styles.serviceRow}>
-                <Text style={styles.serviceLabel}>Total:</Text>
-                <Text style={styles.servicePriceValue}>${booking.price_breakdown.total}</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Action Buttons */}
-          <View style={styles.actionButtons}>
-            {booking.status !== 'completed' && booking.status !== 'cancelled' && (
-              <>
-                <TouchableOpacity style={styles.secondaryButton} onPress={handleCancelBooking}>
-                  <Text style={styles.secondaryButtonText}>Cancel Booking</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity style={styles.primaryButton} onPress={handleContactCleaner}>
-                  <Text style={styles.primaryButtonText}>Contact Cleaner</Text>
-                </TouchableOpacity>
-              </>
-            )}
-            
-            {booking.status === 'completed' && (
-              <TouchableOpacity 
-                style={styles.primaryButton}
-                onPress={() => navigation.navigate('RatingScreen', { bookingId })}
-              >
-                <Text style={styles.primaryButtonText}>Rate Service</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </ScrollView>
-      </Animated.View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -494,241 +263,172 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    backgroundColor: COLORS.surface,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.text.disabled,
-  },
-  backButton: {
-    padding: SPACING.sm,
-    marginRight: SPACING.md,
-  },
-  headerContent: {
-    flex: 1,
+    borderBottomColor: COLORS.border,
   },
   headerTitle: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: TYPOGRAPHY.weights.bold,
+    fontSize: 20,
+    fontWeight: '700',
     color: COLORS.text.primary,
   },
-  statusContainer: {
-    flexDirection: 'row',
+  content: {
+    padding: 16,
+    gap: 16,
+  },
+  
+  // Status Card
+  statusCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  statusGradient: {
+    padding: 20,
     alignItems: 'center',
-    marginTop: 2,
+  },
+  statusHeader: {
+    alignItems: 'center',
+    gap: 8,
   },
   statusText: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    fontWeight: TYPOGRAPHY.weights.medium,
-    marginLeft: SPACING.xs,
-  },
-  detailsToggle: {
-    padding: SPACING.sm,
-  },
-  
-  // Map
-  mapContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  map: {
-    flex: 1,
-  },
-  etaOverlay: {
-    position: 'absolute',
-    bottom: SPACING.xl,
-    left: SPACING.lg,
-    right: SPACING.lg,
-  },
-  etaGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
-  },
-  etaText: {
+    fontSize: 18,
+    fontWeight: '700',
     color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: TYPOGRAPHY.weights.bold,
-    marginLeft: SPACING.sm,
+    textAlign: 'center',
   },
-  
-  // Details Panel
-  detailsPanel: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+
+  // Details Card
+  detailsCard: {
     backgroundColor: COLORS.surface,
-    borderTopLeftRadius: BORDER_RADIUS.xl,
-    borderTopRightRadius: BORDER_RADIUS.xl,
-    maxHeight: screenHeight * 0.6,
-    shadowColor: COLORS.text.primary,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 10,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  detailsContent: {
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.xl,
-  },
-  
-  // Cleaner Section
-  cleanerSection: {
-    marginBottom: SPACING.xl,
-  },
-  sectionTitle: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    fontWeight: TYPOGRAPHY.weights.semibold,
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: SPACING.md,
+    marginBottom: 16,
   },
-  cleanerInfo: {
+  detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
-    padding: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
+    marginBottom: 12,
+    gap: 12,
   },
-  cleanerDetails: {
+  detailLabel: {
+    fontSize: 14,
+    color: COLORS.text.secondary,
     flex: 1,
   },
-  cleanerName: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.semibold,
+  detailValue: {
+    fontSize: 14,
+    fontWeight: '500',
     color: COLORS.text.primary,
-    marginBottom: SPACING.xs,
+    flex: 2,
+    textAlign: 'right',
   },
-  cleanerRating: {
+
+  // Actions Card
+  actionsCard: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    gap: 16,
+  },
+  actionButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  ratingText: {
-    fontSize: TYPOGRAPHY.sizes.sm,
-    color: COLORS.text.secondary,
-    marginLeft: SPACING.xs,
-  },
-  contactButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.surface,
     justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: COLORS.background,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.primary,
+    gap: 6,
   },
-  
-  // Service Section
-  serviceSection: {
-    marginBottom: SPACING.xl,
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.primary,
   },
-  serviceInfo: {
-    backgroundColor: COLORS.background,
-    padding: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
+
+  // Timeline Card
+  timelineCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  serviceRow: {
+  timelineStep: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: SPACING.xs,
+    marginBottom: 16,
+    gap: 12,
   },
-  serviceLabel: {
-    fontSize: TYPOGRAPHY.sizes.base,
+  timelineMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineMarkerCompleted: {
+    backgroundColor: COLORS.success,
+    borderColor: COLORS.success,
+  },
+  timelineMarkerCurrent: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  timelineContent: {
+    flex: 1,
+  },
+  timelineLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.text.secondary,
+    marginBottom: 2,
+  },
+  timelineLabelActive: {
+    color: COLORS.text.primary,
+    fontWeight: '600',
+  },
+  timelineTime: {
+    fontSize: 12,
     color: COLORS.text.secondary,
   },
-  serviceValue: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    color: COLORS.text.primary,
-    fontWeight: TYPOGRAPHY.weights.medium,
-  },
-  servicePriceValue: {
-    fontSize: TYPOGRAPHY.sizes.base,
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.weights.bold,
-  },
-  
-  // Action Buttons
-  actionButtons: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-  },
-  primaryButton: {
-    flex: 1,
-    backgroundColor: COLORS.primary,
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
-    alignItems: 'center',
-  },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.text.disabled,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.semibold,
-  },
-  secondaryButtonText: {
-    color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.medium,
-  },
-  
-  // Loading State
+
+  // Loading and Empty States
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: SPACING.xl,
-  },
-  loadingIndicator: {
-    marginBottom: SPACING.lg,
+    justifyContent: 'center',
+    gap: 16,
   },
   loadingText: {
-    fontSize: TYPOGRAPHY.sizes.lg,
+    fontSize: 16,
     color: COLORS.text.secondary,
-    textAlign: 'center',
   },
-  
-  // Error State
-  errorContainer: {
+  emptyContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.xl,
-  },
-  errorText: {
-    fontSize: TYPOGRAPHY.sizes.lg,
-    color: COLORS.text.primary,
-    textAlign: 'center',
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.xl,
-  },
-  retryButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.md,
-    borderRadius: BORDER_RADIUS.lg,
-  },
-  retryButtonText: {
-    color: COLORS.text.inverse,
-    fontSize: TYPOGRAPHY.sizes.base,
-    fontWeight: TYPOGRAPHY.weights.semibold,
+    paddingHorizontal: 16,
+    paddingVertical: 40,
   },
 });
+
+export default TrackingScreen;

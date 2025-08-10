@@ -1,85 +1,173 @@
 // Test setup for ChoreHero app
 
-// Mock expo modules
-jest.mock('expo-av', () => ({
-  Video: 'Video',
-  ResizeMode: {
-    COVER: 'cover',
-    CONTAIN: 'contain',
-    STRETCH: 'stretch',
-  },
-  AVPlaybackStatus: {},
-}));
+import 'react-native-get-random-values';
 
-jest.mock('expo-location', () => ({
-  requestForegroundPermissionsAsync: jest.fn(),
-  requestBackgroundPermissionsAsync: jest.fn(),
-  getBackgroundPermissionsAsync: jest.fn(),
-  getCurrentPositionAsync: jest.fn(),
-  watchPositionAsync: jest.fn(),
-  stopLocationUpdatesAsync: jest.fn(),
-  startLocationUpdatesAsync: jest.fn(),
-  geocodeAsync: jest.fn(),
-  reverseGeocodeAsync: jest.fn(),
-  Accuracy: {
-    High: 'high',
-    Balanced: 'balanced',
-  },
-}));
-
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
-    auth: {
-      signInWithOtp: jest.fn(),
-      verifyOtp: jest.fn(),
-      signOut: jest.fn(),
-      getUser: jest.fn(),
-      getSession: jest.fn(),
-    },
-    from: jest.fn(() => ({
-      select: jest.fn().mockReturnThis(),
-      insert: jest.fn().mockReturnThis(),
-      update: jest.fn().mockReturnThis(),
-      upsert: jest.fn().mockReturnThis(),
-      delete: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      limit: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockReturnThis(),
-      single: jest.fn(),
-    })),
-    channel: jest.fn(() => ({
-      on: jest.fn().mockReturnThis(),
-      subscribe: jest.fn(),
-    })),
+jest.mock('expo-video', () => ({
+  VideoView: 'VideoView',
+  VideoPlayer: jest.fn().mockImplementation(() => ({
+    play: jest.fn(),
+    pause: jest.fn(),
+    release: jest.fn(),
+    loop: false,
+    muted: false,
+    volume: 1,
+    playing: false,
+    currentTime: 0,
+    duration: 0,
   })),
 }));
 
-// Mock navigation
+jest.mock('expo-blur', () => ({
+  BlurView: 'BlurView',
+}));
+
+jest.mock('react-native-maps', () => ({
+  MapView: 'MapView',
+  Marker: 'Marker',
+  Polyline: 'Polyline',
+  Circle: 'Circle',
+  PROVIDER_GOOGLE: 'google',
+}));
+
+jest.mock('@expo/vector-icons', () => ({
+  Ionicons: 'Ionicons',
+}));
+
+jest.mock('../src/services/supabase', () => ({
+  supabase: {
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          not: jest.fn(() => ({
+            limit: jest.fn(() => ({
+              data: [],
+              error: null,
+            })),
+          })),
+        })),
+      })),
+    })),
+  },
+}));
+
+jest.mock('../src/hooks/useHaptic', () => ({
+  useHaptic: () => ({
+    impact: jest.fn(),
+    notification: jest.fn(),
+    selection: jest.fn(),
+  }),
+}));
+
+jest.mock('../src/hooks/useLocation', () => ({
+  useLocation: () => ({
+    location: null,
+    error: null,
+    loading: false,
+  }),
+}));
+
+jest.mock('../src/hooks/useAuth', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    signIn: jest.fn(),
+    signOut: jest.fn(),
+    signUp: jest.fn(),
+  }),
+}));
+
+jest.mock('../src/hooks/useVideoFeed', () => ({
+  useVideoFeed: () => ({
+    videos: [],
+    loading: false,
+    error: null,
+    refresh: jest.fn(),
+  }),
+}));
+
+// Mock React Native modules
+jest.mock('react-native', () => {
+  const RN = jest.requireActual('react-native');
+  RN.NativeModules.RNPermissions = {};
+  return RN;
+});
+
+// Mock Expo modules
+jest.mock('expo-constants', () => ({
+  default: {
+    expoConfig: {
+      extra: {
+        supabaseUrl: 'test-url',
+        supabaseAnonKey: 'test-key',
+        stripePublishableKey: 'test-stripe-key',
+      },
+    },
+  },
+}));
+
+jest.mock('expo-location', () => ({
+  getCurrentPositionAsync: jest.fn(),
+  requestForegroundPermissionsAsync: jest.fn(),
+}));
+
+jest.mock('expo-haptics', () => ({
+  impactAsync: jest.fn(),
+  notificationAsync: jest.fn(),
+  selectionAsync: jest.fn(),
+}));
+
+jest.mock('expo-linear-gradient', () => ({
+  LinearGradient: 'LinearGradient',
+}));
+
+jest.mock('expo-notifications', () => ({
+  getNotificationPermissionsAsync: jest.fn(),
+  requestPermissionsAsync: jest.fn(),
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
+jest.mock('expo-status-bar', () => ({
+  StatusBar: 'StatusBar',
+}));
+
+jest.mock('react-native-safe-area-context', () => ({
+  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
+  SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
+
 jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({
     navigate: jest.fn(),
     goBack: jest.fn(),
-    reset: jest.fn(),
   }),
   useRoute: () => ({
     params: {},
   }),
 }));
 
-// Mock React Native core modules
-jest.mock('react-native', () => ({
-  Dimensions: {
-    get: jest.fn(() => ({ width: 375, height: 812 })),
-  },
-  Alert: {
-    alert: jest.fn(),
-  },
-  Platform: {
-    OS: 'ios',
-    select: jest.fn((config) => config.ios),
-  },
+jest.mock('@react-navigation/bottom-tabs', () => ({
+  createBottomTabNavigator: () => ({
+    Navigator: 'Navigator',
+    Screen: 'Screen',
+  }),
 }));
+
+jest.mock('@react-navigation/native-stack', () => ({
+  createNativeStackNavigator: () => ({
+    Navigator: 'Navigator',
+    Screen: 'Screen',
+  }),
+}));
+
+// Silence warnings
+global.console.warn = jest.fn();
+global.console.error = jest.fn();
 
 // Global test utilities
 global.fetch = jest.fn();
@@ -89,12 +177,3 @@ global.setInterval = jest.fn();
 global.clearInterval = jest.fn();
 global.setTimeout = jest.fn() as any;
 global.clearTimeout = jest.fn();
-
-// Suppress console warnings in tests
-const originalConsole = global.console;
-global.console = {
-  ...originalConsole,
-  warn: jest.fn(),
-  error: jest.fn(),
-  log: originalConsole.log, // Keep log for debugging
-};

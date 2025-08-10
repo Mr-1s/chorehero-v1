@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Cleaner } from '../types/user';
 import { COLORS, TYPOGRAPHY, SPACING, BORDER_RADIUS } from '../utils/constants';
+import { routeToMessage, MessageParticipant } from '../utils/messageRouting';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -21,6 +22,7 @@ interface CleanerCardProps {
   onBookPress?: () => void;
   onMessagePress?: () => void;
   isBookingEnabled?: boolean;
+  navigation?: any; // Add navigation prop for message routing
 }
 
 export const CleanerCard: React.FC<CleanerCardProps> = ({
@@ -30,6 +32,7 @@ export const CleanerCard: React.FC<CleanerCardProps> = ({
   onBookPress,
   onMessagePress,
   isBookingEnabled = true,
+  navigation,
 }) => {
   // Format distance for display
   const formatDistance = (distanceKm?: number): string => {
@@ -147,10 +150,25 @@ export const CleanerCard: React.FC<CleanerCardProps> = ({
           {/* Action buttons */}
           <View style={styles.actionButtons}>
             {/* Message button */}
-            {onMessagePress && (
+            {(onMessagePress || navigation) && (
               <TouchableOpacity 
                 style={styles.messageButton}
-                onPress={onMessagePress}
+                onPress={() => {
+                  if (onMessagePress) {
+                    onMessagePress();
+                  } else if (navigation) {
+                    const participant: MessageParticipant = {
+                      id: cleaner.id,
+                      name: cleaner.name,
+                      avatar: cleaner.avatar_url || '',
+                      role: 'cleaner',
+                    };
+                    routeToMessage({
+                      participant,
+                      navigation,
+                    });
+                  }
+                }}
                 activeOpacity={0.7}
               >
                 <Ionicons name="chatbubble" size={20} color={COLORS.text.inverse} />
