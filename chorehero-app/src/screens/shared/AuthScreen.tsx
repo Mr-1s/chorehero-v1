@@ -13,10 +13,12 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { userService } from '../../services/user';
 import { demoAuth } from '../../services/demoAuth';
+import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
 type StackParamList = {
@@ -156,6 +158,34 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         }
       ]
     );
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const redirectUri = 'chorehero://auth';
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) {
+        Alert.alert('Google Sign-in Failed', error.message);
+        return;
+      }
+
+      if (data?.url) {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+        await refreshSession();
+        navigation.navigate('MainTabs');
+      } else {
+        Alert.alert('Google Sign-in', 'Unable to start Google authentication.');
+      }
+    } catch (e) {
+      Alert.alert('Google Sign-in Error', e instanceof Error ? e.message : 'Unexpected error');
+    }
   };
 
   return (
@@ -324,7 +354,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             </View>
 
             <View style={styles.socialButtons}>
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn}>
                 <Ionicons name="logo-google" size={20} color="#DB4437" />
                 <Text style={styles.socialButtonText}>Google</Text>
               </TouchableOpacity>
