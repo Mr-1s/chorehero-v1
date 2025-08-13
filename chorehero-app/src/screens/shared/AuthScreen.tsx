@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
+WebBrowser.maybeCompleteAuthSession();
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { userService } from '../../services/user';
@@ -163,7 +164,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 
   const handleGoogleSignIn = async () => {
     try {
-      const redirectUri = makeRedirectUri({ scheme: 'chorehero' });
+      const redirectUri = makeRedirectUri({
+        native: 'chorehero://auth',
+        scheme: 'chorehero',
+        preferLocalhost: false,
+      });
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
