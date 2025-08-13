@@ -326,31 +326,59 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={async () => {
-                    try {
-                      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (status !== 'granted') {
-                        Alert.alert('Permission required', 'Allow photo access to set your profile image.');
-                        return;
-                      }
-                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
-                      if (!result.canceled && result.assets?.[0]?.uri) {
-                        const uri = result.assets[0].uri;
-                        setAvatarUrl(uri);
-                        // Persist to users.avatar_url if signed in
-                        const userId = authUser?.user?.id as string | undefined;
-                        if (userId) {
-                          const { error } = await supabase
-                            .from('users')
-                            .update({ avatar_url: uri, updated_at: new Date().toISOString() })
-                            .eq('id', userId);
-                          if (error) {
-                            console.error('Avatar update error:', error);
-                            Alert.alert('Update failed', 'Could not save your profile photo.');
-                          } else {
-                            await refreshUser();
-                          }
+                    const persist = async (uri: string) => {
+                      setAvatarUrl(uri);
+                      const userId = authUser?.user?.id as string | undefined;
+                      if (userId) {
+                        const { error } = await supabase
+                          .from('users')
+                          .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+                          .eq('id', userId);
+                        if (error) {
+                          console.error('Avatar update error:', error);
+                          Alert.alert('Update failed', 'Could not save your profile photo.');
+                        } else {
+                          await refreshUser();
                         }
                       }
+                    };
+
+                    try {
+                      Alert.alert(
+                        'Profile Photo',
+                        'Choose a source',
+                        [
+                          {
+                            text: 'Take Photo',
+                            onPress: async () => {
+                              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                              if (status !== 'granted') {
+                                Alert.alert('Permission required', 'Allow camera access to take a photo.');
+                                return;
+                              }
+                              const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+                              if (!result.canceled && result.assets?.[0]?.uri) {
+                                await persist(result.assets[0].uri);
+                              }
+                            }
+                          },
+                          {
+                            text: 'Choose from Library',
+                            onPress: async () => {
+                              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                              if (status !== 'granted') {
+                                Alert.alert('Permission required', 'Allow photo access to set your profile image.');
+                                return;
+                              }
+                              const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+                              if (!result.canceled && result.assets?.[0]?.uri) {
+                                await persist(result.assets[0].uri);
+                              }
+                            }
+                          },
+                          { text: 'Cancel', style: 'cancel' }
+                        ]
+                      );
                     } catch (e) {
                       console.error('Image pick error', e);
                     }
