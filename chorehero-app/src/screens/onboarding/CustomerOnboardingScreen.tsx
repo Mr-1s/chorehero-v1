@@ -181,17 +181,37 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   const handleComplete = async () => {
     setIsLoading(true);
     try {
-      // Get current authenticated user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Resolve current authenticated user robustly
+      let userId: string | undefined;
+      let userEmail: string | undefined;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          userId = session.user.id;
+          userEmail = session.user.email || undefined;
+        }
+      } catch {}
+      if (!userId && authUser?.user?.id) {
+        userId = authUser.user.id as string;
+        userEmail = (authUser.user as any).email as string | undefined;
+      }
+      if (!userId) {
+        await refreshSession();
+        const { data: { session: session2 } } = await supabase.auth.getSession();
+        if (session2?.user) {
+          userId = session2.user.id;
+          userEmail = session2.user.email || undefined;
+        }
+      }
       
-      console.log('Customer onboarding completion - authenticated user:', user?.id, user?.email);
+      console.log('Customer onboarding completion - resolved user:', userId, userEmail);
       
-      if (user) {
+      if (userId) {
         // First, ensure user record exists in our database
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('id')
-          .eq('id', user.id)
+          .eq('id', userId)
           .single();
 
         if (checkError && checkError.code === 'PGRST116') {
@@ -200,9 +220,9 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           const { error: createUserError } = await supabase
             .from('users')
             .insert([{
-              id: user.id,
+              id: userId,
               phone: data.phone,
-              email: user.email,
+              email: userEmail,
               name: `${data.firstName} ${data.lastName}`,
               role: 'customer',
             }]);
@@ -224,7 +244,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
               role: 'customer',
               updated_at: new Date().toISOString()
             })
-            .eq('id', user.id);
+            .eq('id', userId);
 
           if (userError) {
             console.error('Error updating user profile:', userError);
@@ -236,7 +256,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         const { error: customerError } = await supabase
           .from('customer_profiles')
           .insert([{
-            user_id: user.id,
+            user_id: userId,
             preferred_language: 'en',
             special_preferences: `${data.specialInstructions || ''}\n\nProperty: ${data.propertyType}, ${data.squareFootage} sq ft\nBedrooms: ${data.bedrooms}, Bathrooms: ${data.bathrooms}\nCleaning Frequency: ${data.cleaningFrequency}\nPreferred Products: ${data.preferredProducts}\nBudget: ${data.budgetRange}\nPets: ${data.hasPets ? 'Yes - ' + data.petDetails : 'No'}\nAllergies: ${data.hasAllergies ? 'Yes - ' + data.allergyDetails : 'No'}\nChildren: ${data.hasChildren ? 'Yes' : 'No'}`,
           }]);
@@ -246,7 +266,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           const { error: addressError } = await supabase
             .from('addresses')
             .insert([{
-              user_id: user.id,
+              user_id: userId,
               street: data.address,
               city: data.city,
               state: data.state,

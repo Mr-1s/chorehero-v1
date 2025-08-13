@@ -217,18 +217,37 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         return;
       }
 
-      // Get current authenticated user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Resolve current authenticated user robustly
+      let userId: string | undefined;
+      let userEmail: string | undefined;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          userId = session.user.id;
+          userEmail = session.user.email || undefined;
+        }
+      } catch {}
+      if (!userId && authUser?.user?.id) {
+        userId = authUser.user.id as string;
+        userEmail = (authUser.user as any).email as string | undefined;
+      }
+      if (!userId) {
+        await refreshSession();
+        const { data: { session: session2 } } = await supabase.auth.getSession();
+        if (session2?.user) {
+          userId = session2.user.id;
+          userEmail = session2.user.email || undefined;
+        }
+      }
       
-      console.log('Cleaner onboarding completion - authenticated user:', user?.id, user?.email);
-      console.log('Form data phone:', data.phone);
+      console.log('Cleaner onboarding completion - resolved user:', userId, userEmail);
       
-      if (user) {
+      if (userId) {
         // First, ensure user record exists in our database
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('id')
-          .eq('id', user.id)
+          .eq('id', userId)
           .single();
 
         if (checkError && checkError.code === 'PGRST116') {
@@ -237,9 +256,9 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           const { error: createUserError } = await supabase
             .from('users')
             .insert([{
-              id: user.id,
+              id: userId,
               phone: data.phone,
-              email: user.email,
+              email: userEmail,
               name: `${data.firstName} ${data.lastName}`,
               role: 'cleaner',
             }]);
@@ -261,7 +280,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
               role: 'cleaner',
               updated_at: new Date().toISOString()
             })
-            .eq('id', user.id);
+            .eq('id', userId);
 
           if (userError) {
             console.error('Error updating user profile:', userError);
@@ -273,7 +292,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         const { error: cleanerError } = await supabase
           .from('cleaner_profiles')
           .insert([{
-            user_id: user.id,
+            user_id: userId,
             hourly_rate: parseFloat(data.hourlyRate) || 25.00,
             bio: `${data.bio || ''}\n\nExperience: ${data.experienceYears} years\nServices: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}\nTransportation: ${data.transportation}\nAvailability: ${Object.entries(data.availability || {}).filter(([day, available]) => available).map(([day]) => day).join(', ')}\nService Radius: ${data.serviceRadius} miles\n\nSkills:\n- Cleaning Knowledge: ${data.cleaningKnowledge}/5\n- Customer Service: ${data.customerService}/5\n- Time Management: ${data.timeManagement}/5\n\nWork Samples: ${data.workSamples || 'None provided'}\n\nAuthorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}\nEmergency Contact: ${data.emergencyContact} (${data.emergencyPhone})\nBackground Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
             years_experience: parseInt(data.experienceYears) || 0,
@@ -288,7 +307,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           const { error: addressError } = await supabase
             .from('addresses')
             .insert([{
-              user_id: user.id,
+              user_id: userId,
               street: data.address,
               city: data.city,
               state: data.state,
