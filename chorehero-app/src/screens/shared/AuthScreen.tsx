@@ -77,6 +77,15 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
           // New account created successfully – ensure we are NOT in demo mode
           try { await clearDemo(); } catch {}
           navigation.navigate('AccountTypeSelection');
+        } else if (response.requiresSignIn) {
+          // Created, but session not present – prompt sign-in path
+          Alert.alert(
+            'Verify & Sign In',
+            response.error || 'Please sign in to continue.',
+            [
+              { text: 'OK', onPress: async () => setIsLogin(true) }
+            ]
+          );
         } else if (response.error && response.error.includes('email')) {
           // Email confirmation required
           Alert.alert(
