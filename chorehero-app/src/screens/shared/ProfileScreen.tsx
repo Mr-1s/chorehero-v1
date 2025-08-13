@@ -13,6 +13,9 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import FloatingNavigation from '../../components/FloatingNavigation';
@@ -40,7 +43,13 @@ const { width } = Dimensions.get('window');
 const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'saved'>('overview');
   const animatedValues = useRef<{ [key: string]: Animated.Value }>({});
-  const { signOut } = useAuth();
+  const { signOut, authUser, refreshUser } = useAuth();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = (authUser?.user as any)?.avatar_url as string | undefined;
+    if (url) setAvatarUrl(url);
+  }, [authUser]);
 
   const handleCreateAdditionalAccount = () => {
     Alert.alert(
@@ -314,7 +323,41 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
           >
             <View style={styles.userInfo}>
               <View style={styles.avatarContainer}>
-                <Image source={{ uri: user.avatar }} style={styles.profileAvatar} />
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={async () => {
+                    try {
+                      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (status !== 'granted') {
+                        Alert.alert('Permission required', 'Allow photo access to set your profile image.');
+                        return;
+                      }
+                      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+                      if (!result.canceled && result.assets?.[0]?.uri) {
+                        const uri = result.assets[0].uri;
+                        setAvatarUrl(uri);
+                        // Persist to users.avatar_url if signed in
+                        const userId = authUser?.user?.id as string | undefined;
+                        if (userId) {
+                          const { error } = await supabase
+                            .from('users')
+                            .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+                            .eq('id', userId);
+                          if (error) {
+                            console.error('Avatar update error:', error);
+                            Alert.alert('Update failed', 'Could not save your profile photo.');
+                          } else {
+                            await refreshUser();
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      console.error('Image pick error', e);
+                    }
+                  }}
+                >
+                  <Image source={{ uri: avatarUrl || user.avatar }} style={styles.profileAvatar} />
+                </TouchableOpacity>
                 <View style={styles.avatarShadow} />
               </View>
               <View style={styles.userDetails}>
