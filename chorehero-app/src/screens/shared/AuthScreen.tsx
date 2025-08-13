@@ -65,7 +65,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         
         if (response.success) {
           await refreshSession();
-          navigation.navigate('MainTabs');
+          navigation.navigate('AccountTypeSelection');
         } else {
           Alert.alert('Sign In Failed', response.error || 'Invalid credentials');
         }
@@ -185,7 +185,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
       if (data?.url) {
         await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
         await refreshSession();
-        navigation.navigate('MainTabs');
+        navigation.navigate('AccountTypeSelection');
       } else {
         Alert.alert('Google Sign-in', 'Unable to start Google authentication.');
       }
