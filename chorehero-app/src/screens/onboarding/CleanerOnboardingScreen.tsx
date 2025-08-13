@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -87,7 +88,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
   const totalSteps = 6;
-  const { refreshSession, isDemoMode } = useAuth();
+  const { refreshSession, isDemoMode, authUser } = useAuth();
 
   const [data, setData] = useState<CleanerOnboardingData>({
     firstName: '',
@@ -128,6 +129,23 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   });
 
   const scrollRef = useRef<ScrollView>(null);
+
+  // Prefill from provider
+  useEffect(() => {
+    const u = authUser?.user as any;
+    if (!u) return;
+    const fullName: string | undefined = u.name || u.user_metadata?.full_name;
+    const avatar: string | undefined = u.avatar_url || u.user_metadata?.picture;
+    const emailFromAuth: string | undefined = u.email;
+    const [firstName, ...rest] = (fullName || '').split(' ');
+    setData(prev => ({
+      ...prev,
+      firstName: firstName || prev.firstName,
+      lastName: rest.join(' ') || prev.lastName,
+      email: emailFromAuth || prev.email,
+      profilePhoto: avatar || prev.profilePhoto,
+    }));
+  }, [authUser]);
 
   const updateData = (field: keyof CleanerOnboardingData, value: any) => {
     setData(prev => ({ ...prev, [field]: value }));
@@ -313,23 +331,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           ]
         );
       } else {
-        // Fallback to demo mode if no authenticated user
-        await demoAuth.setDemoUser('cleaner', 'sarah');
-        console.log('Fallback to demo cleaner role - using Sarah Johnson');
-        
-        Alert.alert(
-          'Demo Mode',
-          'You are now exploring ChoreHero in demo mode as a cleaner. Features are limited to demonstration purposes.',
-          [
-            {
-              text: 'Continue',
-              onPress: async () => {
-                await refreshSession();
-                navigation.navigate('MainTabs');
-              }
-            }
-          ]
-        );
+        Alert.alert('Authentication required', 'Please sign in again to complete setup.');
       }
     } catch (error) {
       console.error('Onboarding completion error:', error);
@@ -378,7 +380,24 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       <Text style={styles.stepTitle}>Professional Profile</Text>
       <Text style={styles.stepSubtitle}>Let's set up your cleaner profile</Text>
 
-      <TouchableOpacity style={styles.photoContainer}>
+      <TouchableOpacity
+        style={styles.photoContainer}
+        onPress={async () => {
+          try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission required', 'Please allow photo access to set your profile image.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) {
+              setData(prev => ({ ...prev, profilePhoto: result.assets[0].uri }));
+            }
+          } catch (e) {
+            console.error('Image pick error', e);
+          }
+        }}
+      >
         <Image source={{ uri: data.profilePhoto }} style={styles.profilePhoto} />
         <View style={styles.photoOverlay}>
           <Ionicons name="camera" size={20} color="#ffffff" />
