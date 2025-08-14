@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { MockDataToggle } from '../../utils/mockDataToggle';
@@ -81,7 +83,7 @@ interface UserStats {
 }
 
 const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userStats, setUserStats] = useState<UserStats>({
@@ -349,7 +351,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
           <View style={styles.profileInfo}>
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => navigation.navigate('Profile')}
+              onPress={handleChangeAvatar}
               style={styles.profileAvatar}
             >
               <Text style={styles.profileAvatarText}>
@@ -589,9 +591,45 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
     );
   }
 
+  const handleChangeAvatar = async () => {
+    const persist = async (uri: string) => {
+      if (!user?.id) return;
+      const { error } = await supabase
+        .from('users')
+        .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      if (!error) {
+        await refreshUser();
+      }
+    };
+    try {
+      Alert.alert('Profile Photo', 'Choose a source', [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') return;
+            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) await persist(result.assets[0].uri);
+          },
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') return;
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) await persist(result.assets[0].uri);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    } catch {}
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
       
       <ScrollView 
         style={styles.scrollView}
@@ -601,8 +639,6 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* White header band to match Bookings */}
-        <View style={styles.safeHeader} />
         {renderProfileHeader()}
         {renderUserStats()}
         {renderQuickActions()}
@@ -632,8 +668,7 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   safeHeader: {
-    height: 16,
-    backgroundColor: '#FFFFFF',
+    height: 0,
   },
 
   // Profile Header
