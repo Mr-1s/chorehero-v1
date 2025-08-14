@@ -627,8 +627,9 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 24,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
   },
   headerTitle: {
     fontSize: 32,
