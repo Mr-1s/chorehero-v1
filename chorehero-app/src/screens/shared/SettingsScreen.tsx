@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Share,
   Linking,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,6 +61,7 @@ interface UserProfile {
   joinDate: string;
   totalBookings: number;
   rating: number;
+  avatarUrl?: string | null;
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
@@ -89,6 +91,21 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     loadSettings();
   }, []);
 
+  // Keep profile preview in sync with auth user updates (e.g., avatar change)
+  useEffect(() => {
+    if (!user) return;
+    setUserProfile(prev => ({
+      name: (user as any).name || prev?.name || 'Customer',
+      email: (user as any).email || prev?.email || '',
+      phone: (user as any).phone || prev?.phone || '',
+      role: ((user as any).role || prev?.role || 'customer') as 'customer' | 'cleaner',
+      joinDate: (user as any).created_at || prev?.joinDate || new Date().toISOString(),
+      totalBookings: prev?.totalBookings ?? 0,
+      rating: prev?.rating ?? 5.0,
+      avatarUrl: (user as any).avatar_url || null,
+    }));
+  }, [user?.avatar_url, (user as any)?.name, (user as any)?.email]);
+
   const loadSettings = async () => {
     setIsLoading(true);
     try {
@@ -104,6 +121,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           joinDate: (user as any).created_at || new Date().toISOString(),
           totalBookings: 0,
           rating: 5.0,
+          avatarUrl: (user as any).avatar_url || null,
         });
       } else {
         setUserProfile({
@@ -114,6 +132,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           joinDate: new Date().toISOString(),
           totalBookings: 0,
           rating: 5.0,
+          avatarUrl: null,
         });
       }
     } catch (error) {
@@ -349,9 +368,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           <View style={styles.profileSection}>
             <View style={styles.profileInfo}>
               <View style={styles.profileAvatar}>
-                <Text style={styles.profileAvatarText}>
-                  {userProfile.name.split(' ').map(n => n[0]).join('')}
-                </Text>
+                {userProfile.avatarUrl ? (
+                  <Image source={{ uri: userProfile.avatarUrl }} style={styles.profileAvatarImage} />
+                ) : (
+                  <Text style={styles.profileAvatarText}>
+                    {userProfile.name.split(' ').map(n => n[0]).join('')}
+                  </Text>
+                )}
               </View>
               <View style={styles.profileDetails}>
                 <Text style={styles.profileName}>{userProfile.name}</Text>
@@ -664,6 +687,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
+  },
+  profileAvatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
   profileAvatarText: {
     fontSize: 24,
