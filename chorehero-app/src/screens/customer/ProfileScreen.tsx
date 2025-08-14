@@ -85,6 +85,7 @@ interface UserStats {
 const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   const { user, signOut, refreshUser } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [userStats, setUserStats] = useState<UserStats>({
     totalBookings: 0,
@@ -134,6 +135,13 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   useEffect(() => {
     loadProfileData();
   }, []);
+
+  // Keep local avatar preview in sync with authenticated user
+  useEffect(() => {
+    if (user?.avatar_url) {
+      setAvatarUri(user.avatar_url);
+    }
+  }, [user?.avatar_url]);
 
   const loadProfileData = async () => {
     try {
@@ -354,9 +362,17 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
               onPress={handleChangeAvatar}
               style={styles.profileAvatar}
             >
-              <Text style={styles.profileAvatarText}>
-                {user?.name ? user.name.charAt(0).toUpperCase() : 'J'}
-              </Text>
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={styles.profileAvatarImage}
+                  onError={() => setAvatarUri(null)}
+                />
+              ) : (
+                <Text style={styles.profileAvatarText}>
+                  {user?.name ? user.name.charAt(0).toUpperCase() : (user?.email?.[0]?.toUpperCase() || 'U')}
+                </Text>
+              )}
             </TouchableOpacity>
             <View style={styles.profileDetails}>
                           <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
@@ -599,6 +615,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
         .update({ avatar_url: uri, updated_at: new Date().toISOString() })
         .eq('id', user.id);
       if (!error) {
+        setAvatarUri(uri);
         await refreshUser();
       }
     };
@@ -659,10 +676,11 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#3ad3db',
   },
   scrollView: {
     flex: 1,
+    backgroundColor: '#F9F9F9',
   },
   scrollContent: {
     paddingBottom: 100,
@@ -674,7 +692,7 @@ const styles = StyleSheet.create({
   // Profile Header
   profileHeader: {
     marginBottom: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
   },
   profileGradient: {
     paddingTop: 12,
@@ -699,6 +717,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
+  },
+  profileAvatarImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
   },
   profileAvatarText: {
     fontSize: 28,
