@@ -347,11 +347,15 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
       >
         <View style={styles.profileHeaderContent}>
           <View style={styles.profileInfo}>
-            <View style={styles.profileAvatar}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('Profile')}
+              style={styles.profileAvatar}
+            >
               <Text style={styles.profileAvatarText}>
                 {user?.name ? user.name.charAt(0).toUpperCase() : 'J'}
               </Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.profileDetails}>
                           <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
             <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>

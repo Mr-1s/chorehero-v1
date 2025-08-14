@@ -95,15 +95,27 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      setUserProfile({
-        name: 'John Doe',
-        email: 'john.doe@example.com',
-        phone: '+1 (555) 123-4567',
-        role: 'customer',
-        joinDate: '2024-01-15',
-        totalBookings: 12,
-        rating: 4.8,
-      });
+      if (user) {
+        setUserProfile({
+          name: (user as any).name || 'Customer',
+          email: (user as any).email || '',
+          phone: (user as any).phone || '',
+          role: ((user as any).role || 'customer') as 'customer' | 'cleaner',
+          joinDate: (user as any).created_at || new Date().toISOString(),
+          totalBookings: 0,
+          rating: 5.0,
+        });
+      } else {
+        setUserProfile({
+          name: 'Guest',
+          email: '',
+          phone: '',
+          role: 'customer',
+          joinDate: new Date().toISOString(),
+          totalBookings: 0,
+          rating: 5.0,
+        });
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to load settings');
     } finally {
