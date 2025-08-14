@@ -350,7 +350,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   const renderProfileHeader = () => (
     <View style={styles.profileHeader}>
       <LinearGradient
-        colors={['#3ad3db', '#1ca7b7']}
+        colors={['#FFFFFF', '#FFFFFF']}
         style={styles.profileGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -375,10 +375,10 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
               )}
             </TouchableOpacity>
             <View style={styles.profileDetails}>
-                          <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
-            <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>
+              <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
+              <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>
               <View style={styles.memberSince}>
-                <Ionicons name="calendar-outline" size={12} color="rgba(255,255,255,0.8)" />
+                <Ionicons name="calendar-outline" size={12} color="#6B7280" />
                 <Text style={styles.memberSinceText}>
                   {user?.id && !user.id.startsWith('demo_') 
                     ? `Real Account • ${new Date(user.created_at || '').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` 
@@ -392,7 +392,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
             style={styles.settingsButton}
             onPress={() => navigation.navigate('SettingsScreen')}
           >
-            <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
+            <Ionicons name="settings-outline" size={24} color="#374151" />
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -598,7 +598,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3ad3db" />
           <Text style={styles.loadingText}>Loading your profile...</Text>
@@ -646,7 +646,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
       <ScrollView 
         style={styles.scrollView}
@@ -676,7 +676,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#FFFFFF',
   },
   scrollView: {
     flex: 1,
@@ -692,7 +692,7 @@ const styles = StyleSheet.create({
   // Profile Header
   profileHeader: {
     marginBottom: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
   },
   profileGradient: {
     paddingTop: 12,
@@ -713,7 +713,7 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -726,7 +726,7 @@ const styles = StyleSheet.create({
   profileAvatarText: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#374151',
   },
   profileDetails: {
     flex: 1,
@@ -734,12 +734,12 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#1F2937',
     marginBottom: 4,
   },
   profileEmail: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
     marginBottom: 6,
   },
   memberSince: {
@@ -749,13 +749,13 @@ const styles = StyleSheet.create({
   },
   memberSinceText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
   },
   settingsButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
