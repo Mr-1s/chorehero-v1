@@ -385,6 +385,9 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
                   }}
                 >
                   <Image source={{ uri: avatarUrl || user.avatar }} style={styles.profileAvatar} />
+                  <View style={styles.editBadge}>
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                  </View>
                 </TouchableOpacity>
                 <View style={styles.avatarShadow} />
               </View>
@@ -680,6 +683,19 @@ const styles = StyleSheet.create({
     borderRadius: 48,
     backgroundColor: 'rgba(58, 211, 219, 0.15)',
     zIndex: -1,
+  },
+  editBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#3ad3db',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   userDetails: {
     flex: 1,
