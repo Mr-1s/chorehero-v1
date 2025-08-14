@@ -587,7 +587,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
       <ScrollView 
         style={styles.scrollView}
@@ -597,6 +597,8 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
         }
         showsVerticalScrollIndicator={false}
       >
+        {/* White header band to match Bookings */}
+        <View style={styles.safeHeader} />
         {renderProfileHeader()}
         {renderUserStats()}
         {renderQuickActions()}
@@ -625,13 +627,18 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 100,
   },
+  safeHeader: {
+    height: 16,
+    backgroundColor: '#FFFFFF',
+  },
 
   // Profile Header
   profileHeader: {
     marginBottom: 0,
+    backgroundColor: '#FFFFFF',
   },
   profileGradient: {
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 30,
     paddingHorizontal: 20,
   },
