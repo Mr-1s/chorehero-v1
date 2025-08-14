@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
