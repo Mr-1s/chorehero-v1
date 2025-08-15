@@ -661,9 +661,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               <TouchableOpacity 
                 style={styles.primaryActionButton}
                 onPress={() => {
-                  navigation.navigate('SimpleBookingFlow', {
-                    cleanerId: cleaner?.id,
-                    serviceType: 'general_cleaning'
+                  // Prefer DynamicBooking if template exists; the screen will fallback if not
+                  navigation.navigate('DynamicBooking', {
+                    cleanerId: cleaner?.id
                   });
                 }}
               >

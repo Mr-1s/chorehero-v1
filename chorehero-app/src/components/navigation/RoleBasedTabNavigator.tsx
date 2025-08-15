@@ -23,6 +23,7 @@ import DiscoverScreen from '../../screens/shared/DiscoverScreen';
 import MessagesScreen from '../../screens/shared/MessagesScreen';
 import BookingScreen from '../../screens/shared/BookingScreen';
 import BookingFlowScreen from '../../screens/shared/BookingFlowScreen';
+import DynamicBookingScreen from '../../screens/booking/DynamicBookingScreen';
 import ContentFeedScreen from '../../screens/shared/ContentFeedScreen';
 import VideoFeedScreen from '../../screens/shared/VideoFeedScreen';
 import ContentCreationScreen from '../../screens/shared/ContentCreationScreen';
@@ -54,6 +55,7 @@ const CustomerDiscoverStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Discover" component={DiscoverScreen} />
     <Stack.Screen name="BookingFlow" component={BookingFlowScreen} />
+    <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen} />
     <Stack.Screen name="UserProfile" component={UserProfileScreen} />
   </Stack.Navigator>
 );
@@ -81,6 +83,7 @@ const CustomerNavigator = () => {
       <Stack.Screen name="Bookings" component={BookingScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
       <Stack.Screen name="BookingFlow" component={BookingFlowScreen} />
+      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
