@@ -781,8 +781,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             style={styles.cleanerProfileAvatar} 
           />
           <View style={styles.cleanerProfileInfo}>
-            <Text style={styles.cleanerProfileUsername}>{item.cleaner.username}</Text>
-            <Text style={styles.cleanerProfileBio}>{item.cleaner.bio || 'Professional cleaning specialist'}</Text>
+            <Text style={styles.cleanerProfileUsername} numberOfLines={1} ellipsizeMode="tail">{item.cleaner.username}</Text>
+            <Text style={styles.cleanerProfileBio} numberOfLines={1} ellipsizeMode="tail">{item.cleaner.bio || 'Professional cleaning specialist'}</Text>
           </View>
         </TouchableOpacity>
 
@@ -1143,7 +1143,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 28,
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // Clean white background
-    minWidth: 200, // Ensure adequate touch area
+    minWidth: 220, // Ensure adequate touch area
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1162,18 +1162,22 @@ const styles = StyleSheet.create({
   },
   cleanerProfileInfo: {
     flex: 1,
+    minWidth: 120,
   },
   cleanerProfileUsername: {
     color: '#0F172A',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: -0.3,
+    maxWidth: 200,
   },
   cleanerProfileBio: {
     color: '#64748B',
     fontSize: 13,
     fontWeight: '500',
     marginTop: 2,
+    maxWidth: 220,
+    numberOfLines: 1,
   },
 
   // Empty State Styles
