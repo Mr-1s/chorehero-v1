@@ -149,12 +149,13 @@ const ExpoVideoPlayer: React.FC<{
     };
 
     player.addListener('statusChange', statusChangeListener);
-    player.addListener('playbackStatusUpdate', playbackStatusListener);
+    // playbackStatusUpdate event is not part of expo-video events; rely on statusChange only
+    // player.addListener('playbackStatusUpdate', playbackStatusListener);
     setHasSetupListeners(true);
 
     return () => {
       player.removeListener('statusChange', statusChangeListener);
-      player.removeListener('playbackStatusUpdate', playbackStatusListener);
+      // player.removeListener('playbackStatusUpdate', playbackStatusListener);
     };
   }, [player, videoUrl, hasSetupListeners]);
 
@@ -369,7 +370,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         return {
           id: `demo-video-${index}`,
           video_url: cleaningImages[index % cleaningImages.length],
-          title: `${cleaner.specialties?.[0] || 'Professional'} Cleaning Demo`,
+          title: `${(cleaner.profile.specialties?.[0] || 'Professional')} Cleaning Demo`,
           description: `See ${cleaner.name}'s professional cleaning techniques and book their service`,
           likes: Math.floor(Math.random() * 1000) + 100,
           comments: Math.floor(Math.random() * 100) + 10,
@@ -380,21 +381,21 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
           boosted: false,
           hashtags: ['#cleaning', '#professional', '#home'],
           timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-        cleaner: {
+                     cleaner: {
             id: cleaner.id,
             name: cleaner.name,
             username: cleaner.name.toLowerCase().replace(' ', ''),
             avatar_url: cleaner.avatar_url,
-            bio: cleaner.bio || 'Professional cleaning specialist',
-            service_title: cleaner.specialties?.[0] || 'Professional Cleaning',
+            bio: cleaner.profile.bio || 'Professional cleaning specialist',
+            service_title: cleaner.profile.specialties?.[0] || 'Professional Cleaning',
             verified: true,
             user_id: cleaner.id,
-            hourly_rate: cleaner.hourly_rate || '$25/hr',
-            rating_average: cleaner.rating_average || 4.8,
-            total_jobs: cleaner.total_bookings || 150,
+            hourly_rate: cleaner.profile.hourly_rate,
+            rating_average: cleaner.profile.rating_average || 4.8,
+            total_jobs: cleaner.profile.total_jobs || 150,
             estimated_duration: '2-3 hours',
-            video_profile_url: cleaner.video_profile_url || null,
-            specialties: cleaner.specialties || ['Professional Cleaning'],
+            video_profile_url: cleaner.profile.video_profile_url || null,
+            specialties: cleaner.profile.specialties || ['Professional Cleaning'],
           },
         };
       });
@@ -941,7 +942,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       {/* Search Button - Top Right */}
       <TouchableOpacity 
         style={styles.searchButtonTopRight}
-        onPress={() => navigation.navigate('Discover')}
+        onPress={() => (navigation as any).navigate('Discover')}
       >
         <Ionicons name="search" size={24} color="#64748B" />
       </TouchableOpacity>
@@ -979,7 +980,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
              )}
             <TouchableOpacity 
               style={styles.exploreButton}
-              onPress={() => navigation.navigate('Discover')}
+              onPress={() => (navigation as any).navigate('Discover')}
             >
               <Text style={styles.exploreButtonText}>Explore Cleaners</Text>
               <Ionicons name="arrow-forward" size={20} color="#0891b2" />
@@ -1281,7 +1282,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 15,
-    backdropFilter: 'blur(20px)',
     width: '75%',
     marginLeft: 20,
   },
@@ -1630,7 +1630,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(107, 114, 128, 0.05)',
     borderRadius: 12,
   },
-  socialButton: {
+  socialButtonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
@@ -1638,7 +1638,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
-  socialButtonText: {
+  socialButtonRowText: {
     fontSize: 12,
     fontWeight: '600',
     color: '#6B7280',

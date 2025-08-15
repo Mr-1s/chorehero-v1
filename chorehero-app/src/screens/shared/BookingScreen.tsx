@@ -644,7 +644,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.notificationButton}
-            onPress={() => propNavigation.navigate('NotificationsScreen')}
+            onPress={() => (propNavigation as any).navigate('NotificationsScreen')}
           >
             <Ionicons name="notifications-outline" size={24} color="#1C1C1E" />
             {hasUnreadNotifications && <View style={styles.notificationBadge} />}
@@ -838,7 +838,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         <View style={styles.fixedBottomButton}>
           <TouchableOpacity 
             style={styles.bookServiceButton}
-            onPress={() => propNavigation.navigate('SimpleBookingFlow', {})}
+            onPress={() => (propNavigation as any).navigate('SimpleBookingFlow', {})}
           >
             <Ionicons name="add" size={20} color="#ffffff" />
             <Text style={styles.bookServiceButtonText}>Book Service</Text>
@@ -847,7 +847,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       )}
 
       {/* Floating Navigation */}
-      <FloatingNavigation navigation={propNavigation} currentScreen="Bookings" />
+      <FloatingNavigation navigation={propNavigation as any} currentScreen="Bookings" />
     </View>
   );
 };

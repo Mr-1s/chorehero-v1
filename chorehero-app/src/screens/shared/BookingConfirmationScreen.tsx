@@ -786,7 +786,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: SPACING.sm,
   },
-  serviceTitle: {
+  serviceTitleAlt: {
     fontSize: 18,
     fontWeight: '700',
     color: COLORS.text.primary,
@@ -798,13 +798,13 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs,
     borderRadius: 8,
   },
-  bookingIdLabel: {
+  bookingIdLabelAlt: {
     fontSize: 10,
     fontWeight: '600',
     color: COLORS.text.secondary,
     textTransform: 'uppercase',
   },
-  bookingIdText: {
+  bookingIdTextAlt: {
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.primary,
@@ -814,7 +814,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: SPACING.md,
   },
-  detailItem: {
+  detailItemAlt: {
     flex: 1,
     minWidth: '45%',
     backgroundColor: COLORS.surface,
@@ -823,13 +823,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.xs,
   },
-  detailLabel: {
+  detailLabelAlt: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.text.secondary,
     textTransform: 'uppercase',
   },
-  detailValue: {
+  detailValueAlt: {
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.text.primary,

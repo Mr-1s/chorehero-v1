@@ -51,7 +51,7 @@ interface ServiceTier {
   popular?: boolean;
   included: string[];
   icon: string;
-  color: string[];
+  color: [string, string];
 }
 
 interface AddOn {

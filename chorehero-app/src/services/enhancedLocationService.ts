@@ -47,7 +47,7 @@ class EnhancedLocationService {
 
   async initialize(): Promise<void> {
     // Define background location task
-    TaskManager.defineTask(LOCATION_TASK_NAME, ({ data, error }) => {
+    TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
       if (error) {
         console.error('Background location error:', error);
         return;
@@ -55,7 +55,7 @@ class EnhancedLocationService {
 
       if (data) {
         const { locations } = data as any;
-        this.handleBackgroundLocationUpdate(locations[0]);
+        await this.handleBackgroundLocationUpdate(locations[0]);
       }
     });
   }

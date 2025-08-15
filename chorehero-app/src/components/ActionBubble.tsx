@@ -103,7 +103,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 4,
-    backdropFilter: 'blur(10px)',
   },
   activeBubble: {
     backgroundColor: '#3ad3db',

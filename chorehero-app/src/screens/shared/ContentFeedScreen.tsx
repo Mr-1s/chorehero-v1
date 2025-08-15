@@ -103,7 +103,7 @@ const ContentFeedScreen: React.FC<ContentFeedProps> = ({ navigation }) => {
         user.id
       );
 
-      const response = await Promise.race([feedPromise, timeoutPromise]);
+      const response = await Promise.race([feedPromise, timeoutPromise]) as any;
 
       if (response.success) {
         if (refresh) {

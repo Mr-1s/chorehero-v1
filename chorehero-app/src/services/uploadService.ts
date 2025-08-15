@@ -101,15 +101,15 @@ class UploadService {
       retryCount: 0
     });
 
-    return this.performUpload(uploadId, fileUri, type, onProgress, uploadConfig);
+    return this.performUpload(uploadId, fileUri, type, uploadConfig, onProgress);
   }
 
   private async performUpload(
     uploadId: string,
     fileUri: string,
     type: string,
-    onProgress?: (progress: UploadProgress) => void,
     config: UploadConfig,
+    onProgress?: (progress: UploadProgress) => void,
     retryCount = 0
   ): Promise<UploadResponse> {
     try {

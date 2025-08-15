@@ -266,7 +266,7 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
             source={{ uri: mediaUri }}
             style={styles.videoPreview}
             useNativeControls
-            resizeMode="cover" as any
+            resizeMode={"cover" as any}
             shouldPlay={false}
           />
         ) : (

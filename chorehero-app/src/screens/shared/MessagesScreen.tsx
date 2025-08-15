@@ -82,9 +82,9 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
         if (chatRooms && chatRooms.length > 0) {
           // Transform chat rooms to conversations
           const realConversations: Conversation[] = await Promise.all(
-            chatRooms.map(async (room) => {
+            (chatRooms as any[]).map(async (room: any) => {
               // Find the other participant
-              const otherParticipantId = room.participants.find((id: string) => id !== user.id);
+              const otherParticipantId = (room.participants as string[]).find((id: string) => id !== user.id);
               
               // Get other participant's details
               const { data: otherUser } = await supabase
@@ -94,7 +94,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
                 .single();
 
               // Count unread messages
-              const unreadCount = room.messages?.filter((msg: any) => 
+              const unreadCount = (room.messages as any[])?.filter((msg: any) => 
                 msg.sender_id !== user.id && !msg.is_read
               ).length || 0;
 
@@ -260,15 +260,15 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
         <EmptyState
           {...EmptyStateConfigs.conversations}
           showFeatures={!USE_MOCK_DATA}
-          actions={USE_MOCK_DATA ? [] : [
-            {
-              label: 'Find Cleaners',
-              onPress: () => navigation.navigate('Discover'),
-              icon: 'people',
-              primary: true,
-            },
-          ]}
-        />
+                      actions={USE_MOCK_DATA ? [] : [
+              {
+                label: 'Find Cleaners',
+                onPress: () => (navigation as any).navigate('Discover'),
+                icon: 'people',
+                primary: true,
+              },
+            ]}
+          />
       ) : (
         <FlatList
           data={filteredConversations}
@@ -285,7 +285,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           unreadCount={3}
         />
       ) : (
-        <FloatingNavigation navigation={navigation} currentScreen="Messages" />
+        <FloatingNavigation navigation={navigation as any} currentScreen="Messages" />
       )}
     </SafeAreaView>
   );

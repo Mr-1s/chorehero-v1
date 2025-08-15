@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, StatusBar, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const AboutScreen = ({ navigation }) => (
+const AboutScreen = ({ navigation }: { navigation: any }) => (
   <SafeAreaView style={styles.container}>
     <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
     <View style={styles.header}>

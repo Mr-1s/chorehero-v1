@@ -365,7 +365,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'Profile Information',
             'Update your personal details',
             undefined,
-            () => navigation.navigate('EditProfileScreen'),
+            () => (navigation as any).navigate('EditProfileScreen'),
             true
           ),
           renderSettingsItem(
@@ -381,7 +381,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'Addresses',
             'Manage saved addresses',
             undefined,
-            () => navigation.navigate('AddressManagementScreen'),
+            () => (navigation as any).navigate('AddressManagementScreen'),
             true
           ),
           renderSettingsItem(
@@ -443,7 +443,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'Notification Center',
             'View all notifications',
             undefined,
-            () => navigation.navigate('NotificationsScreen'),
+            () => (navigation as any).navigate('NotificationsScreen'),
             true
           ),
         ])}
@@ -529,7 +529,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'About',
             'App version and legal information',
             undefined,
-            () => navigation.navigate('AboutScreen'),
+            () => (navigation as any).navigate('AboutScreen'),
             true
           ),
         ])}

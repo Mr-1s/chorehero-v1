@@ -79,6 +79,39 @@ class StripeService {
     };
   }
 
+  // Stubbed cleaner transfer creation until backend is wired
+  async createCleanerTransfer(
+    cleanerAccountId: string,
+    amount: number,
+    bookingId: string
+  ): Promise<ApiResponse<{ transfer_id: string; amount: number; account: string }>> {
+    try {
+      // In a real app, call your backend to create a transfer via Stripe SDK
+      const mock = {
+        transfer_id: `tr_${Math.random().toString(36).slice(2)}`,
+        amount,
+        account: cleanerAccountId,
+      };
+
+      // Optionally persist a record
+      await supabase.from('payments').insert({
+        booking_id: bookingId,
+        cleaner_account: cleanerAccountId,
+        transfer_id: mock.transfer_id,
+        transfer_amount: amount,
+        created_at: new Date().toISOString(),
+      });
+
+      return { success: true, data: mock };
+    } catch (error) {
+      return {
+        success: false,
+        data: null as any,
+        error: error instanceof Error ? error.message : 'Failed to create cleaner transfer',
+      };
+    }
+  }
+
   // Create Stripe Connect account for cleaner
   async createConnectAccount(userId: string): Promise<ApiResponse<{ account_id: string; onboarding_url: string }>> {
     try {

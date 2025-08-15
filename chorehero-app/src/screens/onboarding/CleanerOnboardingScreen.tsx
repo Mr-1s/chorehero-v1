@@ -257,8 +257,8 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           .insert([{
             user_id: user.id,
             hourly_rate: parseFloat(data.hourlyRate) || 25.00,
-            bio: `${data.bio || ''}\n\nExperience: ${data.experienceYears} years\nServices: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}\nTransportation: ${data.transportation}\nAvailability: ${Object.entries(data.availability || {}).filter(([day, available]) => available).map(([day]) => day).join(', ')}\nService Radius: ${data.serviceRadius} miles\n\nSkills:\n- Cleaning Knowledge: ${data.cleaningKnowledge}/5\n- Customer Service: ${data.customerService}/5\n- Time Management: ${data.timeManagement}/5\n\nWork Samples: ${data.workSamples || 'None provided'}\n\nAuthorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}\nEmergency Contact: ${data.emergencyContact} (${data.emergencyPhone})\nBackground Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
-            years_experience: parseInt(data.experienceYears) || 0,
+            bio: `${(data.workSamples || data.references || '').toString()}\n\nExperience: ${parseInt(data.yearsExperience) || 0} years\nServices: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}\nTransportation: ${data.hasTransportation ? 'Yes' : 'No'}\nAvailability: ${(data.availableDays || []).join(', ')}\nService Radius: ${data.serviceRadius} miles\n\nSkills:\n- Cleaning Knowledge: ${data.cleaningKnowledge}/5\n- Customer Service: ${data.customerService}/5\n- Time Management: ${data.timeManagement}/5\n\nAuthorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}\nEmergency Contact: ${data.emergencyContact} (${data.emergencyPhone})\nBackground Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
+            years_experience: parseInt(data.yearsExperience) || 0,
             specialties: data.serviceTypes || ['standard_cleaning'],
             service_radius_km: Math.round((parseInt(data.serviceRadius) || 10) * 1.60934), // Convert miles to km
             verification_status: 'pending',
@@ -271,10 +271,10 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             .from('addresses')
             .insert([{
               user_id: user.id,
-              street: data.address,
-              city: data.city,
-              state: data.state,
-              zip_code: data.zipCode,
+              street: '',
+              city: '',
+              state: '',
+              zip_code: '',
               is_default: true,
               nickname: 'Service Address',
             }]);
