@@ -3,6 +3,7 @@ export interface BaseUser {
   phone: string;
   email?: string;
   name: string;
+  username?: string; // optional handle, unique when set
   avatar_url?: string;
   created_at: string;
   updated_at: string;

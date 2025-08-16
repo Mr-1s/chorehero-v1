@@ -90,6 +90,7 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasBookingTemplate, setHasBookingTemplate] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -117,6 +118,22 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
       };
 
       setProfile(mockProfile);
+
+      // Ensure default booking template exists for this cleaner
+      try {
+        const { supabase } = await import('../../services/supabase');
+        const { data, error } = await supabase
+          .from('cleaner_booking_templates')
+          .select('user_id')
+          .eq('user_id', user?.id)
+          .single();
+        if (error && (error as any).code === 'PGRST116') {
+          await supabase.rpc('ensure_default_booking_template', { p_user_id: user?.id });
+        }
+        setHasBookingTemplate(true);
+      } catch (e) {
+        console.warn('Booking template ensure failed (non-blocking):', e);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
       Alert.alert('Error', 'Failed to load profile');
@@ -380,6 +397,19 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
           </View>
         </View>
 
+        {/* Booking Template */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Booking Template</Text>
+          <Text style={styles.sectionDescription}>Customize the booking steps, fields, and add-ons customers see when booking you.</Text>
+          <TouchableOpacity
+            style={styles.templateButton}
+            onPress={() => navigation.navigate('CleanerProfileEdit' as never)}
+          >
+            <Ionicons name="construct-outline" size={18} color="#3ad3db" />
+            <Text style={styles.templateButtonText}>{hasBookingTemplate ? 'Edit Template (coming soon)' : 'Create Template (coming soon)'}</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Settings</Text>
@@ -631,6 +661,22 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 40,
+  },
+  templateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    marginTop: 8,
+    gap: 8,
+  },
+  templateButtonText: {
+    color: '#3ad3db',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

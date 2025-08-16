@@ -320,6 +320,7 @@ class AuthService {
     updates: Partial<{
       name: string;
       email: string;
+      username: string;
       avatar_url: string;
     }>
   ): Promise<ApiResponse<User>> {
