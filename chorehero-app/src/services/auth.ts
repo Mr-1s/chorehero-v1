@@ -402,7 +402,20 @@ class AuthService {
         };
       }
 
-      const userProfile = await getUserProfile(data.session.user.id);
+      // Load full user profile
+      const { data: userProfile, error: profileError } = await supabase
+        .from('users')
+        .select(`
+          *,
+          customer_profiles(*),
+          cleaner_profiles(*)
+        `)
+        .eq('id', data.session.user.id)
+        .single();
+
+      if (profileError) {
+        throw profileError;
+      }
 
       return {
         success: true,

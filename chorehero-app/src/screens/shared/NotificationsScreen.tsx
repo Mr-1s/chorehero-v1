@@ -13,7 +13,7 @@ const mockNotifications = [
   { id: '4', type: 'system', title: 'New Feature', message: 'Try our new video profile feature!', timestamp: '1 day ago', read: true },
 ];
 
-const getIcon = (type) => {
+const getIcon = (type: Notification['type'] | string) => {
   switch (type) {
     case 'booking': return 'calendar-outline';
     case 'service': return 'checkmark-circle-outline';
@@ -23,7 +23,7 @@ const getIcon = (type) => {
   }
 };
 
-const NotificationsScreen = ({ navigation }) => {
+const NotificationsScreen = ({ navigation }: { navigation: any }) => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);

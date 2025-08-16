@@ -11,7 +11,7 @@ import {
   FlatList,
   Image,
 } from 'react-native';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -427,7 +427,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
             source={{ uri: selectedVideo }}
             style={styles.videoPreview}
             useNativeControls
-            resizeMode="cover"
+            resizeMode={ResizeMode.COVER}
             shouldPlay={false}
           />
         </View>

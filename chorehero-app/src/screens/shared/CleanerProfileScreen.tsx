@@ -209,26 +209,28 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       } else {
         console.log('📭 No videos found for this cleaner, showing sample videos');
         // Show sample videos as fallback
-        const sampleVideos: CleanerVideo[] = [
-          {
-            id: '1',
-            title: 'Kitchen Deep Clean Demo',
-            media_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-            thumbnail_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-            view_count: 1200,
-            like_count: 89,
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: '2',
-            title: 'Bathroom Sanitization',
-            media_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
-            thumbnail_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
-            view_count: 850,
-            like_count: 67,
-            created_at: new Date().toISOString(),
-          },
-        ];
+                  const sampleVideos: CleanerVideo[] = [
+            {
+              id: '1',
+              title: 'Kitchen Deep Clean Demo',
+              description: 'Watch a thorough kitchen deep clean',
+              media_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+              thumbnail_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+              view_count: 1200,
+              like_count: 89,
+              created_at: new Date().toISOString(),
+            },
+            {
+              id: '2',
+              title: 'Bathroom Sanitization',
+              description: 'Sanitizing a bathroom to sparkle',
+              media_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
+              thumbnail_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
+              view_count: 850,
+              like_count: 67,
+              created_at: new Date().toISOString(),
+            },
+          ];
         setVideos(sampleVideos);
       }
     } catch (error) {
@@ -751,9 +753,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           {activeTab === 'videos' && (
             <View>
               {loadingVideos ? (
-                <View style={styles.loadingContainer}>
+                <View style={styles.loadingContainerAlt}>
                   <ActivityIndicator size="small" color="#3ad3db" />
-                  <Text style={styles.loadingText}>Loading videos...</Text>
+                  <Text style={styles.loadingTextAlt}>Loading videos...</Text>
                 </View>
               ) : videos.length > 0 ? (
                 <View style={styles.videosGrid}>
@@ -1347,10 +1349,11 @@ const styles = StyleSheet.create({
     height: 120,
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
   },
   loadingText: {
     color: '#1F2937',
@@ -1546,14 +1549,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  loadingContainer: {
+  loadingContainerAlt: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 40,
     gap: 12,
   },
-  loadingText: {
+  loadingTextAlt: {
     fontSize: 14,
     color: '#8E8E93',
     fontWeight: '500',

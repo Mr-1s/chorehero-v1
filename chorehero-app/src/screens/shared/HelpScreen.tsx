@@ -9,7 +9,7 @@ const faqs = [
   { q: 'What if I need to reschedule?', a: 'You can reschedule from your Dashboard or by contacting support.' },
 ];
 
-const HelpScreen = ({ navigation }) => (
+const HelpScreen = ({ navigation }: { navigation: any }) => (
   <SafeAreaView style={styles.container}>
     <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
     <View style={styles.header}>

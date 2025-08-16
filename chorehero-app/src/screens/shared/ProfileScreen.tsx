@@ -538,7 +538,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
       </ScrollView>
 
       {/* Floating Navigation */}
-      <FloatingNavigation navigation={navigation} currentScreen="Profile" />
+      <FloatingNavigation navigation={navigation as any} currentScreen="Profile" />
     </SafeAreaView>
   );
 };

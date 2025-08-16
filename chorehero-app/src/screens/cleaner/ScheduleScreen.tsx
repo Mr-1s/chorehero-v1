@@ -225,7 +225,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
 
                   {booking.status === 'confirmed' && (
                     <TouchableOpacity style={styles.navigateButton}>
-                      <Ionicons name="navigation" size={16} color="#FF6B6B" />
+                      <Ionicons name="navigate" size={16} color="#FF6B6B" />
                       <Text style={styles.navigateText}>Start Navigation</Text>
                     </TouchableOpacity>
                   )}

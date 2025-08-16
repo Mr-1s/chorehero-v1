@@ -27,12 +27,13 @@ export const routeToMessage = async ({ participant, bookingId, navigation, curre
     if (currentUserId && !currentUserId.startsWith('demo_')) {
       console.log('💬 Creating/getting chat room for real users');
       
+      // Map to service params (customer/cleaner order doesn't matter for participants array, but keep semantic)
+      const params = participant.role === 'customer'
+        ? { customer_id: participant.id, cleaner_id: currentUserId, booking_id: bookingId || 'general' }
+        : { customer_id: currentUserId, cleaner_id: participant.id, booking_id: bookingId || 'general' };
+
       // Create or get existing chat room
-      const response = await messageService.createOrGetChatRoom({
-        participant1Id: currentUserId,
-        participant2Id: participant.id,
-        bookingId
-      });
+      const response = await messageService.createOrGetChatRoom(params);
 
       if (response.success && response.data) {
         // Navigate to chat with the room ID

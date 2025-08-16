@@ -252,7 +252,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       subtitle: 'View profiles & videos',
       icon: 'people',
       color: ['#3B82F6', '#2563EB'],
-      onPress: () => navigation.navigate('VideoFeedScreen'),
+      onPress: () => (navigation as any).navigate('VideoFeedScreen'),
     },
     {
       id: 'saved',
@@ -321,7 +321,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
             onPress={action.onPress}
           >
             <LinearGradient
-              colors={action.color}
+              colors={action.color as [string, string]}
               style={styles.quickActionGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
@@ -427,7 +427,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Upcoming Bookings</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Bookings')}>
+        <TouchableOpacity onPress={() => (navigation as any).navigate('Bookings')}>
           <Text style={styles.sectionLink}>View All</Text>
         </TouchableOpacity>
       </View>

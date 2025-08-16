@@ -291,7 +291,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   };
 
   const handleTrackService = () => {
-    navigation.navigate('LiveTracking', { bookingId });
+    navigation.navigate('LiveTracking', { bookingId: bookingId || 'general' });
   };
 
   const formatTime = (date: Date) => {

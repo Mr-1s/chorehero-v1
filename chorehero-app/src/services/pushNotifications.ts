@@ -9,6 +9,9 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    // Added for SDK 53 NotificationBehavior typing
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -364,7 +367,7 @@ class PushNotificationService {
               body: `You have a job with ${job.customer.name} in 30 minutes`,
               data: { bookingId: job.id },
             },
-            trigger: { date: reminderTime },
+            trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: reminderTime },
           });
         }
       }
