@@ -267,7 +267,7 @@ class MessageService {
           table: 'chat_messages',
           filter: `room_id=eq.${roomId}`
         }, 
-        async (payload) => {
+        async (payload: any) => {
           console.log('📨 New message received:', payload);
           
           // Get sender info
@@ -305,7 +305,7 @@ class MessageService {
           table: 'chat_rooms'
           // Note: We'll filter client-side since Supabase doesn't support contains in realtime filters
         }, 
-        (payload) => {
+        (payload: any) => {
           console.log('🏠 Chat room update:', payload);
           
           // Check if this room involves the current user

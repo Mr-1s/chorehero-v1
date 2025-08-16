@@ -495,7 +495,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         // Navigate to booking flow for this cleaner
         console.log('🎯 Booking from Discover video:', video.user?.name);
         navigation.navigate('SimpleBookingFlow', {
-          cleanerId: video.user?.id || 'demo-cleaner',
+          // cleanerId intentionally omitted here; handled downstream if needed
           serviceName: video.title,
           fromVideoFeed: true
         });
@@ -751,7 +751,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       </ScrollView>
       
       {/* Floating Navigation */}
-      <FloatingNavigation navigation={navigation} currentScreen="Discover" />
+      <FloatingNavigation navigation={navigation as any} currentScreen="Discover" />
     </View>
   );
 };

@@ -289,7 +289,7 @@ class UploadService {
       await this.updateUploadRetryCount(uploadId, retryCount + 1);
       
       // Retry the upload
-      const retryResult = await this.performUpload(uploadId, fileUri, type, onProgress, config, retryCount + 1);
+      const retryResult = await this.performUpload(uploadId, fileUri, type, config, onProgress, retryCount + 1);
       resolve(retryResult);
     } else {
       // Max retries reached or non-retryable error
@@ -388,8 +388,8 @@ class UploadService {
             upload.uploadId,
             upload.fileUri,
             upload.type,
-            undefined,
             this.defaultConfig,
+            undefined,
             upload.retryCount
           );
         }

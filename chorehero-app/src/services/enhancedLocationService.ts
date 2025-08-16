@@ -408,7 +408,7 @@ class EnhancedLocationService {
   ): Promise<() => void> {
     const channel = supabase
       .channel('location_updates')
-      .on('broadcast', { event: 'location_update' }, (payload) => {
+      .on('broadcast', { event: 'location_update' }, (payload: any) => {
         if (payload.payload.bookingId === bookingId) {
           callback(payload.payload);
         }

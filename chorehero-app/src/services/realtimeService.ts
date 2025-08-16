@@ -92,7 +92,7 @@ class RealtimeService {
           table: 'bookings',
           filter: userRole === 'customer' ? `customer_id=eq.${userId}` : `cleaner_id=eq.${userId}`
         },
-        (payload) => {
+        (payload: any) => {
           console.log('📦 Booking update received:', payload);
           callback(payload as RealtimePostgresChangesPayload<BookingUpdate>);
         }

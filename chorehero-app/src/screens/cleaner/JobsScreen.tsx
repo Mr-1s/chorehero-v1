@@ -160,7 +160,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         
         if (response.success && response.data) {
           // Transform booking data to job format
-          const transformedJobs = response.data.map(booking => ({
+          const transformedJobs = response.data.map((booking: any) => ({
             id: booking.id,
             customer: {
               id: booking.customer?.id || '',
@@ -173,7 +173,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
               type: booking.service_type,
               title: booking.service_type === 'express' ? 'Express Clean' : 
                      booking.service_type === 'deep' ? 'Deep Clean' : 'Standard Clean',
-              addOns: booking.booking_add_ons?.map(addon => addon.add_ons?.name) || [],
+              addOns: (booking.booking_add_ons as any[])?.map((addon: any) => addon.add_ons?.name) || [],
             },
             location: {
               address: booking.service_address_line1 ? 
@@ -196,10 +196,10 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             priority: 'medium',
             isInstantBook: true,
             createdAt: booking.created_at,
-          }));
+          })) as any;
           
           console.log(`Loaded ${transformedJobs.length} real jobs for cleaner`);
-          setJobs(transformedJobs);
+          setJobs(transformedJobs as any);
         } else {
           console.log('No real jobs found, showing empty state');
           setJobs([]);

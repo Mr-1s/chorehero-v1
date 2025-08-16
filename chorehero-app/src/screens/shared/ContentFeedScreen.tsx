@@ -16,7 +16,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -339,7 +339,7 @@ const ContentFeedScreen: React.FC<ContentFeedProps> = ({ navigation }) => {
               source={{ uri: post.media_url }}
               style={styles.media}
               useNativeControls
-              resizeMode="cover"
+              resizeMode={ResizeMode.COVER}
               shouldPlay={false}
               onPlaybackStatusUpdate={(status) => {
                 if ('positionMillis' in status && status.positionMillis > 5000) {
