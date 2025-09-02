@@ -45,12 +45,18 @@ export interface GuestCleaner {
 }
 
 class GuestModeService {
+  // TODO: For production, integrate with Pexels API to get real cleaning videos
+  // 1. Get Pexels API key from https://www.pexels.com/api/
+  // 2. Search for cleaning videos: https://api.pexels.com/videos/search?query=cleaning
+  // 3. Use video_files[0].link for MP4 URLs
+  // 4. Add proper attribution as required by Pexels license
+  
   private professionalVideos: GuestVideo[] = [
     {
       id: 'prof-video-1',
       title: 'Professional Kitchen Deep Clean Transformation',
       description: 'Watch this amazing kitchen transformation using professional-grade equipment and techniques. From greasy surfaces to sparkling clean!',
-      video_url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4',
+      video_url: 'https://pixabay.com/videos/download/video-16470_tiny.mp4', // Kitchen cleaning demo
       thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop',
       cleaner_name: 'Professional Cleaning Co.',
       cleaner_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
@@ -64,7 +70,7 @@ class GuestModeService {
       id: 'prof-video-2',
       title: 'Bathroom Grout Restoration Magic',
       description: 'Professional grout cleaning and restoration techniques that make old bathrooms look brand new. Amazing results!',
-      video_url: 'https://vjs.zencdn.net/v/oceans.mp4',
+      video_url: 'https://pixabay.com/videos/download/video-27019_tiny.mp4', // Bathroom cleaning demo
       thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop',
       cleaner_name: 'Elite Bathroom Cleaners',
       cleaner_avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b754?w=100&h=100&fit=crop&crop=face',
@@ -78,7 +84,7 @@ class GuestModeService {
       id: 'prof-video-3',
       title: 'Living Room Deep Clean & Organization',
       description: 'Complete living room transformation including upholstery cleaning, carpet deep clean, and professional organization.',
-      video_url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm',
+      video_url: 'https://pixabay.com/videos/download/video-73646_tiny.mp4', // Home cleaning demo
       thumbnail_url: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400&h=600&fit=crop',
       cleaner_name: 'Home Refresh Specialists',
       cleaner_avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
@@ -92,7 +98,7 @@ class GuestModeService {
       id: 'prof-video-4',
       title: 'Master Bedroom Cleaning & Sanitization',
       description: 'Professional bedroom cleaning including mattress sanitization, closet organization, and deep dusting techniques.',
-      video_url: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/gizmo.mp4',
+      video_url: 'https://pixabay.com/videos/download/video-12662_tiny.mp4', // Bedroom organization demo
       thumbnail_url: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400&h=600&fit=crop',
       cleaner_name: 'Sleep Clean Experts',
       cleaner_avatar: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?w=100&h=100&fit=crop&crop=face',
@@ -159,6 +165,44 @@ class GuestModeService {
       return this.professionalVideos; // Fallback to professional videos
     }
   }
+
+  /**
+   * Future: Fetch videos from Pexels API
+   * Uncomment and implement when you have a Pexels API key
+   */
+  /*
+  async fetchPexelsVideos(query: string = 'cleaning'): Promise<GuestVideo[]> {
+    const PEXELS_API_KEY = 'YOUR_PEXELS_API_KEY'; // Add to environment variables
+    
+    try {
+      const response = await fetch(`https://api.pexels.com/videos/search?query=${query}&per_page=10`, {
+        headers: {
+          'Authorization': PEXELS_API_KEY
+        }
+      });
+      
+      const data = await response.json();
+      
+      return data.videos.map((video: any, index: number): GuestVideo => ({
+        id: `pexels-${video.id}`,
+        title: `Professional ${query} Demonstration ${index + 1}`,
+        description: `Professional cleaning techniques demonstrated by experts.`,
+        video_url: video.video_files[0].link, // Get the first available video file
+        thumbnail_url: video.image,
+        cleaner_name: `${video.user.name} Cleaning Services`,
+        cleaner_avatar: `https://images.unsplash.com/photo-150700321116${index}?w=100&h=100&fit=crop&crop=face`,
+        duration: video.duration || 120,
+        view_count: Math.floor(Math.random() * 50000) + 10000,
+        like_count: Math.floor(Math.random() * 5000) + 500,
+        category: query.charAt(0).toUpperCase() + query.slice(1),
+        created_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
+      }));
+    } catch (error) {
+      console.error('Error fetching Pexels videos:', error);
+      return this.professionalVideos; // Fallback to hardcoded videos
+    }
+  }
+  */
 
   /**
    * Get enhanced video feed that includes professional videos for guests when no real data exists
