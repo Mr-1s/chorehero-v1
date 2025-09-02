@@ -2,7 +2,7 @@
   "expo": {
     "name": "ChoreHero",
     "slug": "chorehero-app",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -33,7 +33,7 @@
           "background-processing"
         ]
       },
-      "runtimeVersion": "1.0.0"
+      "runtimeVersion": "1.1.0"
     },
     "android": {
       "adaptiveIcon": {
