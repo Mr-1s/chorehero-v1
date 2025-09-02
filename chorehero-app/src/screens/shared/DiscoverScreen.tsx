@@ -176,7 +176,35 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       setLoadingVideos(true);
       console.log('🎬 Loading featured videos for Discover tab...');
 
-      // Get videos from the real content service
+      // Check if user is a guest - prioritize demo mode for guest users
+      const isGuest = await guestModeService.isGuestUser();
+      console.log('🚪 Is guest user in Discover:', isGuest);
+
+      // If user is a guest, always show professional demo videos
+      if (isGuest) {
+        console.log('🎬 Guest user detected - Loading demo videos for Discover Featured Videos');
+        const guestVideos = await guestModeService.getGuestVideos();
+        const transformedVideos = guestVideos.slice(0, 3).map(video => ({
+          id: video.id,
+          title: video.title,
+          description: video.description,
+          media_url: video.video_url,
+          thumbnail_url: video.thumbnail_url,
+          user: {
+            id: video.id,
+            name: video.cleaner_name,
+            avatar_url: video.cleaner_avatar,
+          },
+          view_count: video.view_count,
+          like_count: video.like_count,
+          created_at: video.created_at
+        }));
+        setFeaturedVideos(transformedVideos);
+        console.log(`✅ Loaded ${transformedVideos.length} professional videos for guest`);
+        return;
+      }
+
+      // For authenticated users, get videos from the real content service
       const response = await contentService.getFeed({
         filters: { content_type: 'video' },
         sort_by: 'recent',
@@ -199,31 +227,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         console.log(`✅ Loaded ${videos.length} real featured videos`);
         setFeaturedVideos(videos);
       } else {
-        console.log('📭 No real videos found - checking for guest videos');
-        // Check if user is a guest and show professional videos
-        const isGuest = await guestModeService.isGuestUser();
-        if (isGuest) {
-          const guestVideos = await guestModeService.getGuestVideos();
-          const transformedVideos = guestVideos.slice(0, 3).map(video => ({
-            id: video.id,
-            title: video.title,
-            description: video.description,
-            media_url: video.video_url,
-            thumbnail_url: video.thumbnail_url,
-            user: {
-              id: video.id,
-              name: video.cleaner_name,
-              avatar_url: video.cleaner_avatar,
-            },
-            view_count: video.view_count,
-            like_count: video.like_count,
-            created_at: video.created_at
-          }));
-          setFeaturedVideos(transformedVideos);
-          console.log(`✅ Loaded ${transformedVideos.length} professional videos for guest`);
-        } else {
-          setFeaturedVideos([]);
-        }
+        console.log('📭 No real videos found for authenticated user');
+        setFeaturedVideos([]);
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);

@@ -335,11 +335,53 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       console.log('🌐 Loading real content from database...');
       console.log('👤 Current user:', user ? `${user.name} (${user.role})` : 'No user');
       
-      // Check if user is a guest
+      // Check if user is a guest - prioritize demo mode for guest users
       const isGuest = await guestModeService.isGuestUser();
       console.log('🚪 Is guest user:', isGuest);
       
-      // First, check if we have any cleaner profiles in the database
+      // If user is a guest, always show professional demo videos
+      if (isGuest) {
+        console.log('🎬 Guest user detected - Loading professional demo videos');
+        const guestVideos = await guestModeService.getGuestVideos();
+        const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
+          id: video.id,
+          cleaner: {
+            user_id: video.id,
+            name: video.cleaner_name,
+            username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
+            rating_average: 4.8 + Math.random() * 0.2,
+            total_jobs: Math.floor(video.view_count / 100),
+            hourly_rate: 25 + Math.floor(Math.random() * 20),
+            service_title: `Professional ${video.category} Cleaning`,
+            estimated_duration: `${Math.floor(video.duration / 60)}-${Math.floor(video.duration / 60) + 1} hours`,
+            avatar_url: video.cleaner_avatar,
+            bio: video.description.substring(0, 100) + '...',
+            video_profile_url: video.video_url,
+            specialties: [video.category, 'Professional Cleaning'],
+            verification_status: 'verified',
+            is_available: true,
+            service_radius_km: 25,
+          },
+          video_url: video.video_url,
+          title: video.title,
+          description: video.description,
+          liked: false,
+          saved: false,
+          likes: video.like_count,
+          comments: Math.floor(video.like_count * 0.1),
+          shares: Math.floor(video.like_count * 0.05),
+          views: video.view_count,
+          location: 'Professional Service Area',
+          tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
+          is_featured: true,
+          created_at: video.created_at,
+        }));
+        setVideos(transformedGuestVideos);
+        console.log(`✅ Loaded ${transformedGuestVideos.length} professional videos for guest user`);
+        return;
+      }
+      
+      // For authenticated users, check if we have any cleaner profiles in the database
       const { data: cleanerProfiles, error: cleanerError } = await supabase
         .from('users')
         .select('id, name')
@@ -352,50 +394,10 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         error: cleanerError?.message
       });
       
-      // If no cleaners found, check if we should show guest videos
+      // If no cleaners found for authenticated users, show empty state
       if (cleanerError || !cleanerProfiles || cleanerProfiles.length === 0) {
-        console.log('📭 No cleaners found in database');
-        if (isGuest) {
-          console.log('🎬 Loading professional videos for guest user');
-          const guestVideos = await guestModeService.getGuestVideos();
-          const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
-            id: video.id,
-            cleaner: {
-              user_id: video.id,
-              name: video.cleaner_name,
-              username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
-              rating_average: 4.8 + Math.random() * 0.2,
-              total_jobs: Math.floor(video.view_count / 100),
-              hourly_rate: 25 + Math.floor(Math.random() * 20),
-              service_title: `Professional ${video.category} Cleaning`,
-              estimated_duration: `${Math.floor(video.duration / 60)}-${Math.floor(video.duration / 60) + 1} hours`,
-              avatar_url: video.cleaner_avatar,
-              bio: video.description.substring(0, 100) + '...',
-              video_profile_url: video.video_url,
-              specialties: [video.category, 'Professional Cleaning'],
-              verification_status: 'verified',
-              is_available: true,
-              service_radius_km: 25,
-            },
-            video_url: video.video_url,
-            title: video.title,
-            description: video.description,
-            liked: false,
-            saved: false,
-            likes: video.like_count,
-            comments: Math.floor(video.like_count * 0.1),
-            shares: Math.floor(video.like_count * 0.05),
-            views: video.view_count,
-            location: 'Professional Service Area',
-            tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
-            is_featured: true,
-            created_at: video.created_at,
-          }));
-          setVideos(transformedGuestVideos);
-          console.log(`✅ Loaded ${transformedGuestVideos.length} professional videos for guest`);
-        } else {
-          setVideos([]);
-        }
+        console.log('📭 No cleaners found in database for authenticated user');
+        setVideos([]);
         return;
       }
       
