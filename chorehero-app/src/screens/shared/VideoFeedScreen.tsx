@@ -34,6 +34,7 @@ import { notificationService } from '../../services/notificationService';
 import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
 import { locationService } from '../../services/location';
+import { guestModeService } from '../../services/guestModeService';
 
 type TabParamList = {
   Home: undefined;

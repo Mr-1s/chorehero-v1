@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NavigationProp } from '@react-navigation/native';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { useLocationContext } from '../../context/LocationContext';
@@ -40,10 +40,15 @@ type TabParamList = {
     basePrice: number;
     duration: number;
   };
+  ServiceDetail: {
+    serviceId: string;
+    serviceName: string;
+    category: string;
+  };
   NotificationsScreen: undefined;
 };
 
-type DiscoverScreenNavigationProp = BottomTabNavigationProp<TabParamList, 'Discover'>;
+type DiscoverScreenNavigationProp = NavigationProp<TabParamList>;
 
 interface DiscoverScreenProps {
   navigation: DiscoverScreenNavigationProp;
@@ -178,7 +183,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         limit: 6 // Show 6 featured videos
       });
 
-      if (response.success && response.data?.posts) {
+      if (response.success && response.data?.posts && response.data.posts.length > 0) {
         const videos = response.data.posts.map((post: any) => ({
           id: post.id,
           title: post.title || 'Cleaning Video',
@@ -194,8 +199,31 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         console.log(`✅ Loaded ${videos.length} real featured videos`);
         setFeaturedVideos(videos);
       } else {
-        console.log('📭 No real videos found - showing empty state');
-        setFeaturedVideos([]);
+        console.log('📭 No real videos found - checking for guest videos');
+        // Check if user is a guest and show professional videos
+        const isGuest = await guestModeService.isGuestUser();
+        if (isGuest) {
+          const guestVideos = await guestModeService.getGuestVideos();
+          const transformedVideos = guestVideos.slice(0, 3).map(video => ({
+            id: video.id,
+            title: video.title,
+            description: video.description,
+            media_url: video.video_url,
+            thumbnail_url: video.thumbnail_url,
+            user: {
+              id: video.id,
+              name: video.cleaner_name,
+              avatar_url: video.cleaner_avatar,
+            },
+            view_count: video.view_count,
+            like_count: video.like_count,
+            created_at: video.created_at
+          }));
+          setFeaturedVideos(transformedVideos);
+          console.log(`✅ Loaded ${transformedVideos.length} professional videos for guest`);
+        } else {
+          setFeaturedVideos([]);
+        }
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
