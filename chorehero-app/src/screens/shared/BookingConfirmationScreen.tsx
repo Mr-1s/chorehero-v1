@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { dummyWalletService } from '../../services/dummyWalletService';
+
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 
@@ -77,8 +77,7 @@ const BookingConfirmationScreen = (props: any) => {
     // Haptic feedback for success
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    // Process dummy payment automatically
-    processBookingPayment();
+
 
     // Success animations sequence
     Animated.sequence([
@@ -122,34 +121,7 @@ const BookingConfirmationScreen = (props: any) => {
     }).start();
   }, []);
 
-  const processBookingPayment = async () => {
-    try {
-      console.log('💳 Processing booking payment with dummy wallet...');
-      
-      // Simulate payment processing with dummy wallet
-      const response = await dummyWalletService.processBookingPayment(
-        user?.id || 'unknown-user',
-        cleaner.id,
-        bookingId,
-        Math.round(service.price * 100), // Convert to cents
-        0 // No tip for now
-      );
 
-      if (response.success) {
-        console.log('✅ Payment processed successfully:', response.data.transaction_id);
-        console.log('💰 Payment breakdown:', response.data.breakdown);
-      } else {
-        console.log('❌ Payment failed:', response.error);
-        // Surface a friendly message and suggest adding funds
-        try {
-          // eslint-disable-next-line no-alert
-          alert('Payment processing failed: ' + (response.error || 'Insufficient balance. Please add funds to your wallet.'));
-        } catch {}
-      }
-    } catch (error) {
-      console.error('Error processing booking payment:', error);
-    }
-  };
 
   const handleTrackService = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);

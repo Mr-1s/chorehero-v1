@@ -19,7 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import FloatingNavigation from '../../components/FloatingNavigation';
 

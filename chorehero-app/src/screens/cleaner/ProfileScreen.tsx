@@ -24,7 +24,7 @@ import { Video, ResizeMode } from 'expo-av';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { COLORS } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
 import { contentService } from '../../services/contentService';

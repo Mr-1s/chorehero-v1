@@ -35,10 +35,28 @@ export const supabase = isDevelopmentMode && (supabaseUrl.includes('placeholder'
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // Suppress refresh token errors in console
+      debug: false,
     },
     realtime: {
       params: {
         eventsPerSecond: 10,
+      },
+    },
+    // Add global error handler
+    global: {
+      fetch: (url, options = {}) => {
+        return fetch(url, {
+          ...options,
+          // Add custom error handling if needed
+        }).catch(error => {
+          // Suppress specific auth errors from console
+          if (error.message?.includes('refresh') || error.message?.includes('token')) {
+            console.log('🔄 Auth token refresh handled silently');
+            throw error; // Still throw for proper error handling
+          }
+          throw error;
+        });
       },
     },
   });

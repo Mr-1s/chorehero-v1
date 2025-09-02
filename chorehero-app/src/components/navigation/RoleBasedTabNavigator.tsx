@@ -35,7 +35,7 @@ import AddressManagementScreen from '../../screens/shared/AddressManagementScree
 import SavedServicesScreen from '../../screens/shared/SavedServicesScreen';
 import JobDetailsScreen from '../../screens/shared/JobDetailsScreen';
 import CleanerProfileEditScreen from '../../screens/cleaner/ProfileEditScreen';
-import DummyWalletScreen from '../../screens/shared/DummyWalletScreen';
+
 
 import { COLORS } from '../../utils/constants';
 
@@ -91,7 +91,7 @@ const CustomerNavigator = () => {
       <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen} />
       <Stack.Screen name="SavedServices" component={SavedServicesScreen} />
       <Stack.Screen name="JobDetails" component={JobDetailsScreen} />
-      <Stack.Screen name="DummyWallet" component={DummyWalletScreen} />
+
     </Stack.Navigator>
   );
 };
@@ -123,13 +123,13 @@ const CleanerNavigator = () => {
       <Stack.Screen name="SavedServices" component={SavedServicesScreen} />
       <Stack.Screen name="JobDetails" component={JobDetailsScreen} />
       <Stack.Screen name="CleanerProfileEdit" component={CleanerProfileEditScreen} />
-      <Stack.Screen name="DummyWallet" component={DummyWalletScreen} />
+
     </Stack.Navigator>
   );
 };
 
 const RoleBasedTabNavigator = () => {
-  const { isCleaner, isCustomer, isAuthenticated, isDemoMode, setDemoUser, user } = useAuth();
+  const { isCleaner, isCustomer, isAuthenticated, user } = useAuth();
   const [isLoadingRole, setIsLoadingRole] = useState(true);
   const [showRoleSelection, setShowRoleSelection] = useState(false);
 
@@ -139,74 +139,57 @@ const RoleBasedTabNavigator = () => {
       try {
         console.log('🔍 checkDemoRole called - Current state:', {
           isAuthenticated,
-          isDemoMode,
           isCleaner,
           isCustomer,
           userName: user?.name
         });
         
-         if (isAuthenticated && !isDemoMode) {
-          // For real authenticated users without demo mode, ignore demo role
+         if (isAuthenticated) {
+          // For real authenticated users, ignore demo role
           console.log('Real authenticated user detected, ignoring demo role');
           setIsLoadingRole(false);
           return;
         }
         
-        if (isAuthenticated && isDemoMode) {
-          // Real user with demo mode active - prefer demo mode
-          console.log('Real user with demo mode active - using demo role');
-        }
+        // Demo mode removed - simplified logic
 
-        // Show role selection if no demo mode, not authenticated, and no valid role
-        if (!isAuthenticated && !isDemoMode && !isCleaner && !isCustomer) {
-          console.log('No auth, no demo mode, no role - showing role selection');
-          setShowRoleSelection(true);
-          } else {
-          console.log('Auth, demo mode, or role exists - hiding role selection');
-          setShowRoleSelection(false);
-        }
+        // For guest users (not authenticated), show customer interface by default
+        // No need for role selection modal since demo system is removed
+        setShowRoleSelection(false);
         
         setIsLoadingRole(false);
       } catch (error) {
-        console.error('Error checking demo role:', error);
-        if (!isAuthenticated) {
-          setShowRoleSelection(true);
-        }
+        console.error('Error in navigation setup:', error);
+        setShowRoleSelection(false); // Always hide role selection since demo is removed
         setIsLoadingRole(false);
       }
     };
 
     checkDemoRole();
-  }, [isCleaner, isCustomer, isAuthenticated, isDemoMode, user]);
+  }, [isCleaner, isCustomer, isAuthenticated, user]);
 
   const handleRoleSelected = async (role: 'customer' | 'cleaner') => {
     try {
       console.log('🎯 Setting demo user role:', role);
       // Use the new demo system to set a specific demo user
       const cleanerType = role === 'cleaner' ? 'sarah' : undefined; // Default to Sarah for demo
-      await setDemoUser(role, cleanerType);
+      // Demo system removed - this should not be called
+      console.log('Role selection disabled - demo system removed');
       setShowRoleSelection(false);
-      console.log('✅ Demo role selected and set:', role);
-      
-      // Force a small delay and re-check to ensure state updates
-      setTimeout(() => {
-        console.log('🔄 Checking updated auth state after demo setup');
-        setIsLoadingRole(false); // Force re-render
-      }, 200);
     } catch (error) {
-      console.error('❌ Error setting demo user:', error);
+      console.error('❌ Role selection error:', error);
+      setShowRoleSelection(false);
     }
   };
 
-  // Determine which interface to show based on auth or demo mode
-  // Priority: Real auth > Demo mode > Default customer
-  const effectiveIsCleaner = isAuthenticated ? isCleaner : (isDemoMode ? isCleaner : false);
-  const effectiveIsCustomer = isAuthenticated ? isCustomer : (isDemoMode ? isCustomer : false);
+  // Determine which interface to show
+  // Priority: Real auth > Default to customer interface for guests
+  const effectiveIsCleaner = isAuthenticated ? isCleaner : false;
+  const effectiveIsCustomer = isAuthenticated ? isCustomer : true; // Default guest mode to customer
   
   // Debug logging
   console.log('🔍 Role Debug:', {
     isAuthenticated,
-    isDemoMode,
     isCleaner,
     isCustomer,
     effectiveIsCleaner,
@@ -215,8 +198,9 @@ const RoleBasedTabNavigator = () => {
     userName: user?.name
   });
 
-  // Show role selection modal if no role is determined (only for non-authenticated, non-demo users)
-  if (!isAuthenticated && !isDemoMode && (isLoadingRole || (!effectiveIsCleaner && !effectiveIsCustomer))) {
+  // Show role selection modal disabled (demo system removed)
+  // Guest users now default to customer interface
+  if (false) { // Disabled - was: !isAuthenticated && !isDemoMode && (isLoadingRole || (!effectiveIsCleaner && !effectiveIsCustomer))
     console.log('🚪 Showing role selection modal', {
       isLoadingRole,
       effectiveIsCleaner,

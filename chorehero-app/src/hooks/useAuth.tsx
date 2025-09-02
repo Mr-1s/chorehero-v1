@@ -4,7 +4,7 @@ import { authService, onAuthStateChange } from '../services/auth';
 import { AuthUser, User } from '../types/user';
 import { Alert } from 'react-native';
 import { supabase } from '../services/supabase';
-import { demoAuth } from '../services/demoAuth';
+
 
 interface AuthContextType {
   // Current auth state
@@ -24,11 +24,7 @@ interface AuthContextType {
   isCleaner: boolean;
   isVerifiedCleaner: boolean;
   
-  // Demo methods
-  isDemoMode: boolean;
-  setDemoUser: (role: 'customer' | 'cleaner', cleanerType?: 'sarah' | 'marcus' | 'emily') => Promise<void>;
-  clearDemo: () => Promise<void>;
-  forceResetAllSessions: () => Promise<void>;
+
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -40,68 +36,44 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+
 
   useEffect(() => {
     // Check for existing session on app start
     const checkSession = async () => {
       try {
-        // First check for real Supabase session
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (error) {
           console.error('🚨 Session check error:', error);
-          // Clear any invalid stored sessions
-          await supabase.auth.signOut();
-          await demoAuth.clearDemoUser(); // Clear all demo sessions
+          // Handle refresh token errors gracefully
+          if (error.message?.includes('refresh') || error.message?.includes('token')) {
+            console.log('🔄 Refresh token error - clearing session silently');
+            await supabase.auth.signOut({ scope: 'local' }); // Only clear local session
+          } else {
+            await supabase.auth.signOut();
+          }
           setAuthUser(null);
-          setIsDemoMode(false);
           setIsLoading(false);
           return;
         }
-        
+
         if (session?.user) {
-          // User is authenticated with Supabase, get their profile
+          // User is authenticated, get their profile
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
-            // Ensure demo mode is disabled for real authenticated users
-            setIsDemoMode(false);
           } else {
-            // Failed to get user profile, clear session
             console.error('❌ Failed to get user profile, clearing session');
             await supabase.auth.signOut();
             setAuthUser(null);
           }
         } else {
-          // No real auth session, check for demo mode
-          const demoUserData = await demoAuth.getDemoUser();
-          if (demoUserData && demoUserData.id && demoUserData.name && demoUserData.role) {
-            // Create a demo auth user with valid demo account data
-            const demoUser: AuthUser = {
-              user: {
-                id: demoUserData.id,
-                email: demoUserData.email,
-                role: demoUserData.role as 'customer' | 'cleaner',
-                name: demoUserData.name,
-                created_at: new Date().toISOString(),
-                profile_completed: true,
-                avatar_url: demoUserData.avatar_url
-              }
-            };
-            setAuthUser(demoUser);
-            setIsDemoMode(true);
-            console.log('✅ Demo user loaded:', demoUserData.name, 'Role:', demoUserData.role);
-          } else if (demoUserData) {
-            // Corrupted demo data found, clear it
-            console.warn('⚠️ Corrupted demo data found, clearing:', demoUserData);
-            await demoAuth.clearDemoUser();
-            setAuthUser(null);
-            setIsDemoMode(false);
-          }
+          setAuthUser(null);
         }
       } catch (error) {
         console.error('Session check error:', error);
+        setAuthUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -119,18 +91,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
-            // Disable demo mode on real sign-in
-            setIsDemoMode(false);
           }
         } catch (error) {
           console.error('Error loading user profile:', error);
         }
-      } else if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
+      } else if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
         // User signed out or token refresh failed, clear auth state
         console.log('🚪 Clearing auth state due to sign out or failed token refresh');
         setAuthUser(null);
-        // Clear any stored demo role as well
-        AsyncStorage.removeItem('demo_user_role').catch(console.error);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
         // Token successfully refreshed, update user data
         try {
@@ -169,16 +137,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       role: user?.role,
       isAuthenticated,
       isCustomer,
-      isCleaner,
-      isDemoMode
+      isCleaner
     });
-    
-    // Detect and fix corrupted demo mode
-    if (isDemoMode && !user?.name) {
-      console.warn('⚠️ Corrupted demo mode detected (isDemoMode=true but no user data), clearing...');
-      clearDemo().catch(console.error);
-    }
-  }, [user, isAuthenticated, isCustomer, isCleaner, isDemoMode]);
+  }, [user, isAuthenticated, isCustomer, isCleaner]);
 
   // Sign out
   const signOut = async () => {
@@ -197,11 +158,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           return;
         }
       }
-      
-      // Clear demo role from AsyncStorage (for both real and demo users)
-      await AsyncStorage.removeItem('demo_user_role');
-      console.log('Demo role cleared from AsyncStorage');
-      
+
       // Clear auth state
       setAuthUser(null);
       
@@ -226,18 +183,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             response.error.includes('Refresh Token Not Found') ||
             response.error.includes('Auth session missing')) {
           console.log('🧹 Invalid/missing session, clearing auth state');
-          await demoAuth.clearDemoUser(); // Clear any demo sessions too
           setAuthUser(null);
-          setIsDemoMode(false);
         }
       }
     } catch (error) {
       console.warn('Session refresh error:', error);
       // Clear auth state instead of calling signOut to avoid loops
       console.log('🧹 Clearing auth state due to refresh error');
-      await demoAuth.clearDemoUser();
       setAuthUser(null);
-      setIsDemoMode(false);
     }
   };
 
@@ -286,72 +239,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // Demo authentication methods
-  const setDemoUser = async (role: 'customer' | 'cleaner', cleanerType?: 'sarah' | 'marcus' | 'emily') => {
-    try {
-      console.log('🚀 setDemoUser called with role:', role, 'cleanerType:', cleanerType);
-      
-      // Set the demo user data first
-      await demoAuth.setDemoUser(role, cleanerType);
-      console.log('✅ Demo user data stored successfully');
-      
-      // Get the demo user data and set it in state
-      const demoUserData = await demoAuth.getDemoUser();
-      console.log('📖 Retrieved demo user data:', demoUserData);
-      
-      if (demoUserData) {
-        const demoUser: AuthUser = {
-          user: {
-            id: demoUserData.id,
-            email: demoUserData.email,
-            role: demoUserData.role as 'customer' | 'cleaner',
-            name: demoUserData.name,
-            created_at: new Date().toISOString(),
-            profile_completed: true,
-            avatar_url: demoUserData.avatar_url
-          }
-        };
-        
-        console.log('🎯 Setting authUser in state:', demoUser.user);
-        setAuthUser(demoUser);
-        setIsDemoMode(true);
-        console.log('✅ Demo user set in auth context:', demoUser.user.name, 'Role:', demoUser.user.role);
-      } else {
-        console.error('❌ No demo user data retrieved after setting');
-      }
-    } catch (error) {
-      console.error('❌ Error setting demo user:', error);
-    }
-  };
 
-  const clearDemo = async () => {
-    try {
-      await demoAuth.clearDemoUser();
-      setAuthUser(null);
-      setIsDemoMode(false);
-      console.log('✅ Demo cleared from auth context');
-    } catch (error) {
-      console.error('❌ Error clearing demo:', error);
-    }
-  };
-
-  const forceResetAllSessions = async () => {
-    try {
-      // Clear Supabase session
-      await supabase.auth.signOut();
-      
-      // Force clear all AsyncStorage
-      await demoAuth.forceResetAllSessions();
-      
-      // Reset auth state
-      setAuthUser(null);
-      setIsDemoMode(false);
-      
-      console.log('🧹 Force reset complete - all sessions cleared');
-    } catch (error) {
-      console.error('❌ Error force resetting sessions:', error);
-    }
-  };
 
   const contextValue: AuthContextType = {
     // State
@@ -370,12 +258,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isCustomer,
     isCleaner,
     isVerifiedCleaner,
-    
-    // Demo methods
-    isDemoMode,
-    setDemoUser,
-    clearDemo,
-    forceResetAllSessions,
   };
 
   return (

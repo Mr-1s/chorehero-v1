@@ -12,7 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { earningsService } from '../../services/earningsService';
 import { errorHandlingService } from '../../services/errorHandlingService';
 
@@ -59,7 +59,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
     totalEarnings: 0,
   };
   
-  const earningsData = MockDataToggle.getDashboardStats('CLEANER', mockEarningsData, emptyEarningsData) || emptyEarningsData;
+  const earningsData = emptyEarningsData; // TODO: Load real earnings data from database
   const { currentBalance, pendingBalance, totalEarnings } = earningsData;
   
   // EARNINGS BREAKDOWN - Will be calculated from:
@@ -72,7 +72,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
     { period: 'This Year', amount: 15430.75, jobs: 142, avgPerJob: 108.66 },
   ];
   
-  const earningsHistory: EarningData[] = MockDataToggle.getFeatureData('CLEANER', 'EARNINGS', mockEarningsHistory, []) || [];
+  const earningsHistory: EarningData[] = []; // TODO: Load real earnings history from database
 
   // PAYMENT HISTORY - Will come from:
   // - Stripe Connect transfer history (payouts to cleaner bank account)

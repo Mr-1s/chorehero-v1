@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
-import { demoAuth } from '../../services/demoAuth';
+
 
 type StackParamList = {
   CustomerOnboarding: undefined;
@@ -40,6 +40,7 @@ interface OnboardingData {
   lastName: string;
   email: string;
   phone: string;
+  username: string;
   profilePhoto: string;
   
   // Step 2: Home Details
@@ -77,13 +78,14 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
   const totalSteps = 5;
-  const { refreshSession, isDemoMode, authUser } = useAuth();
+  const { refreshSession, authUser } = useAuth();
 
   const [data, setData] = useState<OnboardingData>({
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
+    username: '',
     profilePhoto: 'https://randomuser.me/api/portraits/lego/2.jpg',
     address: '',
     city: '',
@@ -125,6 +127,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       lastName: rest.join(' ') || prev.lastName,
       email: emailFromAuth || prev.email,
       profilePhoto: avatar || prev.profilePhoto,
+      username: (emailFromAuth ? emailFromAuth.split('@')[0] : (fullName ? (fullName.replace(/\s+/g, '').toLowerCase()) : prev.username)) || prev.username,
     }));
   }, [authUser]);
 
@@ -140,6 +143,9 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         }
         if (!data.email.includes('@')) {
           return 'Please enter a valid email address';
+        }
+        if (!/^[a-zA-Z0-9_]{3,20}$/.test(data.username || '')) {
+          return 'Choose a username (3–20 letters, numbers, or underscore)';
         }
         break;
       case 2:
@@ -285,9 +291,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           throw new Error('Failed to create customer profile: ' + customerError.message);
         }
 
-        // Clear any existing demo sessions for real authenticated users
-        await demoAuth.clearDemoUser();
-        console.log('Cleared all demo sessions for real authenticated user');
+
 
         Alert.alert(
           'Welcome to ChoreHero!',
@@ -333,7 +337,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         </View>
         <Text style={styles.progressText}>Step {currentStep} of {totalSteps}</Text>
       </View>
-      {isDemoMode && (
+      {false && ( // Demo mode removed
         <View style={styles.bypassContainer}>
           <Text style={styles.bypassLabel}>Bypass Mode</Text>
           <Switch
@@ -414,6 +418,15 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         onChangeText={(text) => updateData('phone', text)}
         placeholder="+1 (555) 123-4567"
         keyboardType="phone-pad"
+      />
+
+      <Text style={styles.inputLabel}>Username *</Text>
+      <TextInput
+        style={styles.textInput}
+        value={data.username}
+        onChangeText={(text) => updateData('username', text)}
+        placeholder="yourname"
+        autoCapitalize="none"
       />
     </ScrollView>
   );

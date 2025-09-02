@@ -22,8 +22,8 @@ import * as Haptics from 'expo-haptics';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import { USE_MOCK_DATA, COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+import { COLORS } from '../../utils/constants';
+
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { notificationService } from '../../services/notificationService';
 import { jobService, type JobServiceResponse, type Job } from '../../services/jobService';
@@ -88,7 +88,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   const [rating, setRating] = useState(0);
   const [jobOpportunities, setJobOpportunities] = useState<JobOpportunity[]>([]);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
-  const [useDemoData, setUseDemoData] = useState(MockDataToggle.isEnabledForFeature('CLEANER', 'DASHBOARD'));
+  const [useDemoData, setUseDemoData] = useState(false); // Always use real data
   const [notificationCount, setNotificationCount] = useState(0);
   const [weeklyGoal, setWeeklyGoal] = useState(400);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -937,9 +937,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
               <TouchableOpacity
                 style={[styles.devToggleButton, useDemoData && styles.devToggleButtonActive]}
                 onPress={() => {
-                  const newValue = !useDemoData;
-                  setUseDemoData(newValue);
-                  MockDataToggle.setFeatureEnabled('CLEANER', 'DASHBOARD', newValue);
+                  // Demo toggle disabled - always use real data
                 }}
               >
                 <View style={[styles.devToggleThumb, useDemoData && styles.devToggleThumbActive]} />

@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
-import { demoAuth } from '../../services/demoAuth';
+
 import { supabase } from '../../services/supabase';
 
 type StackParamList = {
@@ -88,7 +88,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
   const totalSteps = 6;
-  const { refreshSession, isDemoMode, authUser } = useAuth();
+  const { refreshSession, authUser } = useAuth();
 
   const [data, setData] = useState<CleanerOnboardingData>({
     firstName: '',
@@ -326,9 +326,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           throw new Error('Failed to create cleaner profile: ' + cleanerError.message);
         }
 
-        // Clear any existing demo sessions for real authenticated users
-        await demoAuth.clearDemoUser();
-        console.log('Cleared all demo sessions for real authenticated user');
+
 
         console.log('Cleaner onboarding completed successfully for real user');
         Alert.alert(
@@ -374,7 +372,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         </View>
         <Text style={styles.progressText}>Step {currentStep} of {totalSteps}</Text>
       </View>
-      {isDemoMode && (
+      {false && ( // Demo mode removed
         <View style={styles.bypassContainer}>
           <Text style={styles.bypassLabel}>Bypass Mode</Text>
           <Switch

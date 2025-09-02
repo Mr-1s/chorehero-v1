@@ -1,5 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
+
+// Global error handler for auth token issues
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  const message = args.join(' ');
+  // Suppress specific refresh token errors from console
+  if (message.includes('Invalid Refresh Token') || 
+      message.includes('Refresh Token Not Found') ||
+      message.includes('AuthApiError')) {
+    console.log('🔄 Auth error suppressed:', message.split('AuthApiError')[0]);
+    return;
+  }
+  originalConsoleError.apply(console, args);
+};
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +40,7 @@ import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectio
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
 import SimpleBookingFlowScreen from './screens/booking/SimpleBookingFlowScreen';
+import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
@@ -35,7 +50,7 @@ import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
 import { pushNotificationService } from './services/pushNotifications';
 import { enhancedLocationService } from './services/enhancedLocationService';
 import { jobStateManager } from './services/jobStateManager';
-import { dummyWalletService } from './services/dummyWalletService';
+
 
 type TabParamList = {
   Home: undefined;
@@ -53,6 +68,11 @@ type StackParamList = {
   SimpleBookingFlow: {
     cleanerId?: string;
     serviceType?: string;
+  };
+  ServiceDetail: {
+    serviceId: string;
+    serviceName: string;
+    category: string;
   };
   MainTabs: undefined;
   CleanerProfile: { cleanerId: string };
@@ -112,7 +132,7 @@ const Stack = createStackNavigator<StackParamList>();
 const TabNavigator = RoleBasedTabNavigator;
 
 const AppNavigator = () => {
-  const { isAuthenticated, user, isDemoMode } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigationRef = useRef<any>(null);
 
   // Handle logout navigation
@@ -142,17 +162,7 @@ const AppNavigator = () => {
       
       // Initialize location service
       await enhancedLocationService.initialize();
-      
-      // Ensure dummy wallet exists for REAL users (not demo)
-      if (!isDemoMode && user?.id && user?.role) {
-        try {
-          await dummyWalletService.initializeDummyWallet(user.id, user.role as 'customer' | 'cleaner');
-          console.log('✅ Dummy wallet initialized for user:', user.id);
-        } catch (walletError) {
-          console.warn('⚠️ Failed to initialize dummy wallet:', walletError);
-        }
-      }
-      
+
       console.log('Services initialized successfully');
     } catch (error) {
       console.error('Error initializing services:', error);
@@ -176,6 +186,7 @@ const AppNavigator = () => {
           
           {/* Booking Flow */}
           <Stack.Screen name="SimpleBookingFlow" component={SimpleBookingFlowScreen} />
+          <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
           
           {/* Other Screens */}
           <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />

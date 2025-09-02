@@ -23,8 +23,9 @@ import { useLocationContext } from '../../context/LocationContext';
 import { supabase } from '../../services/supabase';
 import { categoryService, CategoryService, CategoryCleaner } from '../../services/category';
 import { contentService } from '../../services/contentService';
-import { getSampleVideoUrls, getSampleCleaners } from '../../services/sampleData';
-import { USE_MOCK_DATA } from '../../utils/constants';
+import { guestModeService, GuestService } from '../../services/guestModeService';
+
+
 
 type TabParamList = {
   Home: undefined;
@@ -103,14 +104,15 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [popularServices, setPopularServices] = useState<CategoryService[]>([]);
   const [recommendedServices, setRecommendedServices] = useState<CategoryService[]>([]);
   const [featuredVideos, setFeaturedVideos] = useState<VideoContent[]>([]);
+  const [serviceCategories, setServiceCategories] = useState<GuestService[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(3);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: string]: boolean}>({});
-  const [useMockData, setUseMockData] = useState(USE_MOCK_DATA);
-  const { isDemoMode } = require('../../hooks/useAuth') as any;
+  const [useMockData, setUseMockData] = useState(false); // Always use real data
+  // Demo mode removed
   const [locationText, setLocationText] = useState('Getting location...');
 
   // Animation values for micro-interactions
@@ -123,6 +125,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   // Load initial data
   useEffect(() => {
     loadCategoryData('Featured');
+    loadServiceCategories();
   }, []);
 
   // Load data when category changes
@@ -135,6 +138,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   // Reload data when mock data toggle changes
   useEffect(() => {
     loadCategoryData(selectedCategory);
+    loadServiceCategories();
   }, [useMockData]);
 
   // Update location text when location changes
@@ -165,68 +169,51 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const loadFeaturedVideos = async () => {
     try {
       setLoadingVideos(true);
-      console.log('🎬 Loading featured videos for Discover tab...', { useMockData });
-      
-      if (useMockData) {
-        // Use sample videos for demo mode
-        const sampleVideos = getSampleVideoUrls();
-        const sampleCleaners = getSampleCleaners();
-        
-        const videos = sampleVideos.slice(0, 6).map((videoUrl, index) => {
-          const cleaner = sampleCleaners[index % sampleCleaners.length];
-          return {
-            id: `demo-video-${index}`,
-            title: `Cleaning Demo ${index + 1}`,
-            description: `Professional cleaning demonstration by ${cleaner.name}`,
-            media_url: videoUrl,
-            thumbnail_url: videoUrl, // Use same URL for thumbnail
-            user: { 
-              id: cleaner.id,
-              name: cleaner.name, 
-              avatar_url: cleaner.avatar_url,
-              role: 'cleaner'
-            },
-            view_count: Math.floor(Math.random() * 1000) + 100,
-            like_count: Math.floor(Math.random() * 100) + 10,
-            created_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-          };
-        });
-        
-        console.log(`✅ Loaded ${videos.length} demo featured videos`);
+      console.log('🎬 Loading featured videos for Discover tab...');
+
+      // Get videos from the real content service
+      const response = await contentService.getFeed({
+        filters: { content_type: 'video' },
+        sort_by: 'recent',
+        limit: 6 // Show 6 featured videos
+      });
+
+      if (response.success && response.data?.posts) {
+        const videos = response.data.posts.map((post: any) => ({
+          id: post.id,
+          title: post.title || 'Cleaning Video',
+          description: post.description || '',
+          media_url: post.media_url,
+          thumbnail_url: post.thumbnail_url,
+          user: post.user,
+          view_count: post.view_count || 0,
+          like_count: post.like_count || 0,
+          created_at: post.created_at
+        }));
+
+        console.log(`✅ Loaded ${videos.length} real featured videos`);
         setFeaturedVideos(videos);
       } else {
-        // Get videos from the real content service
-        const response = await contentService.getFeed({
-          filters: { content_type: 'video' },
-          sort_by: 'recent',
-          limit: 6 // Show 6 featured videos
-        });
-
-        if (response.success && response.data?.posts) {
-          const videos = response.data.posts.map((post: any) => ({
-            id: post.id,
-            title: post.title || 'Cleaning Video',
-            description: post.description || '',
-            media_url: post.media_url,
-            thumbnail_url: post.thumbnail_url,
-            user: post.user,
-            view_count: post.view_count || 0,
-            like_count: post.like_count || 0,
-            created_at: post.created_at
-          }));
-          
-          console.log(`✅ Loaded ${videos.length} real featured videos`);
-          setFeaturedVideos(videos);
-        } else {
-          console.log('📭 No real videos found - showing empty state');
-          setFeaturedVideos([]);
-        }
+        console.log('📭 No real videos found - showing empty state');
+        setFeaturedVideos([]);
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
       setFeaturedVideos([]);
     } finally {
       setLoadingVideos(false);
+    }
+  };
+
+  const loadServiceCategories = async () => {
+    try {
+      console.log('🏠 Loading service categories...');
+      const categories = await guestModeService.getGuestServiceCategories();
+      setServiceCategories(categories);
+      console.log(`✅ Loaded ${categories.length} service categories`);
+    } catch (error) {
+      console.error('❌ Error loading service categories:', error);
+      setServiceCategories([]);
     }
   };
 
@@ -555,6 +542,68 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  const renderServiceCategoryCard = (service: GuestService) => (
+    <TouchableOpacity 
+      key={service.id}
+      style={styles.serviceCategoryCard}
+      onPress={() => {
+        console.log('🏠 Service category selected:', service.name);
+        navigation.navigate('ServiceDetail', {
+          serviceId: service.id,
+          serviceName: service.name,
+          category: service.category
+        });
+      }}
+      activeOpacity={0.7}
+    >
+      <View style={styles.serviceCategoryImageContainer}>
+        <Image 
+          source={{ uri: service.image_url }} 
+          style={styles.serviceCategoryImage}
+          onLoadStart={() => handleImageLoadStart(service.id)}
+          onLoad={() => handleImageLoad(service.id)}
+        />
+        {imageLoadingStates[service.id] && (
+          <View style={styles.serviceCategoryImageSkeleton}>
+            <ActivityIndicator size="small" color="#3ad3db" />
+          </View>
+        )}
+        
+        {/* Rating overlay */}
+        <View style={styles.serviceCategoryRatingOverlay}>
+          <View style={styles.serviceCategoryRatingBadge}>
+            <Ionicons name="star" size={12} color="#FFC93C" />
+            <Text style={styles.serviceCategoryRatingText}>{service.rating}</Text>
+          </View>
+        </View>
+      </View>
+      
+      <View style={styles.serviceCategoryContent}>
+        <Text style={styles.serviceCategoryTitle}>{service.name}</Text>
+        <Text style={styles.serviceCategoryDescription} numberOfLines={2}>
+          {service.description}
+        </Text>
+        <View style={styles.serviceCategoryFooter}>
+          <Text style={styles.serviceCategoryPrice}>{service.price_range}</Text>
+          <TouchableOpacity 
+            style={styles.serviceCategoryButton}
+            onPress={() => {
+              console.log('🎯 Browse cleaners for:', service.name);
+              // Navigate to service detail with cleaners list
+              navigation.navigate('ServiceDetail', {
+                serviceId: service.id,
+                serviceName: service.name,
+                category: service.category
+              });
+            }}
+          >
+            <Text style={styles.serviceCategoryButtonText}>Browse Cleaners</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F9F9F9" />
@@ -585,7 +634,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         
         {/* Header Controls */}
         <View style={styles.headerControls}>
-          {isDemoMode && (
+          {false && ( // Demo mode removed
             <View style={styles.demoToggle}>
               <Text style={styles.demoToggleLabel}>Demo</Text>
               <Switch 
@@ -648,9 +697,24 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           )}
         </View>
 
-        {/* Popular Services */}
+        {/* Service Categories */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Popular Services</Text>
+          {serviceCategories.length > 0 ? (
+            <View style={styles.serviceCategoriesGrid}>
+              {serviceCategories.map(renderServiceCategoryCard)}
+            </View>
+          ) : (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3ad3db" />
+              <Text style={styles.loadingText}>Loading services...</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Additional Services */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>More Services</Text>
           {popularServices.length > 0 ? (
             <View style={styles.popularServicesGrid}>
               {popularServices.map(service => renderServiceCard(service, true))}
@@ -1285,6 +1349,101 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8E8E93',
     fontWeight: '500',
+  },
+  // Service Category Card Styles
+  serviceCategoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  serviceCategoryCard: {
+    width: (width - 56) / 2, // 2 cards per row with proper spacing
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    marginBottom: 16,
+  },
+  serviceCategoryImageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 140,
+  },
+  serviceCategoryImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  serviceCategoryImageSkeleton: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F2F2F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  serviceCategoryRatingOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  serviceCategoryRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 10,
+    gap: 3,
+  },
+  serviceCategoryRatingText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  serviceCategoryContent: {
+    padding: 12,
+  },
+  serviceCategoryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1C1C1E',
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+  serviceCategoryDescription: {
+    fontSize: 13,
+    color: '#6D6D70',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  serviceCategoryFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceCategoryPrice: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#3ad3db',
+  },
+  serviceCategoryButton: {
+    backgroundColor: '#3ad3db',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  serviceCategoryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

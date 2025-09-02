@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 
 interface TrackingData {
   id: string;

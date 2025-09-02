@@ -20,8 +20,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import { USE_MOCK_DATA } from '../../utils/constants';
-import { useAuth } from '../../hooks/useAuth';
 
 type TabParamList = {
   Home: undefined;
@@ -97,7 +95,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     savedCleaners: 8,
   };
 
-  const recentBookings = USE_MOCK_DATA ? [
+  const recentBookings = false ? [
     {
       id: '1',
       service: 'Kitchen Deep Clean',
@@ -127,7 +125,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     },
   ] : [];
 
-  const savedCleaners = USE_MOCK_DATA ? [
+  const savedCleaners = false ? [
     {
       id: '1',
       name: 'Sarah Martinez',
@@ -574,8 +572,8 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
               ) : (
                 <EmptyState
                   {...EmptyStateConfigs.bookingHistory}
-                  showFeatures={!USE_MOCK_DATA}
-                  actions={USE_MOCK_DATA ? [] : [
+                  showFeatures={true}
+                  actions={[
                     {
                       label: 'Book Your First Service',
                       onPress: () => navigation.navigate('Discover'),
@@ -595,8 +593,8 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
               ) : (
                 <EmptyState
                   {...EmptyStateConfigs.savedCleaners}
-                  showFeatures={!USE_MOCK_DATA}
-                  actions={USE_MOCK_DATA ? [] : [
+                  showFeatures={true}
+                  actions={[
                     {
                       label: 'Discover Cleaners',
                       onPress: () => navigation.navigate('Discover'),

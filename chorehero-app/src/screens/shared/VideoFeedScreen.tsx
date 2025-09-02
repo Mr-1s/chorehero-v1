@@ -55,8 +55,9 @@ type VideoFeedScreenNavigationProp = BottomTabNavigationProp<TabParamList, 'Home
 interface VideoFeedScreenProps {
   navigation: VideoFeedScreenNavigationProp;
 }
-import { initializeSampleData, getSampleVideoUrls, getSampleCleaners } from '../../services/sampleData';
-import { USE_MOCK_DATA } from '../../utils/constants';
+
+
+
 import RoleBasedUI, { useRoleFeatures } from '../../components/RoleBasedUI';
 
 
@@ -258,20 +259,17 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [isCardVisible, setIsCardVisible] = useState(true); // Default to visible for better UX
-  const [useMockData, setUseMockData] = useState(true); // Default to true for demo experience
+
   const flatListRef = useRef<FlatList>(null);
   const { location } = useLocationContext();
-  const { user, isDemoMode } = useAuth();
+  const { user } = useAuth();
   const { showUploadButton, isCleaner } = useRoleFeatures();
 
   useEffect(() => {
     initializeData();
   }, []);
 
-  useEffect(() => {
-    console.log('🔄 useMockData changed to:', useMockData);
-    initializeData();
-  }, [useMockData]);
+
 
   // Handle screen focus changes to pause/resume videos
   useFocusEffect(
@@ -309,39 +307,15 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const initializeData = async () => {
     setLoading(true);
     console.log('🚀 VideoFeedScreen: Initializing data...');
-    console.log('🔧 USE_MOCK_DATA setting:', useMockData);
-    console.log('👤 Current user:', user ? `${user.name} (${user.role}) - Real user: ${!user.id.startsWith('demo_')}` : 'No user');
-    
+
     try {
-      // Always initialize sample data for Supabase to ensure fallback works
-      await initializeSampleData();
-      
-      if (useMockData) {
-        console.log('📱 Loading mock data directly...');
-        await loadMockData();
-        console.log('✅ Mock data loaded successfully');
-      } else {
-        console.log('🌐 Attempting to load real content from database...');
-        await loadRealContent();
-        // Note: loadRealContent() will automatically fall back to mock data if no real content exists
-        
-        // Auto-cleanup orphaned videos in the background (don't wait for it)
-        cleanupOrphanedVideos().catch(error => {
-          console.warn('⚠️ Background cleanup failed:', error);
-        });
-        console.log('✅ Real content loading attempt completed');
-      }
+      console.log('🌐 Loading real content from database...');
+      await loadRealContent();
+      console.log('✅ Real content loading completed');
     } catch (error) {
-      console.error('❌ Error initializing data:', error);
-      console.log('🔄 Emergency fallback to mock data...');
-      // Emergency fallback - always load mock data if anything fails
-      try {
-        await loadMockData();
-      } catch (fallbackError) {
-        console.error('❌ Even mock data loading failed:', fallbackError);
-        // If even mock data fails, set empty state but don't crash
-        setVideos([]);
-      }
+      console.error('❌ Error loading real content:', error);
+      // Set empty state if real content loading fails
+      setVideos([]);
     } finally {
       setLoading(false);
       console.log('✅ VideoFeedScreen: Data initialization complete');
@@ -349,62 +323,10 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   };
 
   const loadMockData = async () => {
-    console.log('🎬 Loading demo videos for video feed...');
-    try {
-      // Get sample videos from sampleData
-      const sampleVideos = getSampleVideoUrls();
-      const sampleCleaners = getSampleCleaners();
-      
-      // Use high-quality cleaning images instead of potentially broken video URLs
-      const cleaningImages = [
-        'https://images.unsplash.com/photo-1563453392212-326d32d2d3b8?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Kitchen cleaning
-        'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Bathroom cleaning
-        'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Living room cleaning
-        'https://images.unsplash.com/photo-1581578731548-c64695cc6952?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Professional cleaning
-        'https://images.unsplash.com/photo-1628177142898-93e36e4e3a50?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Cleaning supplies
-        'https://images.unsplash.com/photo-1550226891-ef816aed4a98?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80', // Home cleaning
-      ];
-
-      const mockVideos: VideoItem[] = sampleCleaners.map((cleaner, index) => {
-        return {
-          id: `demo-video-${index}`,
-          video_url: cleaningImages[index % cleaningImages.length],
-          title: `${cleaner.specialties?.[0] || 'Professional'} Cleaning Demo`,
-          description: `See ${cleaner.name}'s professional cleaning techniques and book their service`,
-          likes: Math.floor(Math.random() * 1000) + 100,
-          comments: Math.floor(Math.random() * 100) + 10,
-          shares: Math.floor(Math.random() * 50) + 5,
-          views: Math.floor(Math.random() * 5000) + 500,
-          liked: false,
-          saved: false,
-          boosted: false,
-          hashtags: ['#cleaning', '#professional', '#home'],
-          timestamp: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-        cleaner: {
-            id: cleaner.id,
-            name: cleaner.name,
-            username: cleaner.name.toLowerCase().replace(' ', ''),
-            avatar_url: cleaner.avatar_url,
-            bio: cleaner.bio || 'Professional cleaning specialist',
-            service_title: cleaner.specialties?.[0] || 'Professional Cleaning',
-            verified: true,
-            user_id: cleaner.id,
-            hourly_rate: cleaner.hourly_rate || '$25/hr',
-            rating_average: cleaner.rating_average || 4.8,
-            total_jobs: cleaner.total_bookings || 150,
-            estimated_duration: '2-3 hours',
-            video_profile_url: cleaner.video_profile_url || null,
-            specialties: cleaner.specialties || ['Professional Cleaning'],
-          },
-        };
-      });
-      
-      console.log(`✅ Loaded ${mockVideos.length} demo videos`);
-      setVideos(mockVideos);
-    } catch (error) {
-      console.error('❌ Error loading mock data:', error);
-      setVideos([]);
-    }
+    console.log('🎬 Demo data loading disabled - implement real video loading here');
+    // TODO: Implement real video loading from content service
+    // This should load videos from the database using contentService.getFeed()
+    setVideos([]);
   };
 
   const loadRealContent = async () => {
@@ -518,36 +440,28 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       } else if (response.success && response.data && response.data.posts && response.data.posts.length === 0) {
         // Explicitly handle empty posts array
         console.log('📭 Database returned empty posts array');
-        console.log('🔄 Falling back to mock data for better user experience...');
-        await loadMockData();
-        console.log('✅ Empty posts fallback to mock data completed');
+        console.log('📭 No videos found - showing empty state');
+        setVideos([]);
+        console.log('✅ Empty posts handled');
         return;
       } else if (!response.success) {
         console.log('❌ Content service returned error:', response.error);
-        console.log('🔄 Falling back to mock data due to service error...');
-        await loadMockData();
-        console.log('✅ Service error fallback to mock data completed');
+        console.log('❌ Content service error - showing empty state');
+        setVideos([]);
+        console.log('✅ Service error handled');
         return;
       }
       
-      // No real content found - fall back to mock data
+      // No real content found - show empty state
       console.log('📭 No real content found in database');
-      console.log('🔄 Falling back to mock data for better user experience...');
-      await loadMockData();
-      console.log('✅ Fallback to mock data completed');
+      setVideos([]);
+      console.log('✅ Empty state set');
       
     } catch (error) {
       console.error('❌ Error loading real content:', error);
-      console.log('🔄 Falling back to mock data due to error...');
-      // If content service fails, show mock data instead of empty state
-      try {
-        await loadMockData();
-        console.log('✅ Error fallback to mock data completed');
-      } catch (mockError) {
-        console.error('❌ Even mock data fallback failed:', mockError);
-        // If both fail, set empty videos array
-        setVideos([]);
-      }
+      console.log('❌ Loading error - showing empty state');
+      setVideos([]);
+      console.log('✅ Error handled with empty state');
     }
   };
 
@@ -688,8 +602,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       return;
     }
     
-    // For demo customer booking demo cleaners, create real bookings
-    console.log('🎯 Demo customer booking service from:', cleaner.name);
+    // Create real bookings for customers
+    console.log('🎯 Customer booking service from:', cleaner.name);
     
     navigation.navigate('SimpleBookingFlow', {
       cleanerId: cleaner.user_id,
@@ -701,13 +615,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    console.log('🔄 Refreshing video feed...', { useMockData });
+    console.log('🔄 Refreshing video feed...');
     try {
-    if (useMockData) {
-      await loadMockData();
-    } else {
         await loadRealContent();
-    }
     } catch (error) {
       console.error('❌ Error during refresh:', error);
     } finally {
@@ -910,33 +820,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       {/* Header Controls */}
 
 
-      {/* Demo Toggle - Only show for demo users */}
-      {isDemoMode && (
-        <View style={styles.demoToggleCenter}>
-          <View style={styles.demoToggle}>
-            <Text style={styles.demoToggleLabel}>Demo</Text>
-            <Switch 
-              value={useMockData} 
-              onValueChange={(value) => {
-                console.log('🔄 Demo toggle switched to:', value);
-                setUseMockData(value);
-              }}
-              trackColor={{ false: '#374151', true: '#3ad3db' }}
-              thumbColor={useMockData ? '#ffffff' : '#9CA3AF'}
-              ios_backgroundColor="#374151"
-              style={styles.switch}
-            />
-          </View>
-          {/* Debug info */}
-          {__DEV__ && (
-            <View style={styles.debugInfo}>
-              <Text style={styles.debugText}>
-                Videos: {videos.length} | Loading: {loading ? 'Yes' : 'No'}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
+
 
       {/* Search Button - Top Right */}
       <TouchableOpacity 
@@ -961,7 +845,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             <Text style={styles.emptyStateSubtitle}>
               Cleaners in your area will share their work here. Check back soon for amazing transformations!
             </Text>
-                         {!useMockData && (
+                                                   {true && (
                <View style={styles.emptyStateFeatures}>
                  <View style={styles.featureItem}>
                    <Ionicons name="location" size={20} color="#ffffff" />

@@ -414,36 +414,3 @@ export const SOCIAL_CONFIG = {
   },
 };
 
-// Mock Data Configuration
-export const MOCK_DATA_CONFIG = {
-  // Global toggle - set to false to experience empty states across the app
-  ENABLED: false, // MVP: Use real database data only
-  
-  // MVP: All mock data disabled - use real database only
-  CLEANER: {
-    DASHBOARD: false,    // Real job opportunities, active jobs, earnings
-    PROFILE: false,      // Real profile data, videos, verification status
-    VIDEOS: false,       // Real uploaded videos and analytics
-    EARNINGS: false,     // Real payment history and analytics
-    SCHEDULE: false,     // Real bookings and schedule
-    JOBS: false,         // Real job history and opportunities
-  },
-  
-  CUSTOMER: {
-    DASHBOARD: false,    // Real upcoming bookings, recent activity, saved services
-    PROFILE: false,      // Real profile information and booking history
-    DISCOVER: false,     // Real available cleaners and their profiles
-    TRACKING: false,     // Real active job tracking
-    BOOKINGS: false,     // Real booking history and management
-  },
-  
-  SHARED: {
-    VIDEO_FEED: false,   // Real cleaner video profiles
-    MESSAGES: false,     // Real chat conversations
-    RATINGS: false,      // Real reviews and ratings
-    NOTIFICATIONS: false // Real push notifications
-  }
-};
-
-// Legacy support - will use MOCK_DATA_CONFIG.ENABLED
-export const USE_MOCK_DATA = MOCK_DATA_CONFIG.ENABLED;

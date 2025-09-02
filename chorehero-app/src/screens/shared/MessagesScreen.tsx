@@ -17,7 +17,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import { USE_MOCK_DATA } from '../../utils/constants';
+
 import { useMessages, type Conversation } from '../../context/MessageContext';
 import { useRoleFeatures } from '../../components/RoleBasedUI';
 import { useAuth } from '../../hooks/useAuth';
@@ -259,8 +259,8 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       ) : filteredConversations.length === 0 ? (
         <EmptyState
           {...EmptyStateConfigs.conversations}
-          showFeatures={!USE_MOCK_DATA}
-          actions={USE_MOCK_DATA ? [] : [
+          showFeatures={true}
+          actions={[
             {
               label: 'Find Cleaners',
               onPress: () => navigation.navigate('Discover'),

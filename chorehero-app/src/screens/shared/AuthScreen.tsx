@@ -19,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { userService } from '../../services/user';
-import { demoAuth } from '../../services/demoAuth';
+
 import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
@@ -44,7 +44,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const { refreshSession, setDemoUser, clearDemo } = useAuth();
+  const { refreshSession } = useAuth();
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -74,8 +74,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         const response = await userService.signUp(email, password);
         
         if (response.success) {
-          // New account created successfully – ensure we are NOT in demo mode
-          try { await clearDemo(); } catch {}
+          // New account created successfully
           navigation.navigate('AccountTypeSelection');
         } else if (response.requiresSignIn) {
           // Created, but session not present – prompt sign-in path
@@ -92,11 +91,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             'Check Your Email',
             response.error + '\n\nIf the confirmation link doesn\'t work, please contact support.',
             [
-              { text: 'OK', style: 'default' },
-              { 
-                text: 'Try Demo Instead', 
-                onPress: handleDemoAccess
-              }
+              { text: 'OK', style: 'default' }
             ]
           );
         } else if (response.requiresSignIn) {
@@ -126,50 +121,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleDemoAccess = () => {
-    Alert.alert(
-      'Demo Access',
-      'Explore ChoreHero with limited functionality. To access all features and save your data, create a real account.',
-      [
-        {
-          text: 'Demo as Customer',
-          onPress: async () => {
-            try {
-              console.log('🎯 Setting demo customer from AuthScreen');
-              await setDemoUser('customer');
-              console.log('✅ Demo customer set, navigating to MainTabs');
-              navigation.navigate('MainTabs');
-            } catch (error) {
-              console.error('❌ Error setting demo customer:', error);
-              navigation.navigate('MainTabs');
-            }
-          }
-        },
-        {
-          text: 'Demo as Cleaner',
-          onPress: async () => {
-            try {
-              console.log('🎯 Setting demo cleaner (Sarah) from AuthScreen');
-              await setDemoUser('cleaner', 'sarah');
-              console.log('✅ Demo cleaner set, navigating to MainTabs');
-              navigation.navigate('MainTabs');
-            } catch (error) {
-              console.error('❌ Error setting demo cleaner:', error);
-              navigation.navigate('MainTabs');
-            }
-          }
-        },
-        {
-          text: 'Create Real Account',
-          onPress: () => navigation.navigate('AccountTypeSelection')
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
-  };
+
 
   const handleGoogleSignIn = async () => {
     try {
@@ -201,6 +153,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     } catch (e) {
       Alert.alert('Google Sign-in Error', e instanceof Error ? e.message : 'Unexpected error');
     }
+  };
+
+  const handleGuestAccess = () => {
+    // Navigate directly to the main app as a guest
+    // Users can explore the app with limited functionality (read-only mode)
+    navigation.navigate('MainTabs');
   };
 
   return (
@@ -355,9 +313,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             )}
           </View>
 
-          {/* Demo Access */}
-          <TouchableOpacity style={styles.demoButton} onPress={handleDemoAccess}>
-            <Text style={styles.demoButtonText}>Continue as Guest</Text>
+          {/* Continue as Guest */}
+          <TouchableOpacity style={styles.guestButton} onPress={handleGuestAccess}>
+            <Text style={styles.guestButtonText}>Continue as Guest</Text>
           </TouchableOpacity>
 
           {/* Social Login Placeholder */}
@@ -558,7 +516,7 @@ const styles = StyleSheet.create({
     color: '#3ad3db',
     fontWeight: '500',
   },
-  demoButton: {
+  guestButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
     paddingVertical: 16,
@@ -567,11 +525,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  demoButtonText: {
+  guestButtonText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#ffffff',
   },
+
   socialContainer: {
     marginTop: 24,
     paddingHorizontal: 20,

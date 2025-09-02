@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, StatusBar, TouchableOpacity, FlatList, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { USE_MOCK_DATA } from '../../utils/constants';
+
 import { notificationService, type Notification } from '../../services/notificationService';
 import { useAuth } from '../../hooks/useAuth';
 

@@ -11,7 +11,7 @@ interface RoleIndicatorProps {
 
 const RoleIndicator: React.FC<RoleIndicatorProps> = ({ isDevelopment = __DEV__ }) => {
   const [currentRole, setCurrentRole] = useState<string | null>(null);
-  const { isCleaner, isCustomer, isAuthenticated, isDemoMode, setDemoUser } = useAuth();
+  const { isCleaner, isCustomer, isAuthenticated } = useAuth();
 
   useEffect(() => {
     const checkRole = async () => {
@@ -32,12 +32,12 @@ const RoleIndicator: React.FC<RoleIndicatorProps> = ({ isDevelopment = __DEV__ }
 
   const handleSwitchAccount = async () => {
     try {
-      if (!isAuthenticated && !isDemoMode) {
+      if (!isAuthenticated) {
         Alert.alert('Error', 'No account to switch from');
         return;
       }
 
-      if (isAuthenticated && !isDemoMode) {
+      if (isAuthenticated) {
         Alert.alert(
           'Switch Account Type',
           'Account type switching for authenticated users is not yet implemented. Please contact support.',
@@ -59,8 +59,8 @@ const RoleIndicator: React.FC<RoleIndicatorProps> = ({ isDevelopment = __DEV__ }
             text: `Switch to ${newRole.charAt(0).toUpperCase() + newRole.slice(1)}`, 
             onPress: async () => {
               const cleanerType = newRole === 'cleaner' ? 'sarah' : undefined;
-              await setDemoUser(newRole, cleanerType);
-              console.log(`✅ Switched to ${newRole} mode`);
+              // Demo system removed - contact support for account switching
+              console.log(`Demo system removed - cannot switch to ${newRole} mode`);
             }
           }
         ]

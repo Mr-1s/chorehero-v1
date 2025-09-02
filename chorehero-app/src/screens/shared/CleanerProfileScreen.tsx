@@ -20,9 +20,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
-import { getCleanerById, getCleanerServices, getCleanerReviews, SampleCleaner } from '../../services/sampleData';
+
 import { contentService } from '../../services/contentService';
-import { USE_MOCK_DATA } from '../../utils/constants';
+
 import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
 
@@ -79,7 +79,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const { cleanerId } = route.params || {};
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'videos' | 'services' | 'reviews' | 'about'>('videos');
-  const [cleaner, setCleaner] = useState<SampleCleaner | null>(null);
+  const [cleaner, setCleaner] = useState<any | null>(null);
   const [services, setServices] = useState<CleanerService[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [videos, setVideos] = useState<CleanerVideo[]>([]);
@@ -251,73 +251,49 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           return;
         }
         
-        // Always try to load cleaner data, with smart fallback logic
-        let cleanerData = null;
-        
-        if (USE_MOCK_DATA) {
-          // Try to fetch from mock data first
-          cleanerData = await getCleanerById(cleanerId);
-        }
-        
-        // If no cleaner found, use fallback strategy
-        if (!cleanerData) {
-          console.log(`🔄 Cleaner ID ${cleanerId} not found, creating fallback cleaner profile`);
-          
-          // Create a fallback cleaner profile using mock data structure
-          cleanerData = {
-            id: cleanerId, // Keep the original ID
-            name: 'Professional Cleaner',
-            phone: '+1-555-0100',
-            email: 'cleaner@chorehero.com',
-            avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
-            role: 'cleaner' as const,
-            is_active: true,
-            profile: {
-              video_profile_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-              hourly_rate: 85,
-              rating_average: 4.8,
-              total_jobs: 120,
-              bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
-              specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
-              verification_status: 'verified' as const,
-              is_available: true,
-              service_radius_km: 25,
-            },
-          };
-        }
-        
-        if (cleanerData) {
-          setCleaner(cleanerData);
-          
-          // Fetch services for the cleaner
-          const servicesData = await getCleanerServices(cleanerData.id);
-          setServices(servicesData);
+        // TODO: Implement real cleaner data loading from database
+        // This should fetch cleaner profile, services, and reviews from Supabase
+        console.log(`🔄 Loading cleaner profile for ID: ${cleanerId}`);
 
-          // Fetch reviews
-          const reviewsData = await getCleanerReviews(cleanerData.id);
-          setReviews(reviewsData);
+        // Placeholder cleaner data - replace with real database queries
+        const cleanerData = {
+          id: cleanerId,
+          name: 'Professional Cleaner',
+          phone: '+1-555-0100',
+          email: 'cleaner@chorehero.com',
+          avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
+          role: 'cleaner' as const,
+          is_active: true,
+          profile: {
+            video_profile_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+            hourly_rate: 85,
+            rating_average: 4.8,
+            total_jobs: 120,
+            bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
+            specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
+            verification_status: 'verified' as const,
+            is_available: true,
+            service_radius_km: 25,
+          },
+        };
 
-          // Always load videos from content service (regardless of mock mode)
-          await loadCleanerVideos(cleanerData.id);
-          
-          // Load cleaner's availability schedule
-          await loadCleanerAvailability(cleanerData.id);
-        } else {
-          // Set empty data if no cleaner data found
-          setCleaner(null);
-          setServices([]);
-          setReviews([]);
-          setVideos([]);
-        }
+        setCleaner(cleanerData);
+        setServices([]); // TODO: Load real services
+        setReviews([]); // TODO: Load real reviews
+
+        // Load videos from content service
+        await loadCleanerVideos(cleanerData.id);
+        
+        // Load cleaner's availability schedule
+        await loadCleanerAvailability(cleanerData.id);
 
       } catch (error) {
         console.error('Error fetching cleaner data:', error);
-        // Set empty data on error when not using mock data
-        if (!USE_MOCK_DATA) {
-          setCleaner(null);
-          setServices([]);
-          setReviews([]);
-        }
+        // Set empty data on error
+        setCleaner(null);
+        setServices([]);
+        setReviews([]);
+        setVideos([]);
       } finally {
         setLoading(false);
       }
@@ -383,15 +359,12 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               </LinearGradient>
             </View>
             <Text style={styles.emptyStateTitle}>
-              {USE_MOCK_DATA ? 'Cleaner not found' : 'No cleaner data available'}
+              No cleaner data available
             </Text>
             <Text style={styles.emptyStateSubtitle}>
-              {USE_MOCK_DATA 
-                ? 'The cleaner profile you are looking for could not be found.'
-                : 'Cleaner profiles will appear here when cleaners join your area and create their profiles.'
-              }
+              Cleaner profiles will appear here when cleaners join your area and create their profiles.
             </Text>
-            {!USE_MOCK_DATA && (
+            {true && (
               <View style={styles.emptyStateFeatures}>
                 <View style={styles.featureItem}>
                   <Ionicons name="star" size={20} color="#3ad3db" />

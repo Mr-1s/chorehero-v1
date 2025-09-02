@@ -65,7 +65,7 @@ interface UserProfile {
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
-  const { signOut, user, isAuthenticated, isDemoMode, isCleaner, setDemoUser } = useAuth();
+  const { signOut, user, isAuthenticated, isCleaner } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -170,12 +170,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   const handleSwitchAccount = async () => {
     try {
-      if (!isAuthenticated && !isDemoMode) {
+      if (!isAuthenticated) {
         Alert.alert('Error', 'No account to switch from');
         return;
       }
 
-      if (isAuthenticated && !isDemoMode) {
+      if (isAuthenticated) {
         // For real authenticated users, we need to implement account type switching in the database
         // This would require updating the user's role in the database
         Alert.alert(
@@ -201,7 +201,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
               try {
                 // Use the proper demo system
                 const cleanerType = newRole === 'cleaner' ? 'sarah' : undefined;
-                await setDemoUser(newRole, cleanerType);
+                // Demo functionality removed - contact support for account type changes
                 
                 Alert.alert(
                   'Account Switched',

@@ -22,7 +22,7 @@ import { uploadService, type UploadProgress, type UploadResponse } from '../../s
 import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { getOptimalListProps, memoryManager, performanceMonitor, optimizeImageUri } from '../../utils/performance';
 
@@ -56,30 +56,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const [uploadDetails, setUploadDetails] = useState<UploadProgress | null>(null);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [videos, setVideos] = useState<UploadedVideo[]>(
-    MockDataToggle.getFeatureData('CLEANER', 'VIDEOS', [
-      {
-        id: '1',
-        uri: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-        title: 'Kitchen Deep Clean Demo',
-        duration: 45,
-        uploadDate: '2023-12-15',
-        status: 'live',
-        views: 1200,
-        bookings: 8,
-      },
-      {
-        id: '2',
-        uri: 'https://assets.mixkit.co/videos/preview/mixkit-person-cleaning-a-surface-with-disinfectant-4203-large.mp4',
-        title: 'Bathroom Sanitization',
-        duration: 38,
-        uploadDate: '2023-12-10',
-        status: 'live',
-        views: 850,
-        bookings: 5,
-      },
-    ], [])
-  );
+  const [videos, setVideos] = useState<UploadedVideo[]>([]);
 
   // Calculate analytics metrics
   const totalViews = videos.reduce((sum, video) => sum + video.views, 0);

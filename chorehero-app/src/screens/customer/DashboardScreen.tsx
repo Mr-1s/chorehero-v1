@@ -17,8 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { USE_MOCK_DATA } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 
 const { width } = Dimensions.get('window');
