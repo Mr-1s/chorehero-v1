@@ -616,23 +616,20 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         <Text style={styles.serviceCategoryDescription} numberOfLines={2}>
           {service.description}
         </Text>
-        <View style={styles.serviceCategoryFooter}>
-          <Text style={styles.serviceCategoryPrice}>{service.price_range}</Text>
-          <TouchableOpacity 
-            style={styles.serviceCategoryButton}
-            onPress={() => {
-              console.log('🎯 Browse cleaners for:', service.name);
-              // Navigate to service detail with cleaners list
-              navigation.navigate('ServiceDetail', {
-                serviceId: service.id,
-                serviceName: service.name,
-                category: service.category
-              });
-            }}
-          >
-            <Text style={styles.serviceCategoryButtonText}>Browse Cleaners</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity 
+          style={styles.serviceCategoryButton}
+          onPress={() => {
+            console.log('🎯 Browse cleaners for:', service.name);
+            // Navigate to service detail with cleaners list
+            navigation.navigate('ServiceDetail', {
+              serviceId: service.id,
+              serviceName: service.name,
+              category: service.category
+            });
+          }}
+        >
+          <Text style={styles.serviceCategoryButtonText}>Browse Cleaners</Text>
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -1388,11 +1385,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingHorizontal: 0,
-    gap: 8,
+    paddingHorizontal: 16,
+    gap: 12,
   },
   serviceCategoryCard: {
-    width: (width - 40 - 8) / 2, // Account for 20px padding on each side + 8px gap
+    width: (width - 56) / 2, // Account for container padding + gap (16px*2 + 12px gap)
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     overflow: 'hidden',
@@ -1401,7 +1398,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   serviceCategoryImageContainer: {
     position: 'relative',
@@ -1443,8 +1440,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   serviceCategoryContent: {
-    padding: 12,
-    paddingTop: 8,
+    padding: 14,
+    paddingTop: 10,
+    paddingBottom: 16,
   },
   serviceCategoryTitle: {
     fontSize: 16,
@@ -1457,7 +1455,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8E8E93',
     lineHeight: 18,
-    marginBottom: 12,
+    marginBottom: 16,
     fontWeight: '500',
   },
   serviceCategoryFooter: {
@@ -1472,14 +1470,16 @@ const styles = StyleSheet.create({
   },
   serviceCategoryButton: {
     backgroundColor: '#3ad3db',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignSelf: 'stretch',
+    alignItems: 'center',
   },
   serviceCategoryButtonText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 
