@@ -359,7 +359,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             user_id: video.id,
             name: video.cleaner_name,
             username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
-            rating_average: 4.8 + Math.random() * 0.2,
+            rating_average: Math.round((4.6 + Math.random() * 0.4) * 10) / 10, // 4.6-5.0 rounded to 1 decimal
             total_jobs: Math.floor(video.view_count / 100),
             hourly_rate: 25 + Math.floor(Math.random() * 20),
             service_title: `Professional ${video.category} Cleaning`,
