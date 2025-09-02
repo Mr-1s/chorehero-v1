@@ -113,7 +113,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
     },
   ];
   
-  const paymentHistory: PaymentHistory[] = MockDataToggle.getFeatureData('CLEANER', 'EARNINGS', mockPaymentHistory, []) || [];
+  const paymentHistory: PaymentHistory[] = mockPaymentHistory || [];
 
   const handleWithdraw = () => {
     setLoading(true);

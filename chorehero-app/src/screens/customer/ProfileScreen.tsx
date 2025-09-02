@@ -192,23 +192,13 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   };
 
   const loadMockData = () => {
-    // Fallback mock data loading
-    const mockStats = MockDataToggle.getFeatureData(
-      'CUSTOMER',
-      'PROFILE_STATS',
-      {
-        totalBookings: 24,
-        completedBookings: 22,
-        totalSpent: 1847.50,
-        favoriteCleaners: 8,
-      },
-      {
-        totalBookings: 0,
-        completedBookings: 0,
-        totalSpent: 0,
-        favoriteCleaners: 0,
-      }
-    );
+    // Fallback mock data loading - simplified without MockDataToggle
+    const mockStats = {
+      totalBookings: 24,
+      completedBookings: 22,
+      totalSpent: 1847.50,
+      favoriteCleaners: 8,
+    };
 
     const mockUpcoming = [
       {

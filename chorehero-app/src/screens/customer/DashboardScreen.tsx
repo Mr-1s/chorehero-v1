@@ -107,7 +107,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
-      if (MockDataToggle.isEnabledForFeature('CUSTOMER', 'DASHBOARD')) {
+      if (true) { // Show mock data for demo purposes
         // Simulate API call
         await new Promise(resolve => setTimeout(resolve, 1000));
         const mockUpcomingBookings: Booking[] = [

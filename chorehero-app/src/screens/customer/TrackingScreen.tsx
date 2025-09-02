@@ -50,12 +50,7 @@ const TrackingScreen: React.FC = () => {
         location: '123 Main St, San Francisco'
       };
 
-      const trackingInfo = MockDataToggle.getFeatureData(
-        'CUSTOMER',
-        'TRACKING',
-        mockTrackingData,
-        null
-      );
+      const trackingInfo = mockTrackingData;
 
       setTrackingData(trackingInfo);
     } catch (error) {
