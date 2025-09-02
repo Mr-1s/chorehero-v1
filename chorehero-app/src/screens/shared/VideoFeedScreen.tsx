@@ -338,11 +338,16 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       // Check if user is a guest - prioritize demo mode for guest users
       const isGuest = await guestModeService.isGuestUser();
       console.log('🚪 Is guest user:', isGuest);
+      console.log('👤 Current user object:', user);
+      console.log('🔑 User ID:', user?.id);
+      console.log('📧 User email:', user?.email);
       
       // If user is a guest, always show professional demo videos
       if (isGuest) {
         console.log('🎬 Guest user detected - Loading professional demo videos');
         const guestVideos = await guestModeService.getGuestVideos();
+        console.log('📹 Guest videos received:', guestVideos.length, 'videos');
+        console.log('📹 First video:', guestVideos[0]?.title);
         const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
           id: video.id,
           cleaner: {

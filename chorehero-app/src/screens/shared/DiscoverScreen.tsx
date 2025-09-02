@@ -1389,24 +1389,24 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingHorizontal: 0,
-    gap: 12,
+    gap: 8,
   },
   serviceCategoryCard: {
-    width: (width - 52) / 2, // 2 cards per row with proper spacing
+    width: (width - 48) / 2, // 2 cards per row with tighter spacing
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: 'hidden',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   serviceCategoryImageContainer: {
     position: 'relative',
     width: '100%',
-    height: 120,
+    height: 100,
   },
   serviceCategoryImage: {
     width: '100%',
@@ -1443,21 +1443,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   serviceCategoryContent: {
-    padding: 16,
-    paddingTop: 12,
+    padding: 12,
+    paddingTop: 8,
   },
   serviceCategoryTitle: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#1C1C1E',
-    marginBottom: 6,
-    lineHeight: 22,
+    marginBottom: 4,
+    lineHeight: 20,
   },
   serviceCategoryDescription: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#8E8E93',
-    lineHeight: 20,
-    marginBottom: 16,
+    lineHeight: 18,
+    marginBottom: 12,
     fontWeight: '500',
   },
   serviceCategoryFooter: {
@@ -1466,20 +1466,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   serviceCategoryPrice: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#3ad3db',
   },
   serviceCategoryButton: {
     backgroundColor: '#3ad3db',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
   serviceCategoryButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

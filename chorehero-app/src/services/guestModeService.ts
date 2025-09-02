@@ -146,19 +146,13 @@ class GuestModeService {
   }
 
   /**
-   * Get videos for guest mode - shows professional videos if no real data exists
+   * Get videos for guest mode - always shows professional videos for demo purposes
    */
   async getGuestVideos(): Promise<GuestVideo[]> {
     try {
-      const { hasVideos } = await this.hasRealData();
-      
-      if (hasVideos) {
-        // If real videos exist, don't show professional videos
-        // Guest users will see real content
-        return [];
-      }
-
-      // Return professional cleaning videos for guest experience
+      // Always return professional cleaning videos for guest users
+      // This ensures demo mode is always on for guests regardless of real data
+      console.log('🎬 Returning professional videos for guest demo mode');
       return this.professionalVideos;
     } catch (error) {
       console.error('Error getting guest videos:', error);
