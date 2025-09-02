@@ -1392,7 +1392,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   serviceCategoryCard: {
-    width: (width - 48) / 2, // 2 cards per row with tighter spacing
+    width: (width - 40 - 8) / 2, // Account for 20px padding on each side + 8px gap
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     overflow: 'hidden',

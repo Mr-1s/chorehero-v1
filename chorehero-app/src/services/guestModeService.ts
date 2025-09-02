@@ -259,8 +259,17 @@ class GuestModeService {
   async isGuestUser(): Promise<boolean> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      return !user;
+      console.log('🔍 GuestModeService: Checking user auth status');
+      console.log('🔍 Raw user data:', user);
+      console.log('🔍 User exists:', !!user);
+      console.log('🔍 User ID:', user?.id);
+      console.log('🔍 User email:', user?.email);
+      
+      const isGuest = !user;
+      console.log('🔍 Final isGuest result:', isGuest);
+      return isGuest;
     } catch (error) {
+      console.error('🔍 Error checking guest status:', error);
       return true; // If we can't determine, assume guest
     }
   }

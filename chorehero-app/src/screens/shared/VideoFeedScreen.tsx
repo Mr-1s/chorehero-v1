@@ -308,18 +308,23 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const initializeData = async () => {
     setLoading(true);
     console.log('🚀 VideoFeedScreen: Initializing data...');
+    console.log('🚀 Current videos length:', videos.length);
 
     try {
-      console.log('🌐 Loading real content from database...');
+      console.log('🌐 About to call loadRealContent...');
       await loadRealContent();
       console.log('✅ Real content loading completed');
+      console.log('✅ Videos after loading:', videos.length);
     } catch (error) {
       console.error('❌ Error loading real content:', error);
+      console.error('❌ Error details:', error.message || error);
       // Set empty state if real content loading fails
       setVideos([]);
     } finally {
       setLoading(false);
       console.log('✅ VideoFeedScreen: Data initialization complete');
+      console.log('✅ Final videos length:', videos.length);
+      console.log('✅ Loading state:', false);
     }
   };
 
