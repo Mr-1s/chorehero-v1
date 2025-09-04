@@ -24,6 +24,7 @@ import { supabase } from '../../services/supabase';
 import { categoryService, CategoryService, CategoryCleaner } from '../../services/category';
 import { contentService } from '../../services/contentService';
 import { guestModeService, GuestService } from '../../services/guestModeService';
+import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
 
 
 
@@ -241,12 +242,47 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const loadServiceCategories = async () => {
     try {
       console.log('🏠 Loading service categories...');
-      const categories = await guestModeService.getGuestServiceCategories();
-      setServiceCategories(categories);
-      console.log(`✅ Loaded ${categories.length} service categories`);
+      
+      // Check if user is guest, then decide data source
+      const isGuest = await guestModeService.isGuestUser();
+      
+      if (isGuest) {
+        // Guest user - use guest mode categories
+        console.log('👤 Guest user detected, loading guest categories');
+        const categories = await guestModeService.getGuestServiceCategories();
+        setServiceCategories(categories);
+        console.log(`✅ Loaded ${categories.length} guest service categories`);
+      } else {
+        // Real user - use service discovery service with real data
+        console.log('🔄 Real user detected, loading real service categories');
+        const response = await serviceDiscoveryService.getServiceCategories();
+        
+        if (response.success && response.data) {
+          // Transform real service categories to match UI format
+          const transformedCategories = response.data.map(category => ({
+            id: category.id,
+            title: category.name,
+            description: category.description,
+            image: category.image,
+            cleaners_count: category.cleaners_count,
+            avg_rating: category.avg_rating,
+            starting_price: category.starting_price
+          }));
+          
+          setServiceCategories(transformedCategories);
+          console.log(`✅ Loaded ${transformedCategories.length} real service categories`);
+        } else {
+          // Fallback to guest categories if real data fails
+          console.log('⚠️ Failed to load real categories, falling back to guest mode');
+          const categories = await guestModeService.getGuestServiceCategories();
+          setServiceCategories(categories);
+        }
+      }
     } catch (error) {
       console.error('❌ Error loading service categories:', error);
-      setServiceCategories([]);
+      // Fallback to guest categories on error
+      const categories = await guestModeService.getGuestServiceCategories();
+      setServiceCategories(categories);
     }
   };
 

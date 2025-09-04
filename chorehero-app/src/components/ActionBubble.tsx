@@ -117,12 +117,17 @@ const styles = StyleSheet.create({
   countLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#374151',
+    color: '#FFFFFF',
     textAlign: 'center',
-    textShadowColor: 'rgba(255, 255, 255, 0.8)',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
     letterSpacing: 0.3,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
 });
 

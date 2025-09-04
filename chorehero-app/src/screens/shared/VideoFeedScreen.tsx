@@ -1066,10 +1066,10 @@ const styles = StyleSheet.create({
   socialButtonText: {
     color: 'white',
     fontSize: 12,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    fontWeight: '700',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
   },
 
   // Cleaner Profile Header

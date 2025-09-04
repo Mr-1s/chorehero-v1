@@ -251,35 +251,116 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           return;
         }
         
-        // TODO: Implement real cleaner data loading from database
-        // This should fetch cleaner profile, services, and reviews from Supabase
+        // Load real cleaner data from database
         console.log(`🔄 Loading cleaner profile for ID: ${cleanerId}`);
 
-        // Placeholder cleaner data - replace with real database queries
-        const cleanerData = {
-          id: cleanerId,
-          name: 'Professional Cleaner',
-          phone: '+1-555-0100',
-          email: 'cleaner@chorehero.com',
-          avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
-          role: 'cleaner' as const,
-          is_active: true,
-          profile: {
-            video_profile_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-            hourly_rate: 85,
-            rating_average: 4.8,
-            total_jobs: 120,
-            bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
-            specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
-            verification_status: 'verified' as const,
-            is_available: true,
-            service_radius_km: 25,
-          },
-        };
+        // Fetch cleaner data from Supabase
+        const { data: cleanerData, error: cleanerError } = await supabase
+          .from('users')
+          .select(`
+            id,
+            name,
+            phone,
+            email,
+            avatar_url,
+            role,
+            is_active,
+            created_at,
+            profile:user_profiles(
+              bio,
+              hourly_rate,
+              rating_average,
+              total_jobs,
+              specialties,
+              verification_status,
+              is_available,
+              service_radius_km,
+              video_profile_url
+            )
+          `)
+          .eq('id', cleanerId)
+          .eq('role', 'cleaner')
+          .single();
 
-        setCleaner(cleanerData);
-        setServices([]); // TODO: Load real services
-        setReviews([]); // TODO: Load real reviews
+        if (cleanerError) {
+          console.error('❌ Error fetching cleaner data:', cleanerError);
+          // Fallback to demo cleaner if real data not found
+          const demoCleanerData = {
+            id: cleanerId,
+            name: 'Professional Cleaner',
+            phone: '+1-555-0100',
+            email: 'cleaner@chorehero.com',
+            avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
+            role: 'cleaner' as const,
+            is_active: true,
+            profile: {
+              video_profile_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+              hourly_rate: 85,
+              rating_average: 4.8,
+              total_jobs: 120,
+              bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
+              specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
+              verification_status: 'verified' as const,
+              is_available: true,
+              service_radius_km: 25,
+            },
+          };
+          setCleaner(demoCleanerData);
+        } else {
+          // Use real cleaner data
+          console.log('✅ Loaded real cleaner data:', cleanerData.name);
+          setCleaner(cleanerData);
+        }
+
+        // Load cleaner's services
+        const { data: services, error: servicesError } = await supabase
+          .from('cleaner_services')
+          .select(`
+            id,
+            custom_price,
+            is_available,
+            category:service_categories(
+              name,
+              description,
+              base_price,
+              estimated_duration_minutes
+            )
+          `)
+          .eq('cleaner_id', cleanerId)
+          .eq('is_available', true);
+
+        if (servicesError) {
+          console.warn('⚠️ Error loading services:', servicesError);
+          setServices([]);
+        } else {
+          setServices(services || []);
+          console.log(`✅ Loaded ${services?.length || 0} services for cleaner`);
+        }
+
+        // Load cleaner's reviews
+        const { data: reviews, error: reviewsError } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            rating,
+            comment,
+            created_at,
+            customer:users!customer_id(
+              name,
+              avatar_url
+            )
+          `)
+          .eq('cleaner_id', cleanerId)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (reviewsError) {
+          console.warn('⚠️ Error loading reviews:', reviewsError);
+          setReviews([]);
+        } else {
+          setReviews(reviews || []);
+          console.log(`✅ Loaded ${reviews?.length || 0} reviews for cleaner`);
+        }
 
         // Load videos from content service
         await loadCleanerVideos(cleanerData.id);

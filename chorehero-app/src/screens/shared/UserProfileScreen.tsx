@@ -809,14 +809,24 @@ const styles = StyleSheet.create({
   },
   backButton: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   backButtonText: {
     color: COLORS.text.inverse,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: 0.3,
   },
 });
 

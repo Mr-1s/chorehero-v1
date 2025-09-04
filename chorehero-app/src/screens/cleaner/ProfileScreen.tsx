@@ -27,6 +27,7 @@ import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigatio
 
 import { COLORS } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
+import { demoCleanerService } from '../../services/demoCleanerService';
 import { contentService } from '../../services/contentService';
 
 const { width, height } = Dimensions.get('window');
@@ -150,7 +151,45 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
   };
 
   const loadCleanerProfileData = async () => {
-    // Check if user is authenticated and get real data or demo data
+    // Check if user is demo cleaner
+    const isDemoCleanerUser = await demoCleanerService.isDemoCleanerUser();
+    
+    if (isDemoCleanerUser) {
+      console.log('🎭 DEMO CLEANER detected - loading demo data');
+      
+      // Load demo cleaner data
+      const demoData = demoCleanerService.getDemoCleanerData();
+      setProfileData({
+        id: demoData.id,
+        name: demoData.name,
+        email: demoData.email,
+        phone: demoData.phone,
+        bio: demoData.bio,
+        hourlyRate: demoData.hourly_rate,
+        avatar_url: demoData.avatar_url,
+        video_profile_url: demoData.video_profile_url || '',
+        verification_status: demoData.verification_status,
+        background_check_date: '2023-12-15', // Demo data
+        rating_average: demoData.rating_average,
+        total_jobs: demoData.total_jobs,
+        specialties: demoData.specialties,
+        availability: {
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: true,
+          sunday: false,
+        },
+        service_radius: demoData.service_radius_km,
+        instant_booking: true,
+      });
+      
+      return;
+    }
+    
+    // Check if user is authenticated and get real data
     const isRealUser = user?.id && !user.id.startsWith('demo_');
     
     if (isRealUser) {
@@ -258,17 +297,41 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
 
   const loadDashboardData = async () => {
     try {
-      // Check if we should use mock data
+      // Check if user is demo cleaner
+      const isDemoCleanerUser = await demoCleanerService.isDemoCleanerUser();
+      
+      if (isDemoCleanerUser) {
+        console.log('📊 Loading demo cleaner dashboard stats');
+        const demoStats = demoCleanerService.getDemoCleanerStats();
+        
+        setTodayEarnings(demoStats.todayEarnings);
+        setWeeklyEarnings(demoStats.weeklyEarnings);
+        setCompletedJobs(demoStats.completedJobs);
+        setRating(demoStats.averageRating);
+        
+        return;
+      }
+      
+      // Check if we should use mock data for other demo users
       const isRealUser = user?.id && !user.id.startsWith('demo_');
       
       if (isRealUser) {
-        // Real user - start with zeros
+        // Real user - start with zeros until we fetch real data
         setTodayEarnings(0);
         setWeeklyEarnings(0);
         setCompletedJobs(0);
         setRating(0);
+        
+        // TODO: Fetch real earnings data from database
+        // const earningsData = await earningsService.getCleanerEarnings(user.id);
+        // if (earningsData.success) {
+        //   setTodayEarnings(earningsData.data.today);
+        //   setWeeklyEarnings(earningsData.data.week);
+        //   setCompletedJobs(earningsData.data.completedJobs);
+        //   setRating(earningsData.data.averageRating);
+        // }
       } else {
-        // Demo user - mock data
+        // Other demo user - basic mock data
         setTodayEarnings(125.50);
         setWeeklyEarnings(387.25);
         setCompletedJobs(8);

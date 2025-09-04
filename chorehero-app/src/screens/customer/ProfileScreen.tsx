@@ -150,28 +150,32 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
       // Check if user is authenticated and try to load real data
       if (user?.id && !user.id.startsWith('demo_')) {
         try {
-          // Real authenticated user - load their actual data (empty for new accounts)
+          // Real authenticated user - load their actual data from database
           console.log('✅ REAL USER detected - loading actual data for:', user.email, user.name, 'ID:', user.id);
           
-          const realStats = {
+          // Load real statistics from database
+          const [statsResult, upcomingResult, recentResult] = await Promise.all([
+            userStatsService.getCustomerStats(user.id),
+            userStatsService.getCustomerUpcomingBookings(user.id),
+            userStatsService.getCustomerRecentActivity(user.id, 5)
+          ]);
+
+          // Use real data if available, fall back to empty states
+          const realStats = statsResult.success ? statsResult.data! : {
             totalBookings: 0,
             completedBookings: 0,
             totalSpent: 0,
             favoriteCleaners: 0,
           };
 
-          // Real bookings would be loaded from database here
-          const realUpcoming: Booking[] = [];
-          const realRecent: Booking[] = [];
+          const realUpcoming = upcomingResult.success ? upcomingResult.data! : [];
+          const realRecent = recentResult.success ? recentResult.data! : [];
 
-                     // For real users, show actual data (empty states) instead of mock data
-           const finalStats = realStats;
-           const finalUpcoming = realUpcoming; 
-           const finalRecent = realRecent;
+          setUserStats(realStats);
+          setUpcomingBookings(realUpcoming);
+          setRecentBookings(realRecent);
 
-          setUserStats(finalStats);
-          setUpcomingBookings(finalUpcoming);
-          setRecentBookings(finalRecent);
+          console.log('📊 Loaded real user statistics:', realStats);
           
         } catch (dbError) {
           console.error('Database error loading profile data:', dbError);
