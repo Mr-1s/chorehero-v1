@@ -403,10 +403,10 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
           <Text style={styles.sectionDescription}>Customize the booking steps, fields, and add-ons customers see when booking you.</Text>
           <TouchableOpacity
             style={styles.templateButton}
-            onPress={() => navigation.navigate('CleanerProfileEdit' as never)}
+            onPress={() => navigation.navigate('BookingTemplate' as never)}
           >
             <Ionicons name="construct-outline" size={18} color="#3ad3db" />
-            <Text style={styles.templateButtonText}>{hasBookingTemplate ? 'Edit Template (coming soon)' : 'Create Template (coming soon)'}</Text>
+            <Text style={styles.templateButtonText}>Customize Booking Flow</Text>
           </TouchableOpacity>
         </View>
 
