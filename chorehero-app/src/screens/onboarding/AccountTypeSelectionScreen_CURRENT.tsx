@@ -124,87 +124,74 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
           </Text>
         </Animated.View>
 
-        {/* RADICAL MODERN: Floating Cards with Gradients */}
-        <View style={styles.radicalContainer}>
-          {/* Floating Background Shapes */}
-          <View style={styles.floatingShape1} />
-          <View style={styles.floatingShape2} />
-          
-          <Animated.View style={{ 
-            transform: [{ scale: card1Scale }, { rotate: '-3deg' }],
-            marginRight: 30,
-          }}>
+        {/* Account Type Cards */}
+        <View style={styles.optionsContainer}>
+          <Animated.View style={{ transform: [{ scale: card1Scale }] }}>
             <TouchableOpacity
-              style={styles.radicalCard1}
+              style={styles.optionCard}
               activeOpacity={1}
               onPress={() => handleCardPress('customer')}
             >
-              <LinearGradient
-                colors={['#3ad3db', '#06b6d4', '#0891b2']}
-                style={styles.cardGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.radicalContent}>
-                  <View style={styles.radicalIcon}>
-                    <View style={styles.glassIcon}>
-                      <Ionicons name="search" size={32} color="#ffffff" />
-                    </View>
-                    <View style={styles.floatingSparkle}>
-                      <Ionicons name="sparkles" size={18} color="#FFD700" />
-                    </View>
-                  </View>
-                  <View style={styles.radicalText}>
-                    <Text style={styles.radicalTitle}>Find a{"\n"}ChoreHero</Text>
-                    <Text style={styles.radicalSubtitle}>Connect instantly</Text>
-                    <View style={styles.radicalBadges}>
-                      <Text style={styles.badge}>⚡ Same-day</Text>
-                      <Text style={styles.badge}>🏆 Verified</Text>
-                      <Text style={styles.badge}>💳 Secure</Text>
-                    </View>
+              <View style={styles.cardContent}>
+                <View style={styles.iconContainer}>
+                  <LinearGradient
+                    colors={['#3ad3db', '#2BC8D4']}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons name="search" size={28} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.iconAccent}>
+                    <Ionicons name="sparkles" size={16} color="#3ad3db" />
                   </View>
                 </View>
-              </LinearGradient>
-            </TouchableOpacity>
+              <View style={styles.cardText}>
+                <Text style={styles.cardTitle}>Find a ChoreHero</Text>
+                <Text style={styles.cardDescription}>
+                  Connect with cleaning heroes in your area
+                </Text>
+              </View>
+              <View style={styles.cardArrow}>
+                <Ionicons name="chevron-forward" size={24} color="#6B7280" />
+              </View>
+            </View>
+            <View style={styles.cardBenefits}>
+              <Text style={styles.benefitText}>🏆 Verified heroes • ⚡ Same-day booking • 💳 Safe payments</Text>
+            </View>
+          </TouchableOpacity>
           </Animated.View>
 
-          <Animated.View style={{ 
-            transform: [{ scale: card2Scale }, { rotate: '3deg' }],
-            marginLeft: 30,
-            marginTop: -20,
-          }}>
+          <Animated.View style={{ transform: [{ scale: card2Scale }] }}>
             <TouchableOpacity
-              style={styles.radicalCard2}
+              style={styles.optionCard}
               activeOpacity={1}
               onPress={() => handleCardPress('cleaner')}
             >
-              <LinearGradient
-                colors={['#8B5CF6', '#7C3AED', '#6366F1']}
-                style={styles.cardGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <View style={styles.radicalContent}>
-                  <View style={styles.radicalIcon}>
-                    <View style={styles.glassIcon}>
-                      <Ionicons name="flash" size={32} color="#ffffff" />
-                    </View>
-                    <View style={styles.floatingStar}>
-                      <Ionicons name="star" size={18} color="#FFD700" />
-                    </View>
-                  </View>
-                  <View style={styles.radicalText}>
-                    <Text style={styles.radicalTitle}>Become a{"\n"}ChoreHero</Text>
-                    <Text style={styles.radicalSubtitle}>Earn heroically</Text>
-                    <View style={styles.radicalBadges}>
-                      <Text style={styles.badge}>💰 Your rates</Text>
-                      <Text style={styles.badge}>📅 Your time</Text>
-                      <Text style={styles.badge}>⭐ Your rep</Text>
-                    </View>
+              <View style={styles.cardContent}>
+                <View style={styles.iconContainer}>
+                  <LinearGradient
+                    colors={['#8B5CF6', '#7C3AED']}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons name="flash" size={28} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.iconAccent}>
+                    <Ionicons name="star" size={16} color="#8B5CF6" />
                   </View>
                 </View>
-              </LinearGradient>
-            </TouchableOpacity>
+              <View style={styles.cardText}>
+                <Text style={styles.cardTitle}>Become a ChoreHero</Text>
+                <Text style={styles.cardDescription}>
+                  Turn your cleaning skills into heroic income
+                </Text>
+              </View>
+              <View style={styles.cardArrow}>
+                <Ionicons name="chevron-forward" size={24} color="#6B7280" />
+              </View>
+            </View>
+            <View style={styles.cardBenefits}>
+              <Text style={styles.benefitText}>💰 Your rates • 📅 Your schedule • ⭐ Your reputation</Text>
+            </View>
+          </TouchableOpacity>
           </Animated.View>
         </View>
 
@@ -383,155 +370,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: '400',
     fontStyle: 'italic',
-  },
-  // RADICAL MODERN STYLES
-  radicalContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 30,
-    position: 'relative',
-  },
-  floatingShape1: {
-    position: 'absolute',
-    top: 20,
-    right: 40,
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(58, 211, 219, 0.15)',
-    transform: [{ rotate: '45deg' }],
-    zIndex: 0,
-  },
-  floatingShape2: {
-    position: 'absolute',
-    bottom: 80,
-    left: 30,
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
-    transform: [{ rotate: '-30deg' }],
-    zIndex: 0,
-  },
-  radicalCard1: {
-    height: 240,
-    borderRadius: 32,
-    marginBottom: 30,
-    shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.4,
-    shadowRadius: 32,
-    elevation: 25,
-    overflow: 'hidden',
-  },
-  radicalCard2: {
-    height: 240,
-    borderRadius: 32,
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.4,
-    shadowRadius: 32,
-    elevation: 25,
-    overflow: 'hidden',
-  },
-  cardGradient: {
-    flex: 1,
-    borderRadius: 32,
-  },
-  radicalContent: {
-    flex: 1,
-    padding: 28,
-    justifyContent: 'space-between',
-  },
-  radicalIcon: {
-    position: 'relative',
-    alignSelf: 'flex-start',
-  },
-  glassIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backdropFilter: 'blur(20px)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  floatingSparkle: {
-    position: 'absolute',
-    top: -10,
-    right: -10,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    elevation: 12,
-  },
-  floatingStar: {
-    position: 'absolute',
-    top: -10,
-    right: -10,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#FFD700',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    elevation: 12,
-  },
-  radicalText: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  radicalTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#ffffff',
-    lineHeight: 32,
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.4)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
-  },
-  radicalSubtitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginBottom: 20,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  radicalBadges: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  badge: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#ffffff',
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    overflow: 'hidden',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
 });
 
