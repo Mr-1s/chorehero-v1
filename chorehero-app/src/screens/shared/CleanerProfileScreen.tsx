@@ -629,7 +629,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             <View style={styles.profileHeader}>
               <View style={styles.avatarContainer}>
                 <Image 
-                  source={{ uri: cleaner.avatar_url || 'https://via.placeholder.com/80x80/009688/FFFFFF?text=👤' }} 
+                  source={{ uri: cleaner.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(cleaner.name || 'Cleaner')}&background=3ad3db&color=fff&size=160&font-size=0.4&format=png` }} 
                   style={styles.profileAvatar} 
                 />
                 {/* Online Status Ring */}

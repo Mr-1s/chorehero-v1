@@ -82,11 +82,11 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     );
   };
 
-  // Mock user data
+  // Mock user data with smart placeholder
   const user = {
-    name: 'John Smith',
-    email: 'john.smith@email.com',
-    avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
+    name: authUser?.user?.name || 'John Smith',
+    email: authUser?.user?.email || 'john.smith@email.com',
+    avatar: authUser?.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(authUser?.user?.name || 'Customer')}&background=6366F1&color=fff&size=150&font-size=0.4&format=png`,
     location: 'San Francisco, CA',
     phone: '+1 (555) 123-4567',
     memberSince: 'March 2023',

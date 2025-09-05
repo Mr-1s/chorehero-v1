@@ -897,7 +897,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
             <View style={styles.profileContainer}>
               <TouchableOpacity style={styles.profileButton}>
                 <Image 
-                  source={{ uri: user?.avatar_url || 'https://randomuser.me/api/portraits/men/1.jpg' }} 
+                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=3ad3db&color=fff&size=120&font-size=0.4&format=png` }} 
                   style={styles.profileImage} 
                 />
                 <View style={styles.profileBadge}>

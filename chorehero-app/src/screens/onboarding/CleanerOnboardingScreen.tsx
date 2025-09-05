@@ -95,7 +95,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     lastName: '',
     email: '',
     phone: '',
-    profilePhoto: 'https://randomuser.me/api/portraits/lego/3.jpg',
+    profilePhoto: `https://ui-avatars.com/api/?name=Cleaner&background=3ad3db&color=fff&size=160&font-size=0.4&format=png`,
     dateOfBirth: '',
     yearsExperience: '',
     previousEmployer: '',

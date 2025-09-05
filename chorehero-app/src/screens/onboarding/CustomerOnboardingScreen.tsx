@@ -86,7 +86,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
     email: '',
     phone: '',
     username: '',
-    profilePhoto: 'https://randomuser.me/api/portraits/lego/2.jpg',
+    profilePhoto: `https://ui-avatars.com/api/?name=Customer&background=6366F1&color=fff&size=160&font-size=0.4&format=png`,
     address: '',
     city: '',
     state: '',

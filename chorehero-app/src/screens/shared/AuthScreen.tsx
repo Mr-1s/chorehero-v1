@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -45,6 +45,36 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const { refreshSession } = useAuth();
+
+  // Load remember me preference on mount
+  useEffect(() => {
+    loadRememberMePreference();
+  }, []);
+
+  const loadRememberMePreference = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('rememberMe');
+      if (stored !== null) {
+        setRememberMe(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Error loading remember me preference:', error);
+    }
+  };
+
+  const saveRememberMePreference = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem('rememberMe', JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving remember me preference:', error);
+    }
+  };
+
+  const handleRememberMeToggle = () => {
+    const newValue = !rememberMe;
+    setRememberMe(newValue);
+    saveRememberMePreference(newValue);
+  };
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -279,13 +309,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             {isLogin && (
               <TouchableOpacity 
                 style={styles.rememberMeContainer}
-                onPress={() => setRememberMe(!rememberMe)}
+                onPress={handleRememberMeToggle}
                 activeOpacity={0.7}
               >
                 <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
                   {rememberMe && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
                 </View>
-                <Text style={styles.rememberMeText}>Remember me</Text>
+                <Text style={styles.rememberMeText}>Keep me signed in</Text>
               </TouchableOpacity>
             )}
 
@@ -591,12 +621,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: '#6B7280',
-    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -604,10 +634,15 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: '#3ad3db',
     borderColor: '#3ad3db',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   rememberMeText: {
     fontSize: 14,
-    color: '#374151',
+    color: '#9CA3AF',
     fontWeight: '500',
   },
 });

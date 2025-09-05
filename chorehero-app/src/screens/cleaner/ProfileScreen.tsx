@@ -624,7 +624,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
             onPress={handleSelectProfileImage}
           >
             <Image 
-              source={{ uri: profileData.avatar_url || 'https://via.placeholder.com/60x60' }} 
+              source={{ uri: profileData.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name || 'Cleaner')}&background=3ad3db&color=fff&size=120&font-size=0.4&format=png` }} 
               style={styles.profileImage} 
             />
             <View style={styles.profileImageOverlay}>
