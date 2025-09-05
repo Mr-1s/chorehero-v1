@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   SafeAreaView,
   StatusBar,
   Image,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,61 @@ interface AccountTypeSelectionProps {
 }
 
 const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navigation }) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const card1Scale = useRef(new Animated.Value(0.95)).current;
+  const card2Scale = useRef(new Animated.Value(0.95)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(card1Scale, {
+        toValue: 1,
+        duration: 1000,
+        delay: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(card2Scale, {
+        toValue: 1,
+        duration: 1000,
+        delay: 400,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const handleCardPress = (type: 'customer' | 'cleaner') => {
+    const targetScale = type === 'customer' ? card1Scale : card2Scale;
+    
+    Animated.sequence([
+      Animated.timing(targetScale, {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(targetScale, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      if (type === 'customer') {
+        navigation.navigate('CustomerOnboarding');
+      } else {
+        navigation.navigate('CleanerOnboarding');
+      }
+    });
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
@@ -53,29 +109,41 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
         </View>
 
         {/* Welcome Section */}
-        <View style={styles.welcomeSection}>
+        <Animated.View 
+          style={[
+            styles.welcomeSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
+        >
           <Text style={styles.welcomeTitle}>Choose your ChoreHero journey</Text>
           <Text style={styles.welcomeSubtitle}>
             Every clean space has a story. What's yours?
           </Text>
-        </View>
+        </Animated.View>
 
         {/* Account Type Cards */}
         <View style={styles.optionsContainer}>
-          <TouchableOpacity
-            style={styles.optionCard}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('CustomerOnboarding')}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.iconContainer}>
-                <LinearGradient
-                  colors={['#3ad3db', '#2BC8D4']}
-                  style={styles.iconGradient}
-                >
-                  <Ionicons name="home" size={32} color="#ffffff" />
-                </LinearGradient>
-              </View>
+          <Animated.View style={{ transform: [{ scale: card1Scale }] }}>
+            <TouchableOpacity
+              style={styles.optionCard}
+              activeOpacity={1}
+              onPress={() => handleCardPress('customer')}
+            >
+              <View style={styles.cardContent}>
+                <View style={styles.iconContainer}>
+                  <LinearGradient
+                    colors={['#3ad3db', '#2BC8D4']}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons name="search" size={28} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.iconAccent}>
+                    <Ionicons name="sparkles" size={16} color="#3ad3db" />
+                  </View>
+                </View>
               <View style={styles.cardText}>
                 <Text style={styles.cardTitle}>Find a ChoreHero</Text>
                 <Text style={styles.cardDescription}>
@@ -90,21 +158,26 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
               <Text style={styles.benefitText}>🏆 Verified heroes • ⚡ Same-day booking • 💳 Safe payments</Text>
             </View>
           </TouchableOpacity>
+          </Animated.View>
 
-          <TouchableOpacity
-            style={styles.optionCard}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('CleanerOnboarding')}
-          >
-            <View style={styles.cardContent}>
-              <View style={styles.iconContainer}>
-                <LinearGradient
-                  colors={['#8B5CF6', '#7C3AED']}
-                  style={styles.iconGradient}
-                >
-                  <Ionicons name="briefcase" size={32} color="#ffffff" />
-                </LinearGradient>
-              </View>
+          <Animated.View style={{ transform: [{ scale: card2Scale }] }}>
+            <TouchableOpacity
+              style={styles.optionCard}
+              activeOpacity={1}
+              onPress={() => handleCardPress('cleaner')}
+            >
+              <View style={styles.cardContent}>
+                <View style={styles.iconContainer}>
+                  <LinearGradient
+                    colors={['#8B5CF6', '#7C3AED']}
+                    style={styles.iconGradient}
+                  >
+                    <Ionicons name="flash" size={28} color="#ffffff" />
+                  </LinearGradient>
+                  <View style={styles.iconAccent}>
+                    <Ionicons name="star" size={16} color="#8B5CF6" />
+                  </View>
+                </View>
               <View style={styles.cardText}>
                 <Text style={styles.cardTitle}>Become a ChoreHero</Text>
                 <Text style={styles.cardDescription}>
@@ -119,6 +192,7 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
               <Text style={styles.benefitText}>💰 Your rates • 📅 Your schedule • ⭐ Your reputation</Text>
             </View>
           </TouchableOpacity>
+          </Animated.View>
         </View>
 
         {/* Bottom Info */}
@@ -192,19 +266,20 @@ const styles = StyleSheet.create({
   },
   optionCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
+    borderRadius: 24,
+    padding: 28,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 8,
+      height: 12,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(58, 211, 219, 0.1)',
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 15,
+    borderWidth: 0.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    overflow: 'hidden',
   },
   cardContent: {
     flexDirection: 'row',
@@ -213,13 +288,41 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     marginRight: 16,
+    position: 'relative',
   },
   iconGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  iconAccent: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   cardText: {
     flex: 1,
