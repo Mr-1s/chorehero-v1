@@ -54,7 +54,7 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
 
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
-          <Text style={styles.welcomeTitle}>Ready to be a hero?</Text>
+          <Text style={styles.welcomeTitle}>Choose your ChoreHero journey</Text>
           <Text style={styles.welcomeSubtitle}>
             Every clean space has a story. What's yours?
           </Text>
