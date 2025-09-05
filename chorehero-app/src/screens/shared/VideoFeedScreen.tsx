@@ -773,8 +773,16 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
                 {/* Header with close button */}
                 <View style={styles.modernServiceHeader}>
                   <View style={styles.serviceInfo}>
-                    <Text style={styles.modernServiceTitle}>{item.cleaner.service_title}</Text>
-                    <Text style={styles.modernServicePrice}>{item.cleaner.hourly_rate}</Text>
+                    <Text style={styles.modernServiceTitle}>
+                      {(item as any).metadata?.service_category 
+                        ? `${item.cleaner.service_title || 'Professional Service'}`
+                        : item.cleaner.service_title}
+                    </Text>
+                    <Text style={styles.modernServicePrice}>
+                      {(item as any).metadata?.pricing_display 
+                        ? `${(item as any).metadata.pricing_display}${(item as any).metadata?.duration_display ? ` • ${(item as any).metadata.duration_display}` : ''}`
+                        : item.cleaner.hourly_rate}
+                    </Text>
                   </View>
                     <TouchableOpacity 
                     style={styles.modernCloseButton}

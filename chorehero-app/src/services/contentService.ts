@@ -102,6 +102,7 @@ class ContentService {
           duration_seconds: postData.duration_seconds,
           location_name: postData.location_name,
           tags: postData.tags,
+          metadata: postData.metadata,
           status: postData.status || 'published',
           published_at: postData.status !== 'draft' ? new Date().toISOString() : null
         })

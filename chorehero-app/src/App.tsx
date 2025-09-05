@@ -45,6 +45,7 @@ import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
 import BookingTemplateScreen from './screens/cleaner/BookingTemplateScreen';
+import ContentUploadWithPricingScreen from './screens/cleaner/ContentUploadWithPricingScreen';
 
 
 // Import services for initialization
@@ -205,6 +206,7 @@ const AppNavigator = () => {
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
           <Stack.Screen name="BookingTemplate" component={BookingTemplateScreen} />
+          <Stack.Screen name="ContentUploadWithPricing" component={ContentUploadWithPricingScreen} />
 
         </Stack.Navigator>
       </NavigationContainer>

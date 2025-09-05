@@ -772,10 +772,18 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity 
           style={styles.quickActionCard}
+          onPress={() => navigation.navigate('ContentUploadWithPricing')}
+        >
+          <Ionicons name="pricetag" size={24} color="#F59E0B" />
+          <Text style={styles.quickActionText}>Create Service</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.quickActionCard}
           onPress={() => navigation.navigate('VideoUpload')}
         >
-          <Ionicons name="videocam" size={24} color="#F59E0B" />
-          <Text style={styles.quickActionText}>Create Post</Text>
+          <Ionicons name="videocam" size={24} color="#8B5CF6" />
+          <Text style={styles.quickActionText}>Quick Upload</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.quickActionCard}
@@ -994,10 +1002,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
           </Text>
           <TouchableOpacity 
             style={styles.createPostButton}
-            onPress={() => navigation.navigate('VideoUpload')}
+            onPress={() => navigation.navigate('ContentUploadWithPricing')}
           >
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-            <Text style={styles.createPostButtonText}>Create Post</Text>
+            <Ionicons name="pricetag" size={20} color="#FFFFFF" />
+            <Text style={styles.createPostButtonText}>Create Service Content</Text>
           </TouchableOpacity>
         </View>
       ) : (
