@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import { accountDeletionService } from '../../services/accountDeletionService';
 
 type StackParamList = {
   SettingsScreen: undefined;
@@ -222,22 +223,111 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action cannot be undone. Your account and all data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Account',
-          style: 'destructive',
-          onPress: () => {
-            Alert.alert('Account Deleted', 'Your account has been deleted successfully.');
-            navigation.navigate('AuthScreen');
-          },
-        },
-      ]
-    );
+  const handleDeleteAccount = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Unable to identify user account');
+      return;
+    }
+
+    try {
+      // First, show deletion impact to user
+      const impactResult = await accountDeletionService.getAccountDeletionImpact(user.id);
+      
+      if (impactResult.success) {
+        const { active_bookings, content_posts, reviews_given, reviews_received } = impactResult.data;
+        
+        let impactMessage = 'This action cannot be undone. Your account and personal data will be permanently deleted.\n\n';
+        
+        if (active_bookings > 0) {
+          impactMessage += `⚠️ You have ${active_bookings} active booking(s) that will be cancelled.\n`;
+        }
+        if (content_posts > 0) {
+          impactMessage += `📱 ${content_posts} content post(s) will be deleted.\n`;
+        }
+        if (reviews_given > 0) {
+          impactMessage += `⭐ ${reviews_given} review(s) you wrote will be anonymized.\n`;
+        }
+        if (reviews_received > 0) {
+          impactMessage += `💬 ${reviews_received} review(s) about you will remain for other users.\n`;
+        }
+
+        Alert.alert(
+          'Delete Account',
+          impactMessage,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete Account',
+              style: 'destructive',
+              onPress: async () => {
+                setIsLoading(true);
+                await performAccountDeletion();
+              },
+            },
+          ]
+        );
+      } else {
+        // Fallback if impact check fails
+        Alert.alert(
+          'Delete Account',
+          'This action cannot be undone. Your account and all data will be permanently deleted.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete Account',
+              style: 'destructive',
+              onPress: async () => {
+                setIsLoading(true);
+                await performAccountDeletion();
+              },
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to process account deletion request');
+    }
+  };
+
+  const performAccountDeletion = async () => {
+    if (!user?.id) return;
+
+    try {
+      const result = await accountDeletionService.deleteAccount(user.id, {
+        export_data: true,
+        soft_delete_active_bookings: true,
+        anonymize_reviews: true,
+        cancel_subscriptions: true,
+        delete_media_files: true
+      });
+
+      if (result.success) {
+        // If data was exported, we could offer to download it here
+        Alert.alert(
+          'Account Deleted',
+          'Your account has been deleted successfully. Your data has been exported and any active bookings have been handled appropriately.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Clear local storage and navigate to auth
+                AsyncStorage.clear();
+                navigation.navigate('AuthScreen');
+              }
+            }
+          ]
+        );
+      } else {
+        throw new Error(result.error || 'Deletion failed');
+      }
+    } catch (error) {
+      Alert.alert(
+        'Deletion Failed',
+        `Unable to delete account: ${error instanceof Error ? error.message : 'Unknown error'}. Please contact support.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleShare = async () => {
