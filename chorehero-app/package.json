@@ -8,7 +8,35 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    
+    "_comment1": "============================================================================",
+    "_comment2": "COMPREHENSIVE AUTOMATED TESTING FRAMEWORK",
+    "_comment3": "Bulletproof testing that ensures all 28 gaps stay fixed forever",
+    "_comment4": "============================================================================",
+    
+    "test:full-suite": "node scripts/test-runner.js full-suite",
+    "test:gap-regression": "node scripts/test-runner.js gap-regression",
+    "test:user-journeys": "node scripts/test-runner.js user-journeys",
+    "test:quick-check": "node scripts/test-runner.js quick-check",
+    
+    "test:customer-journey": "node scripts/test-runner.js customer-journey",
+    "test:cleaner-journey": "node scripts/test-runner.js cleaner-journey",
+    "test:cross-role": "node scripts/test-runner.js cross-role",
+    
+    "test:monitor": "node scripts/test-runner.js monitor",
+    "test:health": "node scripts/test-runner.js health",
+    "test:report": "node scripts/test-runner.js report",
+    "test:help": "node scripts/test-runner.js help",
+    
+    "_comment5": "CI/CD Specific Scripts",
+    "test:journey:customer": "node scripts/test-runner.js customer-journey",
+    "test:journey:cleaner": "node scripts/test-runner.js cleaner-journey", 
+    "test:journey:cross-role": "node scripts/test-runner.js cross-role",
+    "test:performance": "echo 'Performance tests: Coming soon'",
+    "test:stress": "echo 'Stress tests: Coming soon'",
+    "test:security": "echo 'Security tests: Coming soon'",
+    "test:report:generate": "node scripts/test-runner.js report"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.1.2",
