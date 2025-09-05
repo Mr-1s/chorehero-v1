@@ -82,11 +82,11 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A1A2A" />
       <LinearGradient
-        colors={['#0F172A', '#1E293B', '#334155', '#3ad3db', '#1E293B', '#0F172A']}
+        colors={['#0F172A', '#3ad3db', '#0F172A']}
         style={styles.background}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        locations={[0, 0.2, 0.4, 0.5, 0.8, 1]}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.5, 1]}
       >
         <View style={styles.content}>
           {/* Logo with improved animation */}
@@ -132,7 +132,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
               },
             ]}
           >
-            <Text style={styles.tagline}>Your trusted cleaning companion</Text>
+            <Text style={styles.tagline}>Where clean meets hero</Text>
           </Animated.View>
         </View>
       </LinearGradient>
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logoContainer: {
-    marginBottom: 30,
+    marginBottom: 40,
   },
   logoWrapper: {
     position: 'relative',
@@ -166,22 +166,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   logo: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
   },
   logoGlow: {
     position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#3ad3db',
-    opacity: 0.1,
+    opacity: 0.15,
     top: -10,
     left: -10,
   },
@@ -189,28 +184,22 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   brandName: {
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 32,
+    fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
-    letterSpacing: 2,
-    textShadowColor: 'rgba(58, 211, 219, 0.5)',
-    textShadowOffset: { width: 0, height: 4 },
-    textShadowRadius: 12,
+    letterSpacing: 1,
   },
   taglineContainer: {
     paddingHorizontal: 40,
   },
   tagline: {
-    fontSize: 17,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 16,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     lineHeight: 24,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
   },
 });
 

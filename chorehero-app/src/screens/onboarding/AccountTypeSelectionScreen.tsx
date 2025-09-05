@@ -54,9 +54,9 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
 
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
-          <Text style={styles.welcomeTitle}>Welcome to ChoreHero</Text>
+          <Text style={styles.welcomeTitle}>Ready to be a hero?</Text>
           <Text style={styles.welcomeSubtitle}>
-            Choose how you'd like to get started
+            Every clean space has a story. What's yours?
           </Text>
         </View>
 
@@ -77,28 +77,17 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
                 </LinearGradient>
               </View>
               <View style={styles.cardText}>
-                <Text style={styles.cardTitle}>I need cleaning services</Text>
+                <Text style={styles.cardTitle}>Find a ChoreHero</Text>
                 <Text style={styles.cardDescription}>
-                  Book trusted cleaners for your home or office
+                  Connect with cleaning heroes in your area
                 </Text>
               </View>
               <View style={styles.cardArrow}>
                 <Ionicons name="chevron-forward" size={24} color="#6B7280" />
               </View>
             </View>
-            <View style={styles.cardFeatures}>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Verified cleaners</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Flexible scheduling</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Secure payments</Text>
-              </View>
+            <View style={styles.cardBenefits}>
+              <Text style={styles.benefitText}>🏆 Verified heroes • ⚡ Same-day booking • 💳 Safe payments</Text>
             </View>
           </TouchableOpacity>
 
@@ -117,28 +106,17 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
                 </LinearGradient>
               </View>
               <View style={styles.cardText}>
-                <Text style={styles.cardTitle}>I want to provide cleaning services</Text>
+                <Text style={styles.cardTitle}>Become a ChoreHero</Text>
                 <Text style={styles.cardDescription}>
-                  Join as a cleaner and grow your business
+                  Turn your cleaning skills into heroic income
                 </Text>
               </View>
               <View style={styles.cardArrow}>
                 <Ionicons name="chevron-forward" size={24} color="#6B7280" />
               </View>
             </View>
-            <View style={styles.cardFeatures}>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Set your own rates</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Choose your schedule</Text>
-              </View>
-              <View style={styles.featureItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                <Text style={styles.featureText}>Build your reputation</Text>
-              </View>
+            <View style={styles.cardBenefits}>
+              <Text style={styles.benefitText}>💰 Your rates • 📅 Your schedule • ⭐ Your reputation</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -146,7 +124,7 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
         {/* Bottom Info */}
         <View style={styles.bottomSection}>
           <Text style={styles.bottomText}>
-            Don't worry, you can always switch or create additional accounts later
+            Every hero's journey is unique. You can always change paths later.
           </Text>
         </View>
       </LinearGradient>
@@ -191,26 +169,21 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   welcomeTitle: {
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 32,
+    fontWeight: '700',
     color: '#ffffff',
     textAlign: 'center',
-    marginBottom: 16,
-    letterSpacing: 1.2,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
+    marginBottom: 12,
+    letterSpacing: 0.5,
+    lineHeight: 40,
   },
   welcomeSubtitle: {
-    fontSize: 19,
-    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.85)',
     textAlign: 'center',
-    lineHeight: 26,
-    fontWeight: '500',
-    letterSpacing: 0.3,
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    lineHeight: 24,
+    fontWeight: '400',
+    letterSpacing: 0.2,
   },
   optionsContainer: {
     flex: 1,
@@ -219,21 +192,24 @@ const styles = StyleSheet.create({
   },
   optionCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 8,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 211, 219, 0.1)',
   },
   cardContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   iconContainer: {
     marginRight: 16,
@@ -249,31 +225,34 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: 6,
+    letterSpacing: 0.3,
   },
   cardDescription: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#6B7280',
-    lineHeight: 20,
+    lineHeight: 22,
+    fontWeight: '500',
   },
   cardArrow: {
     marginLeft: 8,
   },
-  cardFeatures: {
-    gap: 8,
+  cardBenefits: {
+    backgroundColor: 'rgba(58, 211, 219, 0.05)',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3ad3db',
   },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  featureText: {
+  benefitText: {
     fontSize: 14,
     color: '#374151',
-    fontWeight: '500',
+    fontWeight: '600',
+    lineHeight: 20,
+    textAlign: 'center',
   },
   bottomSection: {
     paddingHorizontal: 20,
@@ -282,10 +261,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bottomText: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.75)',
     textAlign: 'center',
     lineHeight: 22,
+    fontWeight: '400',
+    fontStyle: 'italic',
   },
 });
 
