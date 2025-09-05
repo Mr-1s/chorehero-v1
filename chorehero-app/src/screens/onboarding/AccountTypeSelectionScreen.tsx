@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   radicalCard1: {
-    height: 240,
+    height: 220,
     borderRadius: 32,
     marginBottom: 30,
     shadowColor: '#3ad3db',
@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   radicalCard2: {
-    height: 240,
+    height: 220,
     borderRadius: 32,
     shadowColor: '#8B5CF6',
     shadowOffset: { width: 0, height: 16 },
@@ -441,11 +441,12 @@ const styles = StyleSheet.create({
   radicalContent: {
     flex: 1,
     padding: 28,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   radicalIcon: {
     position: 'relative',
     alignSelf: 'flex-start',
+    marginBottom: 20,
   },
   glassIcon: {
     width: 70,
@@ -492,6 +493,7 @@ const styles = StyleSheet.create({
   },
   radicalText: {
     flex: 1,
+    marginTop: 24,
     justifyContent: 'flex-end',
   },
   radicalTitle: {
