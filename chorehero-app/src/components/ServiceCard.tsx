@@ -324,10 +324,6 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         <Text style={styles.videoTitle} numberOfLines={2}>
           {data.title}
         </Text>
-        
-        {/* Separator line between media description and cleaner profile */}
-        <View style={styles.videoSeparator} />
-        
         {renderProviderInfo()}
       </View>
     </TouchableOpacity>
@@ -485,14 +481,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   providerName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1C1C1E',
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#374151',
     marginBottom: 1,
   },
   providerSpecialty: {
-    fontSize: 10,
-    color: '#6B7280',
+    fontSize: 9,
+    color: '#9CA3AF',
     textTransform: 'capitalize',
   },
   verificationBadge: {
@@ -627,7 +623,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
     lineHeight: 18,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   videoEngagementOverlay: {
     position: 'absolute',
@@ -639,11 +635,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 3,
-  },
-  videoSeparator: {
-    height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 6,
-    marginHorizontal: 0,
   },
 });
