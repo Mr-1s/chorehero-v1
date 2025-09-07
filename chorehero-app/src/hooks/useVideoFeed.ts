@@ -3,6 +3,7 @@ import { TIKTOK_UI, VIDEO_CONFIG } from '../utils/constants';
 import { supabase } from '../services/supabase';
 import { Database } from '../types/database';
 import { guestModeService } from '../services/guestModeService';
+import { videoFeedAlgorithmService } from '../services/videoFeedAlgorithmService';
 
 interface VideoMetrics {
   likes: number;
@@ -44,12 +45,13 @@ type CleanerWithProfile = Database['public']['Tables']['users']['Row'] & {
   cleaner_profiles: Database['public']['Tables']['cleaner_profiles']['Row'];
 };
 
-export const useVideoFeed = () => {
+export const useVideoFeed = (useEnhancedAlgorithm: boolean = false) => {
   const [videos, setVideos] = useState<CleanerVideo[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [useRealData, setUseRealData] = useState(true);
+  const [sortPreference, setSortPreference] = useState<'balanced' | 'proximity' | 'engagement' | 'price'>('balanced');
   const pageRef = useRef(1);
 
   useEffect(() => {
@@ -67,12 +69,38 @@ export const useVideoFeed = () => {
   const loadInitialVideos = async () => {
     setLoading(true);
     try {
-      await loadVideosFromSupabase();
+      if (useEnhancedAlgorithm) {
+        await loadEnhancedVideos();
+      } else {
+        await loadVideosFromSupabase();
+      }
     } catch (error) {
       console.error('Error loading initial videos:', error);
       setVideos([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadEnhancedVideos = async () => {
+    try {
+      // Check if user is a guest
+      const isGuest = await guestModeService.isGuestUser();
+      
+      if (isGuest) {
+        // For guests, use the existing guest video logic
+        await loadVideosFromSupabase();
+        return;
+      }
+      
+      // For real users, use enhanced algorithm
+      // Note: This requires user auth context - would need to be passed in
+      // For now, fall back to regular loading
+      console.log('🚀 Enhanced algorithm would be used here with user context');
+      await loadVideosFromSupabase();
+    } catch (error) {
+      console.error('Error in enhanced video loading:', error);
+      await loadVideosFromSupabase(); // Fallback
     }
   };
 
@@ -328,6 +356,8 @@ export const useVideoFeed = () => {
     loading,
     hasMore,
     refreshing,
+    sortPreference,
+    setSortPreference,
     loadMore,
     refresh,
     like,

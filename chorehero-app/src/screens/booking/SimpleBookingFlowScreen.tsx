@@ -22,6 +22,7 @@ import { notificationService } from '../../services/notificationService';
 import { bookingStateManager } from '../../services/bookingStateManager';
 import { bookingService } from '../../services/booking';
 import { useAuth } from '../../hooks/useAuth';
+import { bookingDataPopulationService } from '../../services/bookingDataPopulationService';
 
 type StackParamList = {
   SimpleBookingFlow: {
@@ -152,6 +153,39 @@ const SimpleBookingFlowScreen: React.FC<SimpleBookingFlowProps> = ({ navigation,
             `You have an in-progress booking with this cleaner. Resuming at step ${savedProgress.currentStep} of ${totalSteps}.`,
             [{ text: 'Continue', style: 'default' }]
           );
+        } else if (user?.id) {
+          // No saved progress, try to auto-populate from user profile
+          console.log('🚀 Auto-populating booking form from user profile...');
+          
+          const populatedData = await bookingDataPopulationService.populateBookingForm(user.id, cleanerId);
+          
+          if (populatedData.populatedFields.length > 0) {
+            console.log(`✅ Auto-populated ${populatedData.populatedFields.length} fields:`, populatedData.populatedFields);
+            
+            // Merge populated data with existing form data
+            setData(prevData => ({
+              ...prevData,
+              contactName: populatedData.contactName || prevData.contactName,
+              contactPhone: populatedData.contactPhone || prevData.contactPhone,
+              address: populatedData.address || prevData.address,
+              apartmentNumber: populatedData.apartmentNumber || prevData.apartmentNumber,
+              accessInstructions: populatedData.accessInstructions || prevData.accessInstructions,
+              parkingInfo: populatedData.parkingInfo || prevData.parkingInfo,
+              productPreference: populatedData.productPreference || prevData.productPreference,
+              petInfo: populatedData.petInfo || prevData.petInfo,
+              specialRequests: populatedData.specialRequests || prevData.specialRequests,
+              paymentMethod: populatedData.paymentMethod || prevData.paymentMethod,
+            }));
+            
+            // Show user what was auto-filled
+            if (populatedData.populatedFields.length >= 3) {
+              Alert.alert(
+                '✨ Smart Form Filled',
+                `We've pre-filled ${populatedData.populatedFields.length} fields from your profile to save you time. You can review and modify them as needed.`,
+                [{ text: 'Got it!', style: 'default' }]
+              );
+            }
+          }
         }
       } catch (error) {
         console.error('❌ Failed to load booking progress:', error);
@@ -161,7 +195,7 @@ const SimpleBookingFlowScreen: React.FC<SimpleBookingFlowProps> = ({ navigation,
     };
 
     loadBookingProgress();
-  }, [cleanerId]);
+  }, [cleanerId, user?.id]);
 
   // Save progress whenever data or step changes
   useEffect(() => {

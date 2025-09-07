@@ -25,6 +25,11 @@ import { categoryService, CategoryService, CategoryCleaner } from '../../service
 import { contentService } from '../../services/contentService';
 import { guestModeService, GuestService } from '../../services/guestModeService';
 import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
+import { TutorialOverlay } from '../../components/TutorialOverlay';
+import { useTutorial } from '../../hooks/useTutorial';
+import { ServiceCard } from '../../components/ServiceCard';
+import { serviceCardService } from '../../services/serviceCardService';
+import { ServiceCardData } from '../../types/serviceCard';
 
 
 
@@ -127,6 +132,17 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
   // Location context
   const { location } = useLocationContext();
+  
+  // Tutorial system
+  const { 
+    currentTutorial, 
+    currentStepIndex, 
+    isActive: isTutorialActive,
+    nextStep, 
+    completeTutorial, 
+    skipTutorial,
+    triggerTutorial 
+  } = useTutorial();
 
   // Load initial data
   useEffect(() => {
@@ -441,76 +457,69 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderServiceCard = (service: CategoryService, isPopular = false) => {
-    const isLoading = imageLoadingStates[service.id] !== false;
-    
+  const renderServiceCard = (service: CategoryService | GuestService, isPopular = false) => {
+    // Transform service data to standardized service card format
+    const cardData = serviceCardService.createServiceCard({
+      id: service.id,
+      title: service.name,
+      description: service.description,
+      category: service.category,
+      base_price: (service as CategoryService).base_price ? (service as CategoryService).base_price * 100 : undefined, // Convert to cents
+      price_range: (service as GuestService).price_range || ((service as CategoryService).base_price ? `$${(service as CategoryService).base_price}` : 'Contact for pricing'),
+      duration: (service as CategoryService).estimated_duration ? `${Math.floor((service as CategoryService).estimated_duration / 60)} hours` : '2-3 hours',
+      rating: service.rating || 4.8,
+      reviews: (service as CategoryService).reviews || 0,
+      custom_image: (service as any).image || (service as any).image_url,
+      is_featured: isPopular
+    });
+
     return (
-      <Animated.View
+      <ServiceCard
         key={service.id}
-        style={[
-          styles.serviceCard,
-          isPopular && styles.popularServiceCard,
-          { transform: [{ scale: cardScaleAnim }] }
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.serviceImageContainer}
-          onPress={handleCardPress}
-          activeOpacity={0.9}
-        >
-          <Image 
-            source={{ uri: service.image || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80' }} 
-            style={styles.serviceImage}
-            onLoadStart={() => handleImageLoadStart(service.id)}
-            onLoad={() => handleImageLoad(service.id)}
-          />
-          
-          {/* Loading Skeleton */}
-          {isLoading && (
-            <View style={styles.imageSkeleton}>
-              <ActivityIndicator size="small" color="#3ad3db" />
-            </View>
-          )}
-          
-          {/* Enhanced Gradient Overlay - Top to Bottom */}
-          <LinearGradient
-            colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-            style={styles.serviceGradientOverlay}
-          />
-          
-          {/* Star Rating Badge */}
-          <View style={styles.serviceBadge}>
-            <Ionicons name="star" size={12} color="#FFC93C" />
-            <Text style={styles.serviceBadgeText}>{service.rating?.toFixed(1) || '4.5'}</Text>
-          </View>
-          
-          {/* Service Title - Bottom Left */}
-          <Text style={styles.serviceTitleOverlay}>{service.name}</Text>
-          
-          {/* Price and Duration */}
-          <Text style={styles.servicePriceOverlay}>${service.base_price} • {Math.floor(service.estimated_duration / 60)}h</Text>
-          
-          {/* Book Button - Bottom Center */}
-          <Animated.View style={[styles.browseButtonContainer, { transform: [{ scale: buttonScaleAnim }] }]}>
-            <TouchableOpacity 
-              style={styles.browseButtonOverlay}
-              onPress={() => {
-                // Navigate to booking flow with service details
-                navigation.navigate('SimpleBookingFlow', {
-                  serviceId: service.id,
-                  serviceName: service.name,
-                  basePrice: service.base_price,
-                  duration: service.estimated_duration
-                });
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.browseButtonText}>Book</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </TouchableOpacity>
-      </Animated.View>
+        data={cardData}
+        variant={isPopular ? "featured" : "compact"}
+        onPress={(data) => handleServicePress(data)}
+        onSecondaryAction={(data) => handleSaveService(data)}
+        style={{ marginBottom: isPopular ? 0 : 16 }}
+      />
     );
+  };
+
+  // Handler functions for service card actions
+  const handleServicePress = (cardData: ServiceCardData) => {
+    if (cardData.actions.primary_action === 'browse_cleaners') {
+      navigation.navigate('ServiceDetail', {
+        serviceId: cardData.id,
+        serviceName: cardData.title,
+        category: cardData.category,
+        ...cardData.actions.navigation_params
+      });
+    } else if (cardData.actions.primary_action === 'view_details') {
+      navigation.navigate('CleanerProfile', {
+        cleanerId: cardData.provider?.cleaner_id
+      });
+    } else if (cardData.actions.primary_action === 'book_now') {
+      navigation.navigate('SimpleBookingFlow', {
+        serviceId: cardData.id,
+        serviceName: cardData.title,
+        basePrice: cardData.pricing.base_price ? cardData.pricing.base_price / 100 : 0,
+        duration: cardData.service_details.duration_minutes || 120
+      });
+    }
+  };
+
+  const handleSaveService = (cardData: ServiceCardData) => {
+    // Handle save/bookmark functionality
+    console.log('Saving service:', cardData.title);
+    // TODO: Implement save service functionality
+  };
+
+  const handleVideoPress = (cardData: ServiceCardData) => {
+    console.log('🔍 Discover: Navigating to CleanerProfile with ID:', cardData.provider?.cleaner_id);
+    navigation.navigate('CleanerProfile', { 
+      cleanerId: cardData.provider?.cleaner_id,
+      highlightVideo: cardData.id
+    });
   };
 
   const renderTrendingCleanerCard = (cleaner: CategoryCleaner) => (
@@ -543,132 +552,57 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderVideoCard = (video: VideoContent) => (
-    <TouchableOpacity 
-      key={video.id} 
-      style={styles.videoCard}
-      onPress={() => {
-        // Navigate to booking flow for this cleaner
-        console.log('🎯 Booking from Discover video:', video.user?.name);
-        navigation.navigate('SimpleBookingFlow', {
-          cleanerId: video.user?.id || 'demo-cleaner',
-          serviceName: video.title,
-          fromVideoFeed: true
-        });
-      }}
-    >
-      <View style={styles.videoThumbnailContainer}>
-        <Image 
-          source={{ uri: video.thumbnail_url || video.media_url }} 
-          style={styles.videoThumbnail}
-          onLoadStart={() => handleImageLoadStart(video.id)}
-          onLoad={() => handleImageLoad(video.id)}
-        />
-        {imageLoadingStates[video.id] && (
-          <View style={styles.videoImageSkeleton}>
-            <ActivityIndicator size="small" color="#3ad3db" />
-          </View>
-        )}
-        
-        {/* Play icon overlay */}
-        <View style={styles.videoPlayOverlay}>
-          <View style={styles.videoPlayButton}>
-            <Ionicons name="play" size={16} color="#FFFFFF" />
-          </View>
-        </View>
-        
-        {/* Video stats */}
-        <View style={styles.videoStats}>
-          <View style={styles.videoStat}>
-            <Ionicons name="eye" size={12} color="#FFFFFF" />
-            <Text style={styles.videoStatText}>{video.view_count}</Text>
-          </View>
-          <View style={styles.videoStat}>
-            <Ionicons name="heart" size={12} color="#FFFFFF" />
-            <Text style={styles.videoStatText}>{video.like_count}</Text>
-          </View>
-        </View>
-      </View>
-      
-      <View style={styles.videoInfo}>
-        <Text style={styles.videoTitle} numberOfLines={2}>{video.title}</Text>
-        <TouchableOpacity 
-          style={styles.videoCreator}
-          onPress={(e) => {
-            // Stop event propagation to prevent video booking
-            e.stopPropagation();
-            console.log('🔍 Discover: Navigating to CleanerProfile with ID:', video.user.id);
-            navigation.navigate('CleanerProfile', { cleanerId: video.user.id });
-          }}
-        >
-          <Image 
-            source={{ uri: video.user.avatar_url }} 
-            style={styles.videoCreatorAvatar}
-          />
-          <Text style={styles.videoCreatorName}>{video.user.name}</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderVideoCard = (video: VideoContent) => {
+    // Transform video data to standardized service card format
+    const videoCardData = serviceCardService.createVideoServiceCard({
+      id: video.id,
+      title: video.title,
+      description: video.description || 'Professional cleaning demonstration',
+      category: 'general', // Could be enhanced to detect category from video
+      video_url: video.media_url,
+      thumbnail_url: video.thumbnail_url || video.media_url,
+      cleaner_id: video.user.id,
+      cleaner_name: video.user.name,
+      cleaner_avatar: video.user.avatar_url,
+      view_count: video.view_count || 0,
+      like_count: video.like_count || 0
+    });
 
-  const renderServiceCategoryCard = (service: GuestService) => (
-    <TouchableOpacity 
-      key={service.id}
-      style={styles.serviceCategoryCard}
-      onPress={() => {
-        console.log('🏠 Service category selected:', service.name);
-        navigation.navigate('ServiceDetail', {
-          serviceId: service.id,
-          serviceName: service.name,
-          category: service.category
-        });
-      }}
-      activeOpacity={0.7}
-    >
-      <View style={styles.serviceCategoryImageContainer}>
-        <Image 
-          source={{ uri: service.image_url }} 
-          style={styles.serviceCategoryImage}
-          onLoadStart={() => handleImageLoadStart(service.id)}
-          onLoad={() => handleImageLoad(service.id)}
-        />
-        {imageLoadingStates[service.id] && (
-          <View style={styles.serviceCategoryImageSkeleton}>
-            <ActivityIndicator size="small" color="#3ad3db" />
-          </View>
-        )}
-        
-        {/* Rating overlay */}
-        <View style={styles.serviceCategoryRatingOverlay}>
-          <View style={styles.serviceCategoryRatingBadge}>
-            <Ionicons name="star" size={12} color="#FFC93C" />
-            <Text style={styles.serviceCategoryRatingText}>{service.rating}</Text>
-          </View>
-        </View>
-      </View>
-      
-      <View style={styles.serviceCategoryContent}>
-        <Text style={styles.serviceCategoryTitle}>{service.name}</Text>
-        <Text style={styles.serviceCategoryDescription} numberOfLines={2}>
-          {service.description}
-        </Text>
-        <TouchableOpacity 
-          style={styles.serviceCategoryButton}
-          onPress={() => {
-            console.log('🎯 Browse cleaners for:', service.name);
-            // Navigate to service detail with cleaners list
-            navigation.navigate('ServiceDetail', {
-              serviceId: service.id,
-              serviceName: service.name,
-              category: service.category
-            });
-          }}
-        >
-          <Text style={styles.serviceCategoryButtonText}>Browse Cleaners</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+    return (
+      <ServiceCard
+        key={video.id}
+        data={videoCardData}
+        variant="video"
+        onPress={(data) => handleVideoPress(data)}
+        style={{ marginRight: 16 }}
+      />
+    );
+  };
+
+  const renderServiceCategoryCard = (service: GuestService) => {
+    // Transform guest service to standardized service card format
+    const serviceCategoryCardData = serviceCardService.createServiceCard({
+      id: service.id,
+      title: service.name,
+      description: service.description,
+      category: service.category,
+      price_range: service.price_range,
+      rating: service.rating,
+      custom_image: service.image_url,
+      is_featured: false
+    });
+
+    return (
+      <ServiceCard
+        key={service.id}
+        data={serviceCategoryCardData}
+        variant="compact"
+        onPress={(data) => handleServicePress(data)}
+        onSecondaryAction={(data) => handleSaveService(data)}
+        style={{ marginBottom: 16 }}
+      />
+    );
+  };
 
   return (
     <View style={styles.container}>

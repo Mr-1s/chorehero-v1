@@ -28,6 +28,10 @@ import { supabase } from '../../services/supabase';
 import PlayIcon from '../../components/PlayIcon';
 import { BubbleStack } from '../../components/ActionBubble';
 import FloatingNavigation from '../../components/FloatingNavigation';
+import { TutorialOverlay } from '../../components/TutorialOverlay';
+
+// Import tutorial hook
+import { useTutorial } from '../../hooks/useTutorial';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { useLocationContext } from '../../context/LocationContext';
 import { notificationService } from '../../services/notificationService';
@@ -260,15 +264,47 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [isCardVisible, setIsCardVisible] = useState(true); // Default to visible for better UX
+  const [sortPreference, setSortPreference] = useState<'balanced' | 'proximity' | 'engagement' | 'price'>('balanced');
+  const [useEnhancedAlgorithm, setUseEnhancedAlgorithm] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
+  const sortButtonRef = useRef<View>(null);
+  const videoFeedRef = useRef<View>(null);
+  const actionBubblesRef = useRef<View>(null);
+  
   const { location } = useLocationContext();
   const { user } = useAuth();
   const { showUploadButton, isCleaner } = useRoleFeatures();
+  
+  // Tutorial system
+  const { 
+    currentTutorial, 
+    currentStepIndex, 
+    isActive: isTutorialActive,
+    nextStep, 
+    completeTutorial, 
+    skipTutorial,
+    triggerTutorial 
+  } = useTutorial();
 
   useEffect(() => {
     initializeData();
   }, []);
+
+  // Trigger tutorial for video feed when component loads
+  useEffect(() => {
+    if (user?.id && !isTutorialActive) {
+      // Delay to ensure UI has rendered
+      const timer = setTimeout(() => {
+        triggerTutorial({ 
+          screen: 'video_feed',
+          feature: 'smart_feed'
+        });
+      }, 1500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [user?.id, isTutorialActive, triggerTutorial]);
 
 
 
@@ -754,7 +790,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         </TouchableOpacity>
 
         {/* Action Bubbles - Classic right-side placement */}
-        <View style={styles.rightSideActions}>
+        <View ref={actionBubblesRef} style={styles.rightSideActions}>
           <BubbleStack
             onLikePress={() => handleLike(item.id)}
             onBoostPress={() => handleComment(item.id)}
@@ -832,6 +868,35 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
           </View>
         )}
 
+        {/* Sort Controls */}
+        <View style={styles.sortControls}>
+          <TouchableOpacity 
+            ref={sortButtonRef}
+            style={styles.sortButton}
+            onPress={() => {
+              const preferences: Array<'balanced' | 'proximity' | 'engagement' | 'price'> = ['balanced', 'proximity', 'engagement', 'price'];
+              const currentIndex = preferences.indexOf(sortPreference);
+              const nextIndex = (currentIndex + 1) % preferences.length;
+              setSortPreference(preferences[nextIndex]);
+              // Reload content with new sort preference
+              loadRealContent();
+            }}
+          >
+            <Ionicons 
+              name={sortPreference === 'balanced' ? 'options' : 
+                   sortPreference === 'proximity' ? 'location' :
+                   sortPreference === 'engagement' ? 'heart' : 'pricetag'} 
+              size={20} 
+              color="#ffffff" 
+            />
+            <Text style={styles.sortButtonText}>
+              {sortPreference === 'balanced' ? 'Smart' : 
+               sortPreference === 'proximity' ? 'Near' :
+               sortPreference === 'engagement' ? 'Popular' : 'Price'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Card Toggle Button */}
         <TouchableOpacity 
           style={styles.cardToggleButton}
@@ -880,7 +945,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   // FIX: Remove stray comment, fix JSX structure, and correct indentation
   return (
     <RoleBasedUI navigation={navigation as any} showUploadButton={showUploadButton}>
-      <View style={styles.container}>
+      <View ref={videoFeedRef} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="black" translucent />
       {/* Header Controls */}
 
@@ -963,6 +1028,24 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Heroes" unreadCount={3} />
       ) : (
         <FloatingNavigation navigation={navigation as any} currentScreen="Content" />
+      )}
+      
+      {/* Tutorial Overlay */}
+      {isTutorialActive && currentTutorial && user?.id && (
+        <TutorialOverlay
+          tutorial={currentTutorial}
+          currentStepIndex={currentStepIndex}
+          onStepComplete={nextStep}
+          onTutorialComplete={completeTutorial}
+          onTutorialSkip={skipTutorial}
+          targetElementRef={
+            currentTutorial.steps[currentStepIndex]?.targetElement === 'sort_button' ? sortButtonRef :
+            currentTutorial.steps[currentStepIndex]?.targetElement === 'action_bubbles' ? actionBubblesRef :
+            currentTutorial.steps[currentStepIndex]?.targetElement === 'video_feed' ? videoFeedRef :
+            undefined
+          }
+          userId={user.id}
+        />
       )}
       </View>
     </RoleBasedUI>
@@ -1304,6 +1387,30 @@ const styles = StyleSheet.create({
   },
 
 
+
+  // Sort Controls
+  sortControls: {
+    position: 'absolute',
+    bottom: 150,
+    right: 20,
+    zIndex: 25,
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  sortButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
 
   // Card Toggle Button
   cardToggleButton: {
