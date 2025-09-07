@@ -126,17 +126,24 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     
     return (
       <View style={styles.providerContainer}>
-        {data.provider.cleaner_avatar && (
-          <Image 
-            source={{ uri: data.provider.cleaner_avatar }}
-            style={styles.providerAvatar}
-          />
-        )}
-        <Text style={styles.providerName} numberOfLines={1}>
-          {data.provider.cleaner_name}
-        </Text>
+        <Image 
+          source={{ 
+            uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
+          }}
+          style={styles.providerAvatar}
+        />
+        <View style={styles.providerDetails}>
+          <Text style={styles.providerName} numberOfLines={1}>
+            {data.provider.cleaner_name}
+          </Text>
+          {data.provider.specialties && data.provider.specialties.length > 0 && (
+            <Text style={styles.providerSpecialty} numberOfLines={1}>
+              {data.provider.specialties[0]} specialist
+            </Text>
+          )}
+        </View>
         {data.provider.is_verified && (
-          <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
+          <Ionicons name="checkmark-circle" size={14} color="#3ad3db" style={styles.verificationBadge} />
         )}
       </View>
     );
@@ -296,7 +303,21 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
         </View>
         
-        {renderEngagementStats()}
+        {/* Engagement stats positioned at bottom left of image */}
+        {data.engagement && (
+          <View style={styles.videoEngagementOverlay}>
+            <View style={styles.engagementStat}>
+              <Ionicons name="eye" size={12} color="#ffffff" />
+              <Text style={styles.engagementText}>{data.engagement.view_display}</Text>
+            </View>
+            {data.engagement.like_count > 0 && (
+              <View style={styles.engagementStat}>
+                <Ionicons name="heart" size={12} color="#ffffff" />
+                <Text style={styles.engagementText}>{data.engagement.like_count}</Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
       
       <View style={styles.videoContent}>
@@ -451,18 +472,27 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   providerAvatar: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginRight: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  providerDetails: {
+    flex: 1,
   },
   providerName: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.9)',
-    marginRight: 4,
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 1,
+  },
+  providerSpecialty: {
+    fontSize: 10,
+    color: '#6B7280',
+    textTransform: 'capitalize',
+  },
+  verificationBadge: {
+    marginLeft: 4,
   },
   
   // Engagement stats
@@ -593,5 +623,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
     lineHeight: 18,
+  },
+  videoEngagementOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
   },
 });

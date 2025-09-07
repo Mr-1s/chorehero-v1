@@ -153,7 +153,7 @@ class ServiceCardService {
       rating: {
         average_rating: params.rating || 4.8,
         total_reviews: params.reviews || 0,
-        rating_display: (params.rating || 4.8).toString(),
+        rating_display: (params.rating || 4.8).toFixed(1),
         trust_indicators: ['verified', 'background_checked']
       },
       
