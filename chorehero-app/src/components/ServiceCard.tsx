@@ -615,14 +615,15 @@ const styles = StyleSheet.create({
   },
   videoContent: {
     padding: 12,
-    height: 80,
-    justifyContent: 'space-between',
+    height: 90,
+    justifyContent: 'flex-start',
   },
   videoTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1C1C1E',
     lineHeight: 18,
+    marginBottom: 8,
   },
   videoEngagementOverlay: {
     position: 'absolute',
