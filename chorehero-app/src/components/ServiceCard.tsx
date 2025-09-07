@@ -324,6 +324,10 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         <Text style={styles.videoTitle} numberOfLines={2}>
           {data.title}
         </Text>
+        
+        {/* Separator line between media description and cleaner profile */}
+        <View style={styles.videoSeparator} />
+        
         {renderProviderInfo()}
       </View>
     </TouchableOpacity>
@@ -635,5 +639,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 3,
+  },
+  videoSeparator: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 6,
+    marginHorizontal: 0,
   },
 });
