@@ -638,9 +638,11 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   providerSection: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 8,
-    marginTop: 4,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
+    padding: 10,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
 });
