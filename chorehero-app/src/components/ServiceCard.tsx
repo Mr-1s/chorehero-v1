@@ -324,7 +324,9 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         <Text style={styles.videoTitle} numberOfLines={2}>
           {data.title}
         </Text>
-        {renderProviderInfo()}
+        <View style={styles.providerSection}>
+          {renderProviderInfo()}
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -469,7 +471,6 @@ const styles = StyleSheet.create({
   providerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
   },
   providerAvatar: {
     width: 20,
@@ -635,5 +636,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 3,
+  },
+  providerSection: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 4,
   },
 });
