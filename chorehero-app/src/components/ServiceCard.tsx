@@ -64,7 +64,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
       case 'list':
         return { width: SCREEN_WIDTH - 40, height: 120 };
       case 'video':
-        return { width: 200, height: 280 };
+        return { width: 200, height: 300 };
       case 'minimal':
         return { width: (SCREEN_WIDTH - 56) / 2, height: 160 };
       default:
@@ -133,7 +133,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           style={styles.providerAvatar}
         />
         <View style={styles.providerDetails}>
-          <Text style={styles.providerName} numberOfLines={1}>
+          <Text style={styles.providerName} numberOfLines={1} ellipsizeMode="tail">
             {data.provider.cleaner_name}
           </Text>
           {data.provider.specialties && data.provider.specialties.length > 0 && (
@@ -616,7 +616,7 @@ const styles = StyleSheet.create({
   },
   videoContent: {
     padding: 12,
-    height: 90,
+    height: 110,
     justifyContent: 'flex-start',
   },
   videoTitle: {
