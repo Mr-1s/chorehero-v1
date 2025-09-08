@@ -481,13 +481,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   providerName: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
     color: '#6B7280',
     marginBottom: 1,
   },
   providerSpecialty: {
-    fontSize: 9,
+    fontSize: 10,
     color: '#9CA3AF',
     textTransform: 'capitalize',
   },
@@ -619,10 +619,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   videoTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: '#000000',
-    lineHeight: 18,
+    lineHeight: 20,
     marginBottom: 8,
   },
   videoEngagementOverlay: {
