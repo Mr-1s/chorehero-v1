@@ -64,7 +64,7 @@ const UserProfileScreen: React.FC<UserProfileProps> = ({ navigation, route }) =>
         user: {
           id: userId,
           name: 'Sarah Johnson',
-          avatar_url: 'https://via.placeholder.com/120x120.png?text=👤',
+          avatar_url: `https://ui-avatars.com/api/?name=Sarah+Johnson&size=120&background=0ea5e9&color=ffffff&bold=true`,
           role: 'cleaner' as const,
           created_at: '2023-01-15T00:00:00Z'
         },

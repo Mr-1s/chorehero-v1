@@ -290,7 +290,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             name: 'Professional Cleaner',
             phone: '+1-555-0100',
             email: 'cleaner@chorehero.com',
-            avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
+            avatar_url: `https://ui-avatars.com/api/?name=Professional+Cleaner&size=120&background=0ea5e9&color=ffffff&bold=true`,
             role: 'cleaner' as const,
             is_active: true,
             profile: {

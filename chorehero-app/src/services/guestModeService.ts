@@ -56,7 +56,7 @@ class GuestModeService {
       id: 'prof-video-1',
       title: 'Professional Kitchen Deep Clean Transformation',
       description: 'Watch this amazing kitchen transformation using professional-grade equipment and techniques. From greasy surfaces to sparkling clean!',
-      video_url: 'https://pixabay.com/videos/download/video-16470_tiny.mp4', // Kitchen cleaning demo
+      video_url: 'https://cdn.pixabay.com/video/2022/06/14/120470-718946026_tiny.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop',
       cleaner_name: 'Professional Cleaning Co.',
       cleaner_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
@@ -70,7 +70,7 @@ class GuestModeService {
       id: 'prof-video-2',
       title: 'Bathroom Grout Restoration Magic',
       description: 'Professional grout cleaning and restoration techniques that make old bathrooms look brand new. Amazing results!',
-      video_url: 'https://pixabay.com/videos/download/video-27019_tiny.mp4', // Bathroom cleaning demo
+      video_url: 'https://cdn.pixabay.com/video/2022/03/28/112781-693063544_tiny.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop',
       cleaner_name: 'Elite Bathroom Cleaners',
       cleaner_avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b754?w=100&h=100&fit=crop&crop=face',
@@ -84,7 +84,7 @@ class GuestModeService {
       id: 'prof-video-3',
       title: 'Living Room Deep Clean & Organization',
       description: 'Complete living room transformation including upholstery cleaning, carpet deep clean, and professional organization.',
-      video_url: 'https://pixabay.com/videos/download/video-73646_tiny.mp4', // Home cleaning demo
+      video_url: 'https://cdn.pixabay.com/video/2020/11/03/54646-473582142_tiny.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400&h=600&fit=crop',
       cleaner_name: 'Home Refresh Specialists',
       cleaner_avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face',
@@ -98,7 +98,7 @@ class GuestModeService {
       id: 'prof-video-4',
       title: 'Master Bedroom Cleaning & Sanitization',
       description: 'Professional bedroom cleaning including mattress sanitization, closet organization, and deep dusting techniques.',
-      video_url: 'https://pixabay.com/videos/download/video-12662_tiny.mp4', // Bedroom organization demo
+      video_url: 'https://cdn.pixabay.com/video/2021/08/23/85646-594976388_tiny.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400&h=600&fit=crop',
       cleaner_name: 'Sleep Clean Experts',
       cleaner_avatar: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?w=100&h=100&fit=crop&crop=face',
@@ -107,6 +107,34 @@ class GuestModeService {
       like_count: 987,
       category: 'Bedroom',
       created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'prof-video-5',
+      title: 'Office Space Deep Sanitization',
+      description: 'Professional office cleaning including electronics, furniture, and air purification systems for a healthy workspace.',
+      video_url: 'https://cdn.pixabay.com/video/2021/12/15/99767-663932584_tiny.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=400&h=600&fit=crop',
+      cleaner_name: 'Corporate Clean Pro',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+      duration: 195,
+      view_count: 28340,
+      like_count: 2187,
+      category: 'Office',
+      created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'prof-video-6',
+      title: 'Window & Glass Professional Service',
+      description: 'Expert window cleaning techniques for crystal-clear results on all glass surfaces including mirrors and doors.',
+      video_url: 'https://cdn.pixabay.com/video/2022/09/12/130469-751843266_tiny.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=400&h=600&fit=crop',
+      cleaner_name: 'Crystal Clear Windows',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face',
+      duration: 155,
+      view_count: 31280,
+      like_count: 2543,
+      category: 'Windows',
+      created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
     }
   ];
 
