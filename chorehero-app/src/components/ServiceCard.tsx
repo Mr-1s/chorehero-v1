@@ -481,13 +481,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   providerName: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
     color: '#6B7280',
     marginBottom: 1,
   },
   providerSpecialty: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#9CA3AF',
     textTransform: 'capitalize',
   },
@@ -617,6 +617,15 @@ const styles = StyleSheet.create({
     padding: 12,
     height: 110,
     justifyContent: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
   },
   videoTitle: {
     fontSize: 15,
