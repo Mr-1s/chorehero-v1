@@ -130,6 +130,11 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const cardScaleAnim = new Animated.Value(1);
   const buttonScaleAnim = new Animated.Value(1);
 
+  // Coupon section animations
+  const couponScaleAnim = useRef(new Animated.Value(1)).current;
+  const couponRotateAnim = useRef(new Animated.Value(0)).current;
+  const sparkleAnim = useRef(new Animated.Value(0)).current;
+
   // Location context
   const { location } = useLocationContext();
   
@@ -148,6 +153,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   useEffect(() => {
     loadCategoryData('Featured');
     loadServiceCategories();
+    startCouponAnimations();
   }, []);
 
   // Load data when category changes
@@ -427,6 +433,50 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         useNativeDriver: true,
       }),
     ]).start();
+  };
+
+  // Start coupon section animations
+  const startCouponAnimations = () => {
+    // Gentle pulsing animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(couponScaleAnim, {
+          toValue: 1.02,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(couponScaleAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Sparkle animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(sparkleAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sparkleAnim, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Rotation animation for logo
+    Animated.loop(
+      Animated.timing(couponRotateAnim, {
+        toValue: 1,
+        duration: 8000,
+        useNativeDriver: true,
+      })
+    ).start();
   };
 
   const categories = [
@@ -790,24 +840,96 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Special Offers Banner */}
         <View style={styles.section}>
-          <View style={styles.specialOfferCard}>
+          <Animated.View 
+            style={[
+              styles.specialOfferCard,
+              { transform: [{ scale: couponScaleAnim }] }
+            ]}
+          >
             <LinearGradient
               colors={['#3ad3db', '#1ca7b7']}
               style={styles.specialOfferGradient}
             >
+              {/* Animated floating logo */}
+              <Animated.View
+                style={[
+                  styles.floatingLogo,
+                  {
+                    transform: [
+                      {
+                        rotate: couponRotateAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        }),
+                      },
+                    ],
+                    opacity: sparkleAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.3, 0.8],
+                    }),
+                  },
+                ]}
+              >
+                <Ionicons name="diamond" size={32} color="rgba(255, 255, 255, 0.6)" />
+              </Animated.View>
+
+              {/* Sparkle effects */}
+              <Animated.View
+                style={[
+                  styles.sparkle1,
+                  {
+                    opacity: sparkleAnim,
+                    transform: [
+                      {
+                        scale: sparkleAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.5, 1.2],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Ionicons name="sparkles" size={16} color="#FFD700" />
+              </Animated.View>
+
+              <Animated.View
+                style={[
+                  styles.sparkle2,
+                  {
+                    opacity: sparkleAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 0.3],
+                    }),
+                    transform: [
+                      {
+                        scale: sparkleAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1.2, 0.5],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Ionicons name="sparkles" size={12} color="#FFD700" />
+              </Animated.View>
+
               <View style={styles.specialOfferContent}>
-                <Text style={styles.specialOfferTitle}>25% OFF First Booking</Text>
+                <Text style={styles.specialOfferTitle}>✨ 25% OFF First Booking ✨</Text>
                 <Text style={styles.specialOfferSubtitle}>Use code HERO25 at checkout</Text>
-                <TouchableOpacity 
-                  style={styles.claimOfferButton}
-                  onPress={handleButtonPress}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.claimOfferButtonText}>Claim Offer</Text>
-                </TouchableOpacity>
+                <Animated.View style={{ transform: [{ scale: buttonScaleAnim }] }}>
+                  <TouchableOpacity 
+                    style={styles.claimOfferButton}
+                    onPress={handleButtonPress}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.claimOfferButtonText}>Claim Offer</Text>
+                  </TouchableOpacity>
+                </Animated.View>
               </View>
             </LinearGradient>
-          </View>
+          </Animated.View>
         </View>
 
         {/* Bottom spacing for navigation */}
@@ -1189,9 +1311,30 @@ const styles = StyleSheet.create({
   },
   specialOfferGradient: {
     padding: 24,
+    position: 'relative',
+    overflow: 'hidden',
   },
   specialOfferContent: {
     alignItems: 'center',
+    zIndex: 2,
+  },
+  floatingLogo: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 1,
+  },
+  sparkle1: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 1,
+  },
+  sparkle2: {
+    position: 'absolute',
+    bottom: 20,
+    right: 50,
+    zIndex: 1,
   },
   specialOfferTitle: {
     fontSize: 20,
