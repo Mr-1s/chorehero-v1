@@ -324,9 +324,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         <Text style={styles.videoTitle} numberOfLines={2}>
           {data.title}
         </Text>
-        <View style={styles.providerSection}>
-          {renderProviderInfo()}
-        </View>
+        {renderProviderInfo()}
       </View>
     </TouchableOpacity>
   );
@@ -471,6 +469,7 @@ const styles = StyleSheet.create({
   providerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 4,
   },
   providerAvatar: {
     width: 20,
@@ -484,7 +483,7 @@ const styles = StyleSheet.create({
   providerName: {
     fontSize: 11,
     fontWeight: '500',
-    color: '#374151',
+    color: '#6B7280',
     marginBottom: 1,
   },
   providerSpecialty: {
@@ -621,10 +620,10 @@ const styles = StyleSheet.create({
   },
   videoTitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
+    fontWeight: '700',
+    color: '#000000',
     lineHeight: 18,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   videoEngagementOverlay: {
     position: 'absolute',
@@ -636,13 +635,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 6,
     paddingVertical: 3,
-  },
-  providerSection: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 6,
-    padding: 10,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
 });
