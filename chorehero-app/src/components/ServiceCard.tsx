@@ -89,7 +89,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   const renderRatingBadge = () => (
     <View style={styles.ratingBadge}>
       <Ionicons name="star" size={12} color="#FFD700" />
-      <Text style={styles.ratingText}>{data.rating.average_rating}</Text>
+      <Text style={styles.ratingText}>{Math.round(data.rating.average_rating * 10) / 10}</Text>
     </View>
   );
 
@@ -617,17 +617,18 @@ const styles = StyleSheet.create({
     padding: 12,
     height: 110,
     justifyContent: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    shadowColor: '#000',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#000000',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 6,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 12,
+    borderTopWidth: 2,
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+    borderRadius: 2,
   },
   videoTitle: {
     fontSize: 15,
