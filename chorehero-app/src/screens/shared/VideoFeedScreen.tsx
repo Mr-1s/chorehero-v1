@@ -2222,9 +2222,9 @@ const styles = StyleSheet.create({
     height: 40,
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque
     borderRadius: 20,
-    ...DESIGN_TOKENS.shadow.md, // Stronger shadow
-    borderWidth: 1,
-    borderColor: DESIGN_TOKENS.colors.brand,
+    ...DESIGN_TOKENS.shadow.lg, // Match booking/nav shadow strength
+    borderWidth: 2, // Match booking/nav border thickness
+    borderColor: DESIGN_TOKENS.colors.brandLight, // Match booking/nav border color
   },
   actionButtonContainer: {
     alignItems: 'center',

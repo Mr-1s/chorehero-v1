@@ -15,11 +15,14 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { bookingStateManager } from '../../services/bookingStateManager';
+import { useAuth } from '../../hooks/useAuth';
 import { useRoute, RouteProp } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
@@ -78,6 +81,8 @@ interface TimeSlot {
 
 const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) => {
   const { cleanerId, serviceType: initialServiceType, location: initialLocation } = route.params || {};
+  const { user } = useAuth();
+  const [isRestoring, setIsRestoring] = useState<boolean>(true);
   
   const [currentStep, setCurrentStep] = useState<BookingStep>('location');
   const [isLoading, setIsLoading] = useState(false);
@@ -163,6 +168,54 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
   useEffect(() => {
     updateProgress();
   }, [currentStep]);
+
+  // Restore saved progress on mount
+  useEffect(() => {
+    const restore = async () => {
+      try {
+        const key = cleanerId || 'default';
+        const saved = await bookingStateManager.getBookingProgress(key);
+        if (saved && saved.bookingData) {
+          const d = saved.bookingData || {};
+          if (d.location) setLocation(d.location);
+          if (d.selectedServiceId) {
+            const svc = services.find(s => s.id === d.selectedServiceId) || null;
+            setSelectedService(svc);
+          }
+          if (Array.isArray(d.selectedAddOns)) setSelectedAddOns(d.selectedAddOns);
+          if (d.selectedTimeSlotId) {
+            const slot = timeSlots.find(t => t.id === d.selectedTimeSlotId) || null;
+            setSelectedTimeSlot(slot);
+          }
+          if (d.selectedDate) setSelectedDate(d.selectedDate);
+          if (typeof d.specialInstructions === 'string') setSpecialInstructions(d.specialInstructions);
+          if (saved.currentStep) setCurrentStep(saved.currentStep as any);
+        }
+      } catch (e) {
+        // noop
+      } finally {
+        setIsRestoring(false);
+      }
+    };
+    restore();
+  }, [cleanerId]);
+
+  // Persist progress (debounced)
+  useEffect(() => {
+    if (isRestoring) return;
+    const key = cleanerId || 'default';
+    const timeout = setTimeout(() => {
+      bookingStateManager.saveBookingProgress(key, currentStep as any, {
+        location,
+        selectedServiceId: selectedService?.id,
+        selectedAddOns,
+        selectedTimeSlotId: selectedTimeSlot?.id,
+        selectedDate,
+        specialInstructions,
+      } as any).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [cleanerId, isRestoring, currentStep, location, selectedService?.id, selectedAddOns, selectedTimeSlot?.id, selectedDate, specialInstructions]);
 
   const updateProgress = () => {
     const steps = ['location', 'service', 'addons', 'schedule', 'payment', 'review'];
@@ -291,6 +344,11 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
       if (elapsedTime <= 60) {
         Alert.alert('🎉 Amazing!', `Booking completed in ${elapsedTime} seconds!`);
       }
+      // Clear persisted progress
+      try {
+        const key = cleanerId || 'default';
+        await bookingStateManager.clearBookingProgress(key);
+      } catch {}
       
     } catch (error) {
       Alert.alert('Error', 'Failed to create booking. Please try again.');
@@ -301,22 +359,37 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
 
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
-      <View style={styles.progressBackground}>
-        <Animated.View 
-          style={[
-            styles.progressFill,
-            {
-              width: progressAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '100%'],
-              }),
-            },
-          ]}
-        />
+      <View style={styles.progressHeader}>
+        <View style={styles.progressTrack}>
+          <Animated.View style={[styles.progressAnimated, { width: `${(currentStep / 6) * 100}%` }]}>
+            <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={{ flex: 1 }} />
+          </Animated.View>
+        </View>
+        <Text style={styles.progressText}>{(() => {
+          const labels: Record<BookingStep, string> = {
+            location: 'Location',
+            service: 'Service',
+            addons: 'Add-ons',
+            schedule: 'Schedule',
+            payment: 'Payment',
+            review: 'Review',
+          };
+          const steps: BookingStep[] = ['location', 'service', 'addons', 'schedule', 'payment', 'review'];
+          const currentNum = steps.indexOf(currentStep) + 1;
+          return `${labels[currentStep]} • Step ${currentNum} of ${steps.length}`;
+        })()}</Text>
       </View>
-      <Text style={styles.progressText}>
-        {getElapsedTime()}s • Step {['location', 'service', 'addons', 'schedule', 'payment', 'review'].indexOf(currentStep) + 1} of 6
-      </Text>
+      {false && ( // Demo mode removed
+        <View style={styles.bypassContainer}>
+          <Text style={styles.bypassLabel}>Bypass Mode</Text>
+          <Switch
+            value={bypassMode}
+            onValueChange={setBypassMode}
+            trackColor={{ false: '#767577', true: '#3ad3db' }}
+            thumbColor={bypassMode ? '#ffffff' : '#f4f3f4'}
+          />
+        </View>
+      )}
     </View>
   );
 
@@ -629,24 +702,28 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+        </TouchableOpacity>
+        <View style={styles.headerPill}>
+          <Ionicons name="flash-outline" size={16} color="#0F172A" />
+          <Text style={styles.headerTitle}>Quick Booking</Text>
+        </View>
+        <View style={styles.placeholder} />
+      </View>
+
+      {/* Progress Bar */}
+      {renderProgressBar()}
+
       <KeyboardAvoidingView 
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#1F2937" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Quick Booking</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('MainTabs')}>
-            <Text style={styles.exitText}>Exit</Text>
-          </TouchableOpacity>
-        </View>
-
-        {renderProgressBar()}
-
         <ScrollView 
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -696,44 +773,66 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F3F4F6',
+    padding: 4,
+  },
+  headerPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  exitText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#6B7280',
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  placeholder: {
+    width: 32,
   },
   progressContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 20,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  progressBackground: {
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 2,
+  progressHeader: {
+    flex: 1,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 999,
     marginBottom: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  progressFill: {
+  progressAnimated: {
     height: '100%',
-    backgroundColor: '#3ad3db',
-    borderRadius: 2,
   },
   progressText: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
   },
@@ -764,13 +863,18 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)', // brandLight match
     paddingHorizontal: 16,
     height: 56,
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
   locationInput: {
     flex: 1,
@@ -802,11 +906,18 @@ const styles = StyleSheet.create({
   recentAddress: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   recentAddressText: {
     fontSize: 14,
@@ -1167,6 +1278,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  bypassContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  bypassLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
   },
 });
 
