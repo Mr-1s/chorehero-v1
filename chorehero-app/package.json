@@ -9,29 +9,24 @@
     "web": "expo start --web",
     "test": "jest",
     "test:watch": "jest --watch",
-    
     "_comment1": "============================================================================",
     "_comment2": "COMPREHENSIVE AUTOMATED TESTING FRAMEWORK",
     "_comment3": "Bulletproof testing that ensures all 28 gaps stay fixed forever",
     "_comment4": "============================================================================",
-    
     "test:full-suite": "node scripts/test-runner.js full-suite",
     "test:gap-regression": "node scripts/test-runner.js gap-regression",
     "test:user-journeys": "node scripts/test-runner.js user-journeys",
     "test:quick-check": "node scripts/test-runner.js quick-check",
-    
     "test:customer-journey": "node scripts/test-runner.js customer-journey",
     "test:cleaner-journey": "node scripts/test-runner.js cleaner-journey",
     "test:cross-role": "node scripts/test-runner.js cross-role",
-    
     "test:monitor": "node scripts/test-runner.js monitor",
     "test:health": "node scripts/test-runner.js health",
     "test:report": "node scripts/test-runner.js report",
     "test:help": "node scripts/test-runner.js help",
-    
     "_comment5": "CI/CD Specific Scripts",
     "test:journey:customer": "node scripts/test-runner.js customer-journey",
-    "test:journey:cleaner": "node scripts/test-runner.js cleaner-journey", 
+    "test:journey:cleaner": "node scripts/test-runner.js cleaner-journey",
     "test:journey:cross-role": "node scripts/test-runner.js cross-role",
     "test:performance": "echo 'Performance tests: Coming soon'",
     "test:stress": "echo 'Stress tests: Coming soon'",
@@ -42,12 +37,14 @@
     "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-community/datetimepicker": "8.4.1",
     "@react-native-community/netinfo": "11.4.1",
+    "@react-native-masked-view/masked-view": "^0.3.2",
     "@react-navigation/bottom-tabs": "^7.3.10",
     "@react-navigation/native": "^7.1.6",
     "@react-navigation/stack": "^7.4.2",
     "@stripe/stripe-react-native": "0.45.0",
     "@supabase/supabase-js": "^2.50.3",
     "expo": "53.0.20",
+    "expo-auth-session": "~6.2.1",
     "expo-av": "^15.1.7",
     "expo-blur": "~14.1.5",
     "expo-camera": "~16.1.11",
@@ -83,8 +80,7 @@
     "react-native-url-polyfill": "^2.0.0",
     "react-native-video": "^6.16.1",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "13.13.5",
-    "expo-auth-session": "~6.2.1"
+    "react-native-webview": "13.13.5"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

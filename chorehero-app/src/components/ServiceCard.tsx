@@ -346,13 +346,13 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
 const styles = StyleSheet.create({
   // Base container styles
   cardContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
   },
   
   // Image container and overlay
@@ -533,14 +533,14 @@ const styles = StyleSheet.create({
   
   // List layout styles
   listContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
   },
   listImage: {
     width: 120,
@@ -587,13 +587,13 @@ const styles = StyleSheet.create({
   
   // Video layout styles
   videoContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 12,
   },
   videoImageContainer: {
     flex: 1,
@@ -617,18 +617,7 @@ const styles = StyleSheet.create({
     padding: 12,
     height: 110,
     justifyContent: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 12,
-    borderTopWidth: 2,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    borderRadius: 2,
+    backgroundColor: '#FFFFFF',
   },
   videoTitle: {
     fontSize: 15,

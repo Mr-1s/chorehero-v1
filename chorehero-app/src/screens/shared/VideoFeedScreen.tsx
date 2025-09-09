@@ -14,6 +14,8 @@ import {
   SafeAreaView,
   Switch,
   Linking,
+  Animated,
+  RefreshControl,
 } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { BlurView } from 'expo-blur';
@@ -68,6 +70,84 @@ import RoleBasedUI, { useRoleFeatures } from '../../components/RoleBasedUI';
 
 const { width, height } = Dimensions.get('window');
 
+// Design System Constants - Brand Consistent
+const DESIGN_TOKENS = {
+  // Spacing
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+    xxxl: 32,
+  },
+  // Colors
+  colors: {
+    brand: '#3ad3db',
+    brandLight: 'rgba(58, 211, 219, 0.2)',
+    white: '#FFFFFF',
+    whiteAlpha95: 'rgba(255, 255, 255, 0.95)',
+    text: {
+      primary: '#1F2937',
+      secondary: '#6B7280',
+      tertiary: '#9CA3AF',
+    },
+    accent: {
+      orange: '#FFA500',
+      red: '#FF3040',
+    },
+    shadow: {
+      color: '#000',
+      opacity: 0.1,
+    }
+  },
+  // Border Radius
+  radius: {
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+    round: 25,
+    full: 50,
+  },
+  // Typography
+  text: {
+    xs: 10,
+    sm: 11,
+    base: 12,
+    md: 14,
+    lg: 16,
+    xl: 18,
+    xxl: 20,
+  },
+  // Shadows
+  shadow: {
+    sm: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    md: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 6,
+    },
+    lg: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 12,
+      elevation: 8,
+    },
+  }
+};
+
 interface CleanerProfile {
   user_id: string;
   video_profile_url: string | null;
@@ -111,7 +191,11 @@ const ExpoVideoPlayer: React.FC<{
   const [showFallback, setShowFallback] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [hasSetupListeners, setHasSetupListeners] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [showControls, setShowControls] = useState(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   console.log('🎬 ExpoVideoPlayer render:', { videoUrl: videoUrl.split('/').pop(), isActive, isPlaying, isReady });
 
@@ -131,6 +215,10 @@ const ExpoVideoPlayer: React.FC<{
         console.log('✅ Video ready to play');
         setIsReady(true);
         setShowFallback(false);
+        // Get duration when video is ready
+        if (status.duration) {
+          setDuration(status.duration);
+        }
         // Clear loading timeout since video is ready
         if (loadingTimeoutRef.current) {
           clearTimeout(loadingTimeoutRef.current);
@@ -151,6 +239,11 @@ const ExpoVideoPlayer: React.FC<{
         console.log('❌ Playback error (file may be deleted):', status.error);
         setShowFallback(true);
         setIsReady(false);
+      } else if (status.currentTime !== undefined) {
+        setCurrentTime(status.currentTime);
+      }
+      if (status.duration !== undefined && duration === 0) {
+        setDuration(status.duration);
       }
     };
 
@@ -202,6 +295,36 @@ const ExpoVideoPlayer: React.FC<{
     }
   }, [isActive, isPlaying, player, isReady, showFallback]);
 
+  // Helper function to format time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Handle seeking
+  const handleSeek = (progress: number) => {
+    if (player && duration > 0) {
+      const seekTime = progress * duration;
+      player.seekBy(seekTime - currentTime);
+    }
+  };
+
+  // Show controls when tapped
+  const handleVideoTap = () => {
+    console.log('🎥 Video tapped, current playing state:', isPlaying);
+    setShowControls(true);
+    onTogglePlay();
+    
+    // Hide controls after 3 seconds
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
+    }
+    controlsTimeoutRef.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  };
+
   if (showFallback) {
     return (
       <TouchableWithoutFeedback onPress={onTogglePlay}>
@@ -224,7 +347,7 @@ const ExpoVideoPlayer: React.FC<{
   }
 
   return (
-    <TouchableWithoutFeedback onPress={onTogglePlay}>
+    <TouchableWithoutFeedback onPress={handleVideoTap}>
       <View style={style}>
         <VideoView
           style={StyleSheet.absoluteFillObject}
@@ -233,22 +356,73 @@ const ExpoVideoPlayer: React.FC<{
           allowsPictureInPicture={false}
           contentFit="cover"
           nativeControls={false}
+          pointerEvents="none"
         />
         
-        {/* Loading indicator */}
+        {/* Enhanced Loading indicator */}
         {!isReady && (
-          <View style={styles.videoErrorOverlay}>
-            <ActivityIndicator size="large" color="rgba(255, 255, 255, 0.8)" />
-            <Text style={styles.videoErrorText}>Loading...</Text>
+          <View style={styles.enhancedLoadingOverlay}>
+            <View style={styles.loadingShimmer}>
+              <ActivityIndicator size="large" color="#3ad3db" />
+              <Text style={styles.enhancedLoadingText}>Loading video...</Text>
+            </View>
+          </View>
+        )}
+        
+        {/* Duration Badge - Always Visible */}
+        {isReady && duration > 0 && (
+          <View style={styles.durationBadge}>
+            <Text style={styles.durationBadgeText}>
+              {formatTime(duration)}
+            </Text>
           </View>
         )}
         
         {/* Play/Pause Overlay */}
         {!isPlaying && isActive && isReady && (
           <View style={styles.playPauseOverlay}>
-            <TouchableOpacity style={styles.playPauseButton} onPress={onTogglePlay}>
+            <TouchableOpacity style={styles.playPauseButton} onPress={handleVideoTap}>
               <Ionicons name="play" size={40} color="rgba(255, 255, 255, 0.9)" />
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Video Controls */}
+        {showControls && isReady && duration > 0 && (
+          <View style={styles.videoControls}>
+            {/* Progress Bar */}
+            <TouchableOpacity
+              style={styles.progressBarContainer}
+              onPress={(event) => {
+                const { locationX } = event.nativeEvent;
+                const containerWidth = event.currentTarget.props.style?.width || 200;
+                const progress = locationX / containerWidth;
+                handleSeek(Math.max(0, Math.min(1, progress)));
+              }}
+              activeOpacity={1}
+            >
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressBarFill, 
+                    { width: `${(currentTime / duration) * 100}%` }
+                  ]} 
+                />
+              </View>
+              <View
+                style={[
+                  styles.progressThumb,
+                  { left: `${Math.max(0, Math.min(100, (currentTime / duration) * 100))}%` }
+                ]}
+              />
+            </TouchableOpacity>
+            
+            {/* Time Display */}
+            <View style={styles.timeContainer}>
+              <Text style={styles.timeText}>
+                {formatTime(currentTime)} / {formatTime(duration)}
+              </Text>
+            </View>
           </View>
         )}
       </View>
@@ -266,6 +440,11 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const [isCardVisible, setIsCardVisible] = useState(true); // Default to visible for better UX
   const [sortPreference, setSortPreference] = useState<'balanced' | 'proximity' | 'engagement' | 'price'>('balanced');
   const [useEnhancedAlgorithm, setUseEnhancedAlgorithm] = useState(false);
+  const [showDescriptionCard, setShowDescriptionCard] = useState(false); // Hidden initially
+  const descriptionSlideAnim = useRef(new Animated.Value(0)).current;
+  const [likedVideos, setLikedVideos] = useState<Set<string>>(new Set());
+  const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
+  const [followedCleaners, setFollowedCleaners] = useState<Set<string>>(new Set());
 
   const flatListRef = useRef<FlatList>(null);
   const sortButtonRef = useRef<View>(null);
@@ -319,10 +498,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     }, [])
   );
 
-  const togglePlay = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsPlaying(!isPlaying);
-  };
+  // Video play/pause is now handled inline to avoid duplicate function errors
 
   const cleanupOrphanedVideos = async () => {
     try {
@@ -567,144 +743,12 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     return count.toString();
   };
 
-  const handleLike = async (videoId: string) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    const video = videos.find(v => v.id === videoId);
-    if (!video || !user) return;
-    
-    const isLiking = !video.liked;
-    
-    setVideos(prevVideos => 
-      prevVideos.map(v => 
-        v.id === videoId 
-          ? { ...v, liked: !v.liked, likes: v.liked ? v.likes - 1 : v.likes + 1 }
-          : v
-      )
-    );
-
-    // Send notification to cleaner when customer likes their video
-    if (isLiking && video.cleaner.user_id && user.id !== video.cleaner.user_id) {
-      try {
-        await notificationService.sendLikeNotification(
-          videoId,
-          video.cleaner.user_id,
-          user.id,
-          user.name || 'A customer',
-          user.avatar_url
-        );
-      } catch (error) {
-        console.error('Error sending like notification:', error);
-      }
-    }
-  };
-
-  const handleComment = async (videoId: string) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    const video = videos.find(v => v.id === videoId);
-    if (!video) return;
-    
-    // Update comment count optimistically
-    setVideos(prevVideos => 
-      prevVideos.map(v => 
-        v.id === videoId 
-          ? { ...v, comments: v.comments + 1 }
-          : v
-      )
-    );
-    
-    // TODO: Navigate to comment screen or open comment modal
-    console.log('Opening comments for video:', videoId);
-    Alert.alert('Comments', `Comments for "${video.title}" by ${video.cleaner.name}`);
-  };
-
-  const handleShare = async (video: VideoItem) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
-    // Update share count optimistically
-    setVideos(prevVideos => 
-      prevVideos.map(v => 
-        v.id === video.id 
-          ? { ...v, shares: (v.shares || 0) + 1 }
-          : v
-      )
-    );
-    
-    // Show share options
-    Alert.alert(
-      'Share Video',
-      `Share "${video.title}" by ${video.cleaner.name}`,
-      [
-        {
-          text: 'Copy Link',
-          onPress: () => {
-            // TODO: Copy video link to clipboard
-            Alert.alert('Link Copied', 'Video link copied to clipboard!');
-          }
-        },
-        {
-          text: 'Share to Social Media',
-          onPress: () => {
-            // TODO: Open native share sheet
-            Alert.alert('Share', 'Opening share options...');
-          }
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
-  };
-
-  const handleBoost = async (videoId: string) => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('Boost', 'Boost feature coming soon!');
-  };
 
 
-  const handleBookService = async (cleaner: CleanerProfile) => {
-    console.log('🎯 Book service button pressed for:', cleaner.name);
-    
-    try {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch (error) {
-      console.log('Haptics not available:', error);
-    }
-    
-    // Check if current user is a cleaner trying to book
-    if (user?.role === 'cleaner') {
-      Alert.alert(
-        'Switch to Customer Account',
-        'To book cleaning services, you need to use a customer account. Would you like to switch to customer mode or create a customer account?',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Switch Account',
-            onPress: () => {
-              // Navigate to settings where they can switch accounts
-              navigation.navigate('Profile');
-            },
-          },
-        ]
-      );
-      return;
-    }
-    
-    // Create real bookings for customers
-    console.log('🎯 Customer booking service from:', cleaner.name);
-    
-    navigation.navigate('SimpleBookingFlow', {
-      cleanerId: cleaner.user_id,
-      serviceType: cleaner.service_title || 'Residential',
-      fromVideoFeed: true, // Flag to indicate this came from video feed
-      videoTitle: cleaner.service_title // Pass the video title for context
-    });
-  };
+
+
+
+
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -729,6 +773,78 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     }
   };
 
+  // Toggle description card with animation
+  const toggleDescriptionCard = () => {
+    const toValue = showDescriptionCard ? 0 : 1;
+    setShowDescriptionCard(!showDescriptionCard);
+    
+    Animated.spring(descriptionSlideAnim, {
+      toValue,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 8,
+    }).start();
+  };
+
+  // Button interaction handlers
+  const handleLike = (videoId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setLikedVideos(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(videoId)) {
+        newSet.delete(videoId);
+      } else {
+        newSet.add(videoId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSave = (videoId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSavedVideos(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(videoId)) {
+        newSet.delete(videoId);
+      } else {
+        newSet.add(videoId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleFollow = (cleanerId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFollowedCleaners(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cleanerId)) {
+        newSet.delete(cleanerId);
+      } else {
+        newSet.add(cleanerId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleComment = (videoId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Navigate to comments or open comment modal
+    Alert.alert('Comments', 'Comments feature coming soon!');
+  };
+
+  const handleShare = (videoId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Share functionality
+    Alert.alert('Share', 'Share feature coming soon!');
+  };
+
+  const handleBooking = (cleanerId: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Navigate to booking flow
+    navigation.navigate('BookingFlow', { cleanerId });
+  };
+
+
   const renderVideoItem = ({ item, index }: { item: VideoItem; index: number }) => {
     // Check if it's a video or image based on content type or file extension
     const isVideo = (item as any).content_type === 'video' || 
@@ -738,176 +854,259 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     
     return (
       <View style={styles.videoContainer}>
+        {/* Fixed Aspect Video Area */}
+        <View style={styles.videoArea}>
         {isVideo ? (
+            <View style={styles.videoFrame}>
           <ExpoVideoPlayer
           videoUrl={item.video_url}
           isActive={index === currentIndex}
           isPlaying={isPlaying && isScreenFocused}
-          style={styles.video}
-          onTogglePlay={togglePlay}
-        />
-        ) : (
-          <TouchableWithoutFeedback onPress={togglePlay}>
-            <View style={styles.video}>
+                style={StyleSheet.absoluteFillObject}
+                showControls
+                useNativeControls
+                onTogglePlay={() => {
+                  console.log('🎮 ExpoVideoPlayer onTogglePlay - current state:', isPlaying);
+                  setIsPlaying(!isPlaying);
+                }}
+              />
+              <TouchableOpacity 
+                style={styles.videoPauseOverlay}
+                onPress={() => {
+                  console.log('🎮 Pause overlay tap - toggling play state from:', isPlaying);
+                  setIsPlaying(!isPlaying);
+                }}
+              >
+                <View style={styles.pauseIndicator}>
+                  <Ionicons 
+                    name={isPlaying ? "pause" : "play"} 
+                    size={32} 
+                    color="rgba(255,255,255,0.8)" 
+                  />
+                </View>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.videoFrame}>
               <Image 
                 source={{ uri: item.video_url }} 
                 style={StyleSheet.absoluteFillObject}
                 resizeMode="cover"
               />
-              {/* Show demo indication for images */}
               <View style={styles.imageOverlay}>
                 <Text style={styles.imageLabel}>Demo Preview - Tap to Book</Text>
               </View>
             </View>
-          </TouchableWithoutFeedback>
         )}
+        </View>
         
         {/* Play Icon */}
         <PlayIcon 
           visible={!isPlaying && index === currentIndex} 
-          onPress={togglePlay}
+          onPress={() => {
+            console.log('🎮 PlayIcon pressed - current state:', isPlaying);
+            setIsPlaying(!isPlaying);
+          }}
         />
 
-        {/* Cleaner Profile Header */}
+        {/* No overlay - video touch handled directly on video frame */}
+
+        {/* Unified Feed Overlay - Modern Single Interface */}
+        <View style={styles.unifiedFeedOverlay}>
+          {/* Top Section - Cleaner Header */}
         <TouchableOpacity 
-          style={styles.cleanerProfileHeader}
+            style={styles.modernCleanerHeader}
           activeOpacity={0.7}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           onPress={() => {
             console.log('🎯 Navigating to cleaner profile:', item.cleaner.name);
-            // Navigate to cleaner profile screen
             navigation.navigate('CleanerProfile', { cleanerId: item.cleaner.user_id });
           }}
         >
+            <View style={styles.modernAvatarContainer}>
           <Image 
             source={{ uri: item.cleaner.avatar_url || 'https://via.placeholder.com/50' }} 
-            style={styles.cleanerProfileAvatar} 
-          />
-          <View style={styles.cleanerProfileInfo}>
-            <Text style={styles.cleanerProfileUsername} numberOfLines={1} ellipsizeMode="tail">{item.cleaner.username}</Text>
-            <Text style={styles.cleanerProfileBio} numberOfLines={1} ellipsizeMode="tail">{item.cleaner.bio || 'Professional cleaning specialist'}</Text>
+                style={styles.modernCleanerAvatar} 
+              />
+              {item.cleaner.verification_status === 'verified' && (
+                <View style={styles.modernVerificationBadge}>
+                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
           </View>
+              )}
+            </View>
+            
+            <View style={styles.modernCleanerInfo}>
+              <Text style={styles.modernCleanerUsername} numberOfLines={1}>
+                {item.cleaner.username || item.cleaner.name}
+              </Text>
+              <Text style={styles.modernCleanerService} numberOfLines={1}>
+                {item.cleaner.service_title || 'Professional Cleaning'}
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={[
+                styles.modernFollowButton,
+                followedCleaners.has(item.cleaner.user_id) && styles.modernFollowButtonActive
+              ]}
+              onPress={() => handleFollow(item.cleaner.user_id)}
+            >
+              <Text style={[
+                styles.modernFollowText,
+                followedCleaners.has(item.cleaner.user_id) && styles.modernFollowTextActive
+              ]}>
+                {followedCleaners.has(item.cleaner.user_id) ? 'Following' : 'Follow'}
+              </Text>
+            </TouchableOpacity>
         </TouchableOpacity>
 
-        {/* Action Bubbles - Classic right-side placement */}
-        <View ref={actionBubblesRef} style={styles.rightSideActions}>
-          <BubbleStack
-            onLikePress={() => handleLike(item.id)}
-            onBoostPress={() => handleComment(item.id)}
-            onSharePress={() => handleShare(item)}
-            likeCount={formatCount(item.likes)}
-            boostCount={formatCount(item.comments)}
-            liked={item.liked}
-          />
+          {/* Middle Section - Action Bubbles Integrated */}
+          <Animated.View style={[
+            styles.modernActionSection,
+            {
+              opacity: descriptionSlideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0], // Hide when description shows
+              }),
+              transform: [{
+                translateX: descriptionSlideAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 50], // Slide right and fade out
+                })
+              }]
+            }
+          ]}>
+            <View style={styles.actionButtonContainer}>
+              <TouchableOpacity 
+                style={styles.modernActionBubble}
+                onPress={() => handleLike(item.id)}
+              >
+                <Ionicons 
+                  name={likedVideos.has(item.id) ? "heart" : "heart-outline"} 
+                  size={24} 
+                  color={DESIGN_TOKENS.colors.brand} 
+                />
+              </TouchableOpacity>
+              {/* count removed for cleaner look */}
         </View>
 
-        {/* Modern Service Card */}
-        {isCardVisible && (
-          <View style={styles.modernServiceCardWrapper}>
-            <BlurView intensity={100} style={styles.modernServiceCard}>
-              <View style={styles.modernServiceContent}>
-                {/* Header with close button */}
-                <View style={styles.modernServiceHeader}>
-                  <View style={styles.serviceInfo}>
-                    <Text style={styles.modernServiceTitle}>
-                      {(item as any).metadata?.service_category 
-                        ? `${item.cleaner.service_title || 'Professional Service'}`
-                        : item.cleaner.service_title}
-                    </Text>
-                    <Text style={styles.modernServicePrice}>
-                      {(item as any).metadata?.pricing_display 
-                        ? `${(item as any).metadata.pricing_display}${(item as any).metadata?.duration_display ? ` • ${(item as any).metadata.duration_display}` : ''}`
-                        : item.cleaner.hourly_rate}
-                    </Text>
-                  </View>
+            <View style={styles.actionButtonContainer}>
                     <TouchableOpacity 
-                    style={styles.modernCloseButton}
-                    onPress={() => setIsCardVisible(false)}
+                style={styles.modernActionBubble}
+                onPress={() => handleComment(item.id)}
                   >
-                    <Ionicons name="close" size={20} color="#6B7280" />
+                <Ionicons name="chatbubble-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
                     </TouchableOpacity>
+              {/* count removed for cleaner look */}
                 </View>
                 
-                {/* Rating and Duration */}
-                <View style={styles.modernServiceMeta}>
-                  <View style={styles.modernMetaItem}>
-                    <View style={styles.ratingContainer}>
-                      <Ionicons name="star" size={14} color="#FFA500" />
-                      <Text style={styles.ratingText}>{item.cleaner.rating_average}</Text>
-                      <Text style={styles.reviewCountText}>({item.cleaner.total_jobs})</Text>
-                  </View>
-                  </View>
-                  <View style={styles.modernMetaDivider} />
-                  <View style={styles.modernMetaItem}>
-                    <Ionicons name="time-outline" size={14} color="#6B7280" />
-                    <Text style={styles.durationText}>{item.cleaner.estimated_duration}</Text>
-                  </View>
+            <View style={styles.actionButtonContainer}>
+              <TouchableOpacity
+                style={styles.modernActionBubble}
+                onPress={() => handleSave(item.id)}
+              >
+                <Ionicons
+                  name={savedVideos.has(item.id) ? "bookmark" : "bookmark-outline"}
+                  size={22}
+                  color={DESIGN_TOKENS.colors.brand}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.actionButtonContainer}>
+              <TouchableOpacity
+                style={styles.modernActionBubble}
+                onPress={() => handleShare(item.id)}
+              >
+                <Ionicons name="share-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          {/* Bottom Section - Service Info & Booking */}
+          <View style={styles.modernBottomSection}>
+            {/* Expandable Description Card */}
+            <Animated.View style={[
+              styles.slideableDescriptionCard,
+              {
+                transform: [{
+                  translateY: descriptionSlideAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [40, 0],
+                  })
+                }],
+                opacity: descriptionSlideAnim,
+              }
+            ]}>
+                <View style={styles.descriptionCardHandle}>
+                  <View style={styles.handleBar} />
                 </View>
-                
-
-
-                {/* Book Button */}
+                <Text style={styles.descriptionTitle} numberOfLines={2}>
+                  {(item as any).title || (item as any).post?.title || item.cleaner.service_title}
+                </Text>
+                <View style={styles.descriptionDivider} />
+                <Text style={styles.descriptionText} numberOfLines={5}>
+                  {(item as any).description || (item as any).post?.description || item.cleaner.bio || 'Professional cleaning service with attention to detail and customer satisfaction.'}
+                </Text>
+                {/* Close Button */}
                 <TouchableOpacity 
-                  style={styles.modernBookButton}
-                  onPress={() => handleBookService(item.cleaner)}
-                  activeOpacity={0.8}
-                  disabled={false}
+                  style={styles.closeDescriptionButton}
+                  onPress={toggleDescriptionCard}
                 >
-                  <LinearGradient
-                    colors={['#3ad3db', '#2DD4BF', '#14B8A6']}
-                    style={styles.modernBookButtonGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                  >
-                    <Ionicons name="calendar-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.modernBookButtonText}>Book Now</Text>
-                  </LinearGradient>
+                  <Ionicons name="chevron-down" size={24} color={DESIGN_TOKENS.colors.text.secondary} />
                 </TouchableOpacity>
+            </Animated.View>
+
+            {/* Enhanced Booking Section with Even Spacing */}
+            <View style={styles.modernBookingSection}>
+              {/* Price Section */}
+              <View style={styles.modernPriceContainer}>
+                <Text style={styles.modernPriceLabel}>Starting at</Text>
+                <Text style={styles.modernPriceValue}>${(item as any).hourly_rate || item.cleaner.hourly_rate}/hr</Text>
               </View>
-            </BlurView>
+              
+              {/* Centered Rating & Duration Stack - Evenly Spaced */}
+              <View style={styles.centeredStatsContainer}>
+                <View style={styles.centeredStatItem}>
+                  <Ionicons name="star" size={14} color={DESIGN_TOKENS.colors.accent.orange} />
+                  <Text style={styles.centeredStatText}>{(item as any).rating || item.cleaner.rating_average}</Text>
           </View>
-        )}
+                <View style={styles.centeredStatItem}>
+                  <Ionicons name="time-outline" size={14} color={DESIGN_TOKENS.colors.text.secondary} />
+                  <Text style={styles.centeredStatText}>{(item as any).estimated_duration || item.cleaner.estimated_duration}</Text>
+                </View>
+              </View>
+              
+              {/* Third & Fourth Sections - Connected Info + Book Button */}
+              <View style={styles.bookButtonSection}>
+                <View style={styles.infoAndBookRow}>
+                  <TouchableOpacity 
+                    style={styles.descriptionToggleButtonConnected}
+                    onPress={toggleDescriptionCard}
+                  >
+                    <Ionicons 
+                      name={showDescriptionCard ? "information" : "information-outline"} 
+                      size={18} 
+                      color={showDescriptionCard ? DESIGN_TOKENS.colors.brand : DESIGN_TOKENS.colors.text.secondary} 
+                    />
+                  </TouchableOpacity>
 
-        {/* Sort Controls */}
-        <View style={styles.sortControls}>
-          <TouchableOpacity 
-            ref={sortButtonRef}
-            style={styles.sortButton}
-            onPress={() => {
-              const preferences: Array<'balanced' | 'proximity' | 'engagement' | 'price'> = ['balanced', 'proximity', 'engagement', 'price'];
-              const currentIndex = preferences.indexOf(sortPreference);
-              const nextIndex = (currentIndex + 1) % preferences.length;
-              setSortPreference(preferences[nextIndex]);
-              // Reload content with new sort preference
-              loadRealContent();
-            }}
-          >
-            <Ionicons 
-              name={sortPreference === 'balanced' ? 'options' : 
-                   sortPreference === 'proximity' ? 'location' :
-                   sortPreference === 'engagement' ? 'heart' : 'pricetag'} 
-              size={20} 
-              color="#ffffff" 
-            />
-            <Text style={styles.sortButtonText}>
-              {sortPreference === 'balanced' ? 'Smart' : 
-               sortPreference === 'proximity' ? 'Near' :
-               sortPreference === 'engagement' ? 'Popular' : 'Price'}
-            </Text>
-          </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.modernBookButtonFixed}
+                    onPress={() => {
+                      console.log('📅 Book button pressed for:', item.cleaner.name);
+                      handleBooking(item.cleaner.user_id);
+                    }}
+                    activeOpacity={0.9}
+                  >
+                    <Ionicons name="calendar" size={16} color={DESIGN_TOKENS.colors.white} />
+                    <Text style={styles.modernBookButtonTextFixed}>Book Now</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+
         </View>
-
-        {/* Card Toggle Button */}
-        <TouchableOpacity 
-          style={styles.cardToggleButton}
-          onPress={() => setIsCardVisible(!isCardVisible)}
-        >
-          <Ionicons 
-            name={isCardVisible ? "chevron-down" : "chevron-up"} 
-            size={24} 
-            color="#14B8A6" 
-          />
-        </TouchableOpacity>
       </View>
     );
   };
@@ -952,13 +1151,6 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
 
 
-      {/* Search Button - Top Right */}
-      <TouchableOpacity 
-        style={styles.searchButtonTopRight}
-        onPress={() => navigation.navigate('Discover')}
-      >
-        <Ionicons name="search" size={24} color="#64748B" />
-      </TouchableOpacity>
       
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
@@ -1074,11 +1266,68 @@ const styles = StyleSheet.create({
     width,
     height,
     position: 'relative',
+    backgroundColor: '#000',
+  },
+  // Letterboxed video area with safe top/bottom
+  videoArea: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0, // Fill entire container
+    left: 0,
+    right: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000', // Ensure black background
+  },
+  videoFrame: {
+    width: width - 0, // full width of safe area
+    height: '100%',
+    borderRadius: DESIGN_TOKENS.radius.lg, // Add rounded corners
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    ...DESIGN_TOKENS.shadow.md, // Add subtle shadow
+  },
+  videoPauseOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    zIndex: 20, // High z-index to capture taps
+  },
+  pauseIndicator: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 30,
+    width: 60,
+    height: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  directVideoTouch: {
+    position: 'absolute',
+    top: height * 0.08,
+    left: 0,
+    right: 0,
+    bottom: height * 0.22,
+    zIndex: 1, // Very low z-index, just above video
+    backgroundColor: 'transparent',
   },
   video: {
     width: '100%',
     height: '100%',
     backgroundColor: '#000',
+  },
+  videoTouchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 100, // Above video but below other UI elements
   },
   playPauseOverlay: {
     position: 'absolute',
@@ -1560,78 +1809,722 @@ const styles = StyleSheet.create({
   },
   
   // Modern Service Card Styles
-  modernServiceCardWrapper: {
+  // Enhanced Service Card Styles
+  enhancedServiceCardWrapper: {
     position: 'absolute',
-    bottom: 120,
-    left: 20,
-    right: 80, // Adjusted to leave space for action buttons
+    bottom: 110,
+    left: 16,
+    right: 80,
     zIndex: 10,
   },
-  modernServiceCard: {
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: 'rgba(58, 211, 219, 0.2)',
+  enhancedServiceCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-    shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  modernServiceContent: {
-    padding: 20,
+  enhancedServiceContent: {
+    padding: 16,
   },
-  modernServiceHeader: {
+  enhancedServiceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  serviceInfo: {
+  enhancedServiceInfo: {
     flex: 1,
   },
-  modernServiceTitle: {
-    fontSize: 16,
+  enhancedServiceTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 2,
-    letterSpacing: -0.2,
+    marginBottom: 6,
+    letterSpacing: -0.1,
   },
-  modernServicePrice: {
-    fontSize: 16,
+  enhancedQuickStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  enhancedStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  enhancedStatDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: 'rgba(107, 114, 128, 0.3)',
+    marginHorizontal: 8,
+  },
+  enhancedStatText: {
+    fontSize: 12,
     fontWeight: '600',
+    color: '#374151',
+    marginLeft: 3,
+  },
+  enhancedPriceText: {
+    fontSize: 12,
+    fontWeight: '700',
     color: '#3ad3db',
   },
-  modernCloseButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  enhancedCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  enhancedSaveButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(107, 114, 128, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
   },
-  modernServiceMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: 'rgba(107, 114, 128, 0.1)',
-  },
-  modernMetaItem: {
-    flex: 1,
-    flexDirection: 'row',
+  enhancedCloseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(107, 114, 128, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modernMetaDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: 'rgba(107, 114, 128, 0.2)',
-    marginHorizontal: 16,
+  enhancedActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  enhancedActionButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  enhancedViewProfileButton: {
+    backgroundColor: 'rgba(107, 114, 128, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(107, 114, 128, 0.2)',
+  },
+  enhancedViewProfileText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  enhancedBookButton: {
+    overflow: 'hidden',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  enhancedBookButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  enhancedBookButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: 6,
+  },
+  
+  // Enhanced Cleaner Profile Header Styles
+  enhancedCleanerProfileHeader: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 15,
+    maxWidth: width * 0.65,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 25,
+    backdropFilter: 'blur(10px)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  enhancedAvatarContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  enhancedCleanerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.9)',
+  },
+  enhancedVerificationBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#3ad3db',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  enhancedCleanerInfo: {
+    flex: 1,
+  },
+  enhancedNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  enhancedCleanerUsername: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+    marginRight: 6,
+  },
+  enhancedOnlineIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+  },
+  enhancedCleanerBio: {
+    color: 'rgba(255, 255, 255, 0.95)',
+    fontSize: 11,
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  
+  // Enhanced Loading Styles
+  enhancedLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  loadingShimmer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    backdropFilter: 'blur(10px)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  enhancedLoadingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  
+  // Video Controls Styles
+  videoControls: {
+    position: 'absolute',
+    bottom: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 12,
+    padding: 12,
+    backdropFilter: 'blur(10px)',
+  },
+  progressBarContainer: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#3ad3db',
+    borderRadius: 2,
+  },
+  progressThumb: {
+    position: 'absolute',
+    top: -6,
+    width: 16,
+    height: 16,
+    backgroundColor: '#3ad3db',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    marginLeft: -8,
+  },
+  timeContainer: {
+    alignItems: 'center',
+  },
+  timeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  
+  // Duration Badge Styles
+  durationBadge: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  durationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  // Unified Feed Overlay - Standardized Grid System
+  unifiedFeedOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    paddingTop: DESIGN_TOKENS.spacing.lg + 44, // StatusBar + margin = 60px
+    paddingBottom: 110 + 9, // FloatingNav (110px) + 9px desired gap
+    paddingHorizontal: 20, // 20px sides - EXACT match with FloatingNavigation
+    zIndex: 10, // Higher than videoTapOverlay (5)
+  },
+
+  // Modern Cleaner Header - Thinner with reduced whitespace
+  modernCleanerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
+    borderRadius: DESIGN_TOKENS.radius.round,
+    paddingHorizontal: DESIGN_TOKENS.spacing.md, // Reduced from lg
+    paddingVertical: DESIGN_TOKENS.spacing.sm, // Reduced from md
+    height: 52, // Reduced from 64 for thinner look
+    ...DESIGN_TOKENS.shadow.lg,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    alignSelf: 'flex-start', // Prevent full width stretch
+    maxWidth: width - 140, // Leave room for smart button (width - smart button width - margins)
+    minWidth: 280, // Minimum width to prevent cramping
+  },
+  modernAvatarContainer: {
+    position: 'relative',
+    marginRight: DESIGN_TOKENS.spacing.md,
+    width: 40, // Fixed container width
+    height: 40, // Fixed container height
+  },
+  modernCleanerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: DESIGN_TOKENS.radius.xl,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brand,
+  },
+  modernVerificationBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: DESIGN_TOKENS.radius.sm,
+    backgroundColor: DESIGN_TOKENS.colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.white,
+  },
+  modernCleanerInfo: {
+    flex: 1,
+    minWidth: 0, // Allow text to truncate properly
+  },
+  modernCleanerUsername: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.lg,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    numberOfLines: 1,
+  },
+  modernCleanerService: {
+    color: DESIGN_TOKENS.colors.text.secondary,
+    fontSize: DESIGN_TOKENS.text.base,
+    fontWeight: '500',
+    marginTop: DESIGN_TOKENS.spacing.xs,
+    numberOfLines: 1,
+  },
+  modernFollowButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: DESIGN_TOKENS.spacing.lg,
+    paddingVertical: DESIGN_TOKENS.spacing.sm,
+    borderRadius: DESIGN_TOKENS.radius.xl,
+    height: 32, // Fixed height
+    minWidth: 72, // Minimum button width
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brand,
+    ...DESIGN_TOKENS.shadow.sm,
+  },
+  modernFollowText: {
+    color: DESIGN_TOKENS.colors.brand,
+    fontSize: DESIGN_TOKENS.text.sm,
+    fontWeight: '600',
+  },
+  modernFollowButtonActive: {
+    backgroundColor: DESIGN_TOKENS.colors.brand,
+  },
+  modernFollowTextActive: {
+    color: DESIGN_TOKENS.colors.white,
+  },
+
+  // Modern Action Section - Lowered buttons without bubble background
+  modernActionSection: {
+    position: 'absolute',
+    right: 20, // Align with unifiedFeedOverlay horizontal padding
+    bottom: 180, // raise icons further up
+    alignItems: 'center',
+    gap: DESIGN_TOKENS.spacing.lg, // Increased spacing for even distribution
+    zIndex: 15, // Higher than unifiedFeedOverlay (10) and videoTapOverlay (5)
+    paddingVertical: DESIGN_TOKENS.spacing.sm, // Vertical padding
+    paddingHorizontal: DESIGN_TOKENS.spacing.xs, // Minimal horizontal padding
+  },
+  modernActionBubble: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 40, // smaller buttons
+    height: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque
+    borderRadius: 20,
+    ...DESIGN_TOKENS.shadow.md, // Stronger shadow
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brand,
+  },
+  actionButtonContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modernActionText: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.base, // 12px
+    fontWeight: '700',
+    marginTop: 4, // Reduced spacing to compensate for larger font
+    marginBottom: 0, // Minimal space below text
+    textAlign: 'center',
+    width: 44, // Match updated bubble width
+  },
+
+  // Modern Bottom Section - Fixed Spacing & Dimensions
+  modernBottomSection: {
+    gap: 9, // 9px consistent gap as requested
+    // Remove margin extension to match nav tab exactly
+  },
+  modernServiceInfo: {
+    backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
+    borderRadius: DESIGN_TOKENS.radius.xl, // 20px
+    padding: DESIGN_TOKENS.spacing.lg, // 16px
+    ...DESIGN_TOKENS.shadow.lg,
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    minHeight: 120, // Fixed minimum height for consistency
+    // Remove width override - let it match container width
+  },
+  modernServiceTitle: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.xl, // 18px
+    fontWeight: '700',
+    lineHeight: 24,
+    letterSpacing: -0.3,
+    marginBottom: DESIGN_TOKENS.spacing.sm, // 8px
+    numberOfLines: 2, // Consistent line limiting
+  },
+  modernServiceDescription: {
+    color: DESIGN_TOKENS.colors.text.secondary,
+    fontSize: DESIGN_TOKENS.text.md, // 14px
+    fontWeight: '500',
+    lineHeight: 20, // adjust for new size
+    marginBottom: DESIGN_TOKENS.spacing.md, // 12px
+    numberOfLines: 2, // Consistent line limiting
+  },
+  modernStatsRow: {
+    flexDirection: 'row',
+    gap: DESIGN_TOKENS.spacing.lg, // 16px
+    flexWrap: 'wrap', // Allow wrapping if needed
+  },
+  modernStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: DESIGN_TOKENS.spacing.xs, // 4px
+    minWidth: 60, // Prevent cramping
+  },
+  modernStatText: {
+    color: DESIGN_TOKENS.colors.text.secondary,
+    fontSize: DESIGN_TOKENS.text.base, // 12px
+    fontWeight: '600',
+  },
+
+  // Modern Booking Section - Fixed Layout & Dimensions
+  modernBookingSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)', // More opaque for better contrast
+    borderRadius: DESIGN_TOKENS.radius.xl,
+    paddingVertical: DESIGN_TOKENS.spacing.sm, // 8px top/bottom to center 44px button in 60px height
+    paddingHorizontal: DESIGN_TOKENS.spacing.md,
+    paddingRight: DESIGN_TOKENS.spacing.sm, // tighten right edge to fit combined control
+    gap: DESIGN_TOKENS.spacing.sm, // small consistent spacing between content-sized blocks
+    ...DESIGN_TOKENS.shadow.lg,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    height: 60, // Slightly reduced height
+    marginHorizontal: 2, // Small margin for visual breathing room
+  },
+  modernPriceContainer: {
+    // content-sized block to avoid excess spacing
+    flexGrow: 0,
+    flexShrink: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    marginRight: DESIGN_TOKENS.spacing.sm,
+  },
+  modernPriceLabel: {
+    color: DESIGN_TOKENS.colors.text.tertiary, // slightly lighter tone
+    fontSize: DESIGN_TOKENS.text.base, // 12px
+    fontWeight: '500',
+    marginBottom: 2, // pull closer to price
+  },
+  modernPriceValue: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.xxl, // 20px
+    fontWeight: '800',
+    letterSpacing: -0.7, // slightly tighter for premium feel
+  },
+  modernBookButton: {
+    flex: 1.3, // Slightly larger button
+    borderRadius: DESIGN_TOKENS.radius.lg, // 16px
+    overflow: 'hidden',
+    height: 48, // Fixed button height
+    minWidth: 120, // Ensure minimum width for text
+    ...DESIGN_TOKENS.shadow.md,
+  },
+  modernBookButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: DESIGN_TOKENS.spacing.md, // 12px
+    paddingHorizontal: DESIGN_TOKENS.spacing.lg, // 16px
+    gap: DESIGN_TOKENS.spacing.sm, // 8px
+    height: 48, // Fixed height
+    flex: 1, // Fill available space
+  },
+  modernBookButtonText: {
+    color: DESIGN_TOKENS.colors.white,
+    fontSize: DESIGN_TOKENS.text.lg, // 16px
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // Fixed Book Button - Avoiding LinearGradient text issues
+  modernBookButtonFixed: {
+    borderRadius: DESIGN_TOKENS.radius.lg, // 16px
+    height: 44, // Slightly smaller to better fit container
+    minWidth: 136, // increased width
+    maxWidth: 176, // maintain headroom
+    backgroundColor: DESIGN_TOKENS.colors.brand, // Solid color instead of gradient
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: DESIGN_TOKENS.spacing.md, // Tighter padding (12px)
+    gap: DESIGN_TOKENS.spacing.sm, // 8px
+    ...DESIGN_TOKENS.shadow.md,
+    // Subtle gradient effect using shadow
+    shadowColor: '#2DD4BF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  modernBookButtonTextFixed: {
+    color: '#FFFFFF', // Explicit white color
+    fontSize: 16, // Explicit font size
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+    fontFamily: 'System', // Use system font explicitly
+    includeFontPadding: false, // Android: remove extra padding
+    textAlignVertical: 'center', // Android: center vertically
+  },
+
+  // Modern Smart Button - Fixed Positioning System
+  modernSmartButton: {
+    position: 'absolute',
+    top: DESIGN_TOKENS.spacing.lg + 64 + DESIGN_TOKENS.spacing.sm, // Header + spacing = 88px
+    right: DESIGN_TOKENS.spacing.lg, // Fixed 16px margin
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
+    paddingHorizontal: DESIGN_TOKENS.spacing.md, // 12px
+    paddingVertical: DESIGN_TOKENS.spacing.sm, // 8px
+    borderRadius: DESIGN_TOKENS.radius.xl, // 20px
+    ...DESIGN_TOKENS.shadow.md,
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    gap: DESIGN_TOKENS.spacing.xs, // 4px
+    height: 32, // Fixed height
+    width: 80, // Fixed width instead of minWidth
+    justifyContent: 'center', // Center content
+  },
+  modernSmartText: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.sm, // 11px
+    fontWeight: '600',
+  },
+
+  // Slideable Description Card Styles - Refined visual treatment
+  slideableDescriptionCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.98)', // More opaque for consistency
+    borderRadius: DESIGN_TOKENS.radius.lg,
+    padding: DESIGN_TOKENS.spacing.md,
+    paddingBottom: DESIGN_TOKENS.spacing.xs,
+    ...DESIGN_TOKENS.shadow.lg,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight, // Consistent with booking bubble
+    minHeight: 120,
+    maxHeight: 180,
+    marginHorizontal: 2, // Match booking bubble margin
+  },
+  descriptionGradient: {
+    borderRadius: DESIGN_TOKENS.radius.lg,
+    padding: DESIGN_TOKENS.spacing.md,
+    flex: 1,
+  },
+  descriptionCardHandle: {
+    alignItems: 'center',
+    marginBottom: DESIGN_TOKENS.spacing.xs, // Further reduced to xs for minimal whitespace
+  },
+  handleBar: {
+    width: 48,
+    height: 5,
+    backgroundColor: 'rgba(58, 211, 219, 0.35)',
+    borderRadius: 3,
+  },
+  descriptionTitle: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.xl, // Increased back to xl (18px) for better readability
+    fontWeight: '700',
+    lineHeight: 22, // Increased line height
+    marginBottom: DESIGN_TOKENS.spacing.xs, // Keep minimal spacing
+  },
+  descriptionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(58, 211, 219, 0.22)',
+    marginBottom: DESIGN_TOKENS.spacing.xs,
+  },
+  descriptionText: {
+    color: DESIGN_TOKENS.colors.text.secondary,
+    fontSize: DESIGN_TOKENS.text.md, // bump to 14px for better readability
+    fontWeight: '500',
+    lineHeight: 20, // adjust for new size
+    marginBottom: 0, // Remove bottom margin to reduce whitespace
+  },
+  uniqueStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: DESIGN_TOKENS.spacing.sm,
+    marginBottom: DESIGN_TOKENS.spacing.sm,
+    backgroundColor: 'rgba(247, 250, 252, 0.8)',
+    borderRadius: DESIGN_TOKENS.radius.md,
+    paddingVertical: DESIGN_TOKENS.spacing.sm,
+  },
+  uniqueStatBlock: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 2,
+  },
+  uniqueStatLabel: {
+    color: DESIGN_TOKENS.colors.text.tertiary,
+    fontSize: DESIGN_TOKENS.text.xs,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  uniqueStatValue: {
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontSize: DESIGN_TOKENS.text.sm, // Slightly smaller than before
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  closeDescriptionButton: {
+    alignSelf: 'center',
+    padding: DESIGN_TOKENS.spacing.xs, // Reduced padding
+    marginTop: 0, // Remove top margin
+  },
+  centeredStatsContainer: {
+    alignItems: 'flex-start', // left align to remove empty space on the left
+    justifyContent: 'center',
+    gap: DESIGN_TOKENS.spacing.xs,
+    paddingVertical: DESIGN_TOKENS.spacing.xs,
+    flexGrow: 0,
+    flexShrink: 1,
+    marginLeft: DESIGN_TOKENS.spacing.xs,
+  },
+  centeredStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: DESIGN_TOKENS.spacing.xs, // Small gap between icon and text
+  },
+  centeredStatText: {
+    fontSize: DESIGN_TOKENS.text.sm, // Back to original 12px
+    fontWeight: '600',
+    color: DESIGN_TOKENS.colors.text.secondary,
+  },
+  infoButtonSection: {
+    flex: 1, // Equal space - third section
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookButtonSection: {
+    // push to the right edge while prior blocks are content-sized
+    marginLeft: 'auto',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  descriptionToggleButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    ...DESIGN_TOKENS.shadow.sm,
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -1707,7 +2600,24 @@ const styles = StyleSheet.create({
   likedText: {
     color: '#EF4444',
   },
-
+  infoAndBookRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
+  descriptionToggleButtonConnected: {
+    width: 40, // match smaller social buttons
+    height: 40, // match smaller social buttons
+    borderRadius: 20,
+    backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    marginRight: 8, // spacing from Book Now
+    ...DESIGN_TOKENS.shadow.sm, // subtle shadow behind the pill
+  },
 });
 
 export default VideoFeedScreen; 

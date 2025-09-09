@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -118,6 +118,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [serviceCategories, setServiceCategories] = useState<GuestService[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
+  const [couponClaimed, setCouponClaimed] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(3);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
@@ -130,13 +131,11 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const cardScaleAnim = new Animated.Value(1);
   const buttonScaleAnim = new Animated.Value(1);
 
-  // Coupon section animations
-  const couponScaleAnim = useRef(new Animated.Value(1)).current;
-  const couponRotateAnim = useRef(new Animated.Value(0)).current;
-  const sparkleAnim = useRef(new Animated.Value(0)).current;
-
   // Location context
   const { location } = useLocationContext();
+  
+  // Animation for claim button
+  const claimButtonScale = useRef(new Animated.Value(1)).current;
   
   // Tutorial system
   const { 
@@ -153,7 +152,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   useEffect(() => {
     loadCategoryData('Featured');
     loadServiceCategories();
-    startCouponAnimations();
+    // Start subtle claim button animation
+    startClaimButtonAnimation();
   }, []);
 
   // Load data when category changes
@@ -420,64 +420,36 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     ]).start();
   };
 
-  const handleButtonPress = () => {
-    Animated.sequence([
-      Animated.timing(buttonScaleAnim, {
-        toValue: 0.9,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(buttonScaleAnim, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
-
-  // Start coupon section animations
-  const startCouponAnimations = () => {
-    // Gentle pulsing animation
+  // Start subtle button pulsing animation
+  const startClaimButtonAnimation = () => {
     Animated.loop(
-      Animated.sequence([
-        Animated.timing(couponScaleAnim, {
+    Animated.sequence([
+        Animated.timing(claimButtonScale, {
           toValue: 1.02,
           duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(couponScaleAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    // Sparkle animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(sparkleAnim, {
-          toValue: 1,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(sparkleAnim, {
-          toValue: 0,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    // Rotation animation for logo
-    Animated.loop(
-      Animated.timing(couponRotateAnim, {
-        toValue: 1,
-        duration: 8000,
         useNativeDriver: true,
-      })
+      }),
+        Animated.timing(claimButtonScale, {
+        toValue: 1,
+          duration: 2000,
+        useNativeDriver: true,
+      }),
+      ])
     ).start();
   };
+
+  const handleButtonPress = () => {
+    if (!couponClaimed) {
+      // Apply coupon to user's account/session
+      console.log('Applying HERO25 coupon...');
+      // TODO: Save coupon to AsyncStorage or user account
+      setCouponClaimed(true);
+      
+      // Show success feedback (you might want to add a toast here)
+      console.log('Coupon successfully applied!');
+    }
+  };
+
 
   const categories = [
     'Featured',
@@ -522,7 +494,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       custom_image: (service as any).image || (service as any).image_url,
       is_featured: isPopular
     });
-
+    
     return (
       <ServiceCard
         key={service.id}
@@ -839,97 +811,44 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         </View>
 
         {/* Special Offers Banner */}
-        <View style={styles.section}>
-          <Animated.View 
-            style={[
-              styles.specialOfferCard,
-              { transform: [{ scale: couponScaleAnim }] }
-            ]}
-          >
+        <View style={styles.offerSection}>
+          <View style={styles.specialOfferCard}>
             <LinearGradient
               colors={['#3ad3db', '#1ca7b7']}
               style={styles.specialOfferGradient}
             >
-              {/* Animated floating logo */}
-              <Animated.View
-                style={[
-                  styles.floatingLogo,
-                  {
-                    transform: [
-                      {
-                        rotate: couponRotateAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['0deg', '360deg'],
-                        }),
-                      },
-                    ],
-                    opacity: sparkleAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0.3, 0.8],
-                    }),
-                  },
-                ]}
-              >
-                <Ionicons name="diamond" size={32} color="rgba(255, 255, 255, 0.6)" />
-              </Animated.View>
-
-              {/* Sparkle effects */}
-              <Animated.View
-                style={[
-                  styles.sparkle1,
-                  {
-                    opacity: sparkleAnim,
-                    transform: [
-                      {
-                        scale: sparkleAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.5, 1.2],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <Ionicons name="sparkles" size={16} color="#FFD700" />
-              </Animated.View>
-
-              <Animated.View
-                style={[
-                  styles.sparkle2,
-                  {
-                    opacity: sparkleAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 0.3],
-                    }),
-                    transform: [
-                      {
-                        scale: sparkleAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1.2, 0.5],
-                        }),
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <Ionicons name="sparkles" size={12} color="#FFD700" />
-              </Animated.View>
-
               <View style={styles.specialOfferContent}>
-                <Text style={styles.specialOfferTitle}>✨ 25% OFF First Booking ✨</Text>
-                <Text style={styles.specialOfferSubtitle}>Use code HERO25 at checkout</Text>
-                <Animated.View style={{ transform: [{ scale: buttonScaleAnim }] }}>
-                  <TouchableOpacity 
-                    style={styles.claimOfferButton}
-                    onPress={handleButtonPress}
-                    activeOpacity={0.8}
+                <View style={styles.offerHeaderContainer}>
+                  <Text style={couponClaimed ? styles.offerBadgeClaimed : styles.offerBadge}>
+                    {couponClaimed ? 'CLAIMED' : 'LIMITED TIME'}
+                  </Text>
+                <Text style={styles.specialOfferTitle}>25% OFF First Booking</Text>
+                </View>
+                <Text style={styles.specialOfferSubtitle}>
+                  {couponClaimed ? 'Your discount is ready!' : 'Use code'} <Text style={styles.promoCode}>HERO25</Text> {couponClaimed ? 'will auto-apply at checkout' : 'at checkout'}
+                </Text>
+                <Animated.View
+                  style={[
+                    couponClaimed ? styles.claimOfferButtonClaimed : styles.claimOfferButton,
+                    !couponClaimed && { transform: [{ scale: claimButtonScale }] }
+                  ]}
+                >
+                <TouchableOpacity 
+                    style={styles.claimOfferButtonInner}
+                  onPress={handleButtonPress}
+                    activeOpacity={couponClaimed ? 1 : 0.7}
                   >
-                    <Text style={styles.claimOfferButtonText}>Claim Offer</Text>
-                  </TouchableOpacity>
+                    <Text style={couponClaimed ? styles.claimOfferButtonTextClaimed : styles.claimOfferButtonText}>
+                      {couponClaimed ? 'Coupon Applied' : 'Claim Offer'}
+                    </Text>
+                    <Text style={couponClaimed ? styles.buttonCheckmark : styles.buttonArrow}>
+                      {couponClaimed ? '✓' : '→'}
+                    </Text>
+                </TouchableOpacity>
                 </Animated.View>
               </View>
             </LinearGradient>
-          </Animated.View>
+          </View>
         </View>
 
         {/* Bottom spacing for navigation */}
@@ -1299,72 +1218,143 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontStyle: 'italic',
   },
+  offerSection: {
+    marginBottom: 20,
+    marginTop: 12,
+  },
   specialOfferCard: {
     marginHorizontal: 20,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
   },
   specialOfferGradient: {
-    padding: 24,
-    position: 'relative',
-    overflow: 'hidden',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
   },
   specialOfferContent: {
     alignItems: 'center',
-    zIndex: 2,
   },
-  floatingLogo: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    zIndex: 1,
+  offerHeaderContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  sparkle1: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    zIndex: 1,
+  offerBadge: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#000000',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  sparkle2: {
-    position: 'absolute',
-    bottom: 20,
-    right: 50,
-    zIndex: 1,
+  offerBadgeClaimed: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    backgroundColor: '#1ca7b7',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    shadowColor: '#1ca7b7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   specialOfferTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 8,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   specialOfferSubtitle: {
     fontSize: 16,
     color: '#FFFFFF',
-    marginBottom: 20,
+    marginBottom: 24,
     textAlign: 'center',
-    opacity: 0.9,
+    opacity: 0.95,
+    fontWeight: '500',
+  },
+  promoCode: {
+    fontWeight: '800',
+    color: '#FFFFFF',
+    backgroundColor: '#1ca7b7',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   claimOfferButton: {
     backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
+    borderRadius: 28,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  claimOfferButtonClaimed: {
+    backgroundColor: '#1ca7b7',
+    borderRadius: 28,
+    shadowColor: '#1ca7b7',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  claimOfferButtonInner: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 160,
   },
   claimOfferButtonText: {
     color: '#3ad3db',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '800',
+    marginRight: 8,
+    letterSpacing: 0.3,
+  },
+  claimOfferButtonTextClaimed: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    marginRight: 8,
+    letterSpacing: 0.3,
+  },
+  buttonArrow: {
+    color: '#3ad3db',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  buttonCheckmark: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
   },
   bottomSpacing: {
     height: 100,
