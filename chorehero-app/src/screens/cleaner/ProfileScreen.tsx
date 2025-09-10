@@ -284,7 +284,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
         bio: 'Professional cleaner with 5+ years experience. I specialize in deep cleaning and eco-friendly products.',
         hourlyRate: 35,
         avatar_url: 'https://randomuser.me/api/portraits/women/44.jpg',
-        video_profile_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        video_profile_url: '',
         verification_status: 'verified',
         background_check_date: '2024-01-15',
         rating_average: 4.8,

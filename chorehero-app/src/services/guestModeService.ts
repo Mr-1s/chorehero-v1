@@ -56,7 +56,7 @@ class GuestModeService {
       id: 'enhanced-prof-video-1',
       title: 'Professional Kitchen Deep Clean Transformation',
       description: 'Watch this amazing kitchen transformation using professional-grade equipment and techniques. From greasy surfaces to sparkling clean!',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/kitchen_deep_clean.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Professional Cleaning Co.',
       cleaner_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face&auto=format&q=80',

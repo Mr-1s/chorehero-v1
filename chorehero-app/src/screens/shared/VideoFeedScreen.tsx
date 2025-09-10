@@ -547,6 +547,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     setVideos([]);
   };
 
+  // Feature flag: always show curated cleaning videos when in demo mode
+  const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
+
   const loadRealContent = async () => {
     try {
       console.log('🌐 Loading real content from database...');
@@ -559,8 +562,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       console.log('🔑 User ID:', user?.id);
       console.log('📧 User email:', user?.email);
       
-      // If user is a guest, always show professional demo videos
-      if (isGuest) {
+      // If demo mode is enabled or user is a guest, always show curated cleaning videos
+      if (DEMO_MODE || isGuest) {
         console.log('🎬 Guest user detected - Loading professional demo videos');
         const guestVideos = await guestModeService.getGuestVideos();
         console.log('📹 Guest videos received:', guestVideos.length, 'videos');
@@ -638,7 +641,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         // Transform content posts to video items
         const transformedVideos: VideoItem[] = response.data.posts.map(post => ({
           id: post.id,
-        cleaner: {
+          cleaner: {
             user_id: post.user_id,
             name: post.user?.name || 'ChoreHero Cleaner',
             username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
@@ -658,8 +661,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
           video_url: post.media_url || '',
           title: post.title,
           description: post.description || '',
-        liked: false,
-        saved: false,
+          liked: false,
+          saved: false,
           likes: post.like_count || 0,
           comments: post.comment_count || 0,
           shares: 0, // Not implemented yet
@@ -675,7 +678,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         console.log('📋 Handling direct array response format');
         const transformedVideos: VideoItem[] = response.data.map(post => ({
           id: post.id,
-        cleaner: {
+          cleaner: {
             user_id: post.user_id,
             name: post.user?.name || 'ChoreHero Cleaner',
             username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
@@ -722,8 +725,42 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       }
       
       // No real content found - show empty state
-      console.log('📭 No real content found in database');
-      setVideos([]);
+      console.log('📭 No real content found in database — falling back to curated cleaning videos');
+      const guestVideos = await guestModeService.getGuestVideos();
+      const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
+        id: video.id,
+        cleaner: {
+          user_id: video.id,
+          name: video.cleaner_name,
+          username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
+          rating_average: Math.round((4.6 + Math.random() * 0.4) * 10) / 10,
+          total_jobs: Math.floor(video.view_count / 100),
+          hourly_rate: 25 + Math.floor(Math.random() * 20),
+          service_title: `Professional ${video.category} Cleaning`,
+          estimated_duration: `${Math.floor(video.duration / 60)}-${Math.floor(video.duration / 60) + 1} hours`,
+          avatar_url: video.cleaner_avatar,
+          bio: video.description.substring(0, 100) + '...',
+          video_profile_url: video.video_url,
+          specialties: [video.category, 'Professional Cleaning'],
+          verification_status: 'verified',
+          is_available: true,
+          service_radius_km: 25,
+        },
+        video_url: video.video_url,
+        title: video.title,
+        description: video.description,
+        liked: false,
+        saved: false,
+        likes: video.like_count,
+        comments: Math.floor(video.like_count * 0.1),
+        shares: Math.floor(video.like_count * 0.05),
+        views: video.view_count,
+        location: 'Professional Service Area',
+        tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
+        is_featured: true,
+        created_at: video.created_at,
+      }));
+      setVideos(transformedGuestVideos);
       console.log('✅ Empty state set');
       
     } catch (error) {

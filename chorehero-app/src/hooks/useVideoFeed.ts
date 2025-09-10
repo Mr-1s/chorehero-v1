@@ -195,7 +195,7 @@ export const useVideoFeed = (useEnhancedAlgorithm: boolean = false) => {
         bio: cleaner.cleaner_profiles?.bio || `${specialties.join(', ')} specialist`,
         hourly_rate: cleaner.cleaner_profiles?.hourly_rate || 89,
       },
-      video_url: cleaner.cleaner_profiles?.video_profile_url || `https://assets.mixkit.co/videos/7862/7862-720.mp4`,
+      video_url: cleaner.cleaner_profiles?.video_profile_url || '',
       thumbnail_url: `https://storage.googleapis.com/chorehero-thumbnails/${videoType}_${index}.jpg`,
       title: getVideoTitle(videoType, cleaner.name),
       description: getVideoDescription(videoType),

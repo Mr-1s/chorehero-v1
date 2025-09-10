@@ -21,6 +21,25 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 
+// Design System - Match VideoFeedScreen tokens
+const DESIGN_TOKENS = {
+  spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 },
+  colors: {
+    brand: '#3ad3db',
+    brandLight: 'rgba(58, 211, 219, 0.2)',
+    white: '#FFFFFF',
+    text: { primary: '#1F2937', secondary: '#6B7280', tertiary: '#9CA3AF' },
+    accent: { orange: '#FFA500' },
+  },
+  radius: { sm: 8, md: 12, lg: 16, xl: 20, round: 25 },
+  text: { xs: 10, sm: 11, base: 12, md: 14, lg: 16, xl: 18, xxl: 20 },
+  shadow: {
+    sm: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 2 },
+    md: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 4 },
+    lg: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 6 },
+  }
+};
+
 type TabParamList = {
   Home: undefined;
   Discover: undefined;
@@ -183,10 +202,7 @@ const BookingConfirmationScreen = (props: any) => {
         {/* Compact Success Header */}
         <View style={styles.compactSuccessContainer}>
           <Animated.View style={[styles.compactCheckmarkContainer, { transform: [{ scale: checkmarkScale }] }]}>
-            <LinearGradient
-              colors={['#059669', '#047857']}
-              style={styles.compactCheckmarkBackground}
-            >
+            <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.compactCheckmarkBackground}>
               <Ionicons name="checkmark" size={40} color="#FFFFFF" />
             </LinearGradient>
           </Animated.View>
@@ -208,7 +224,7 @@ const BookingConfirmationScreen = (props: any) => {
                 <Text style={styles.compactStatText}>{cleaner.rating}</Text>
               </View>
               <View style={styles.compactStatItem}>
-                <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
                 <Text style={styles.compactStatText}>Verified</Text>
               </View>
             </View>
@@ -222,16 +238,38 @@ const BookingConfirmationScreen = (props: any) => {
           <View style={styles.cardHeader}>
             <View style={styles.serviceIconWrapper}>
               <Ionicons name="home" size={24} color="#3ad3db" />
-                    </View>
+            </View>
             <View style={styles.serviceInfo}>
-                    <Text style={styles.serviceTitle}>{service.title}</Text>
+              <Text style={styles.serviceTitle}>{service.title}</Text>
               <Text style={styles.bookingId}>ID: {bookingId.slice(-6).toUpperCase()}</Text>
-                  </View>
+            </View>
             <View style={styles.statusBadge}>
               <Text style={styles.statusText}>Confirmed</Text>
-                  </View>
-                </View>
-                
+            </View>
+          </View>
+
+          {/* Quick actions */}
+          <View style={styles.quickActionsContainer}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleTrackService}>
+              <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
+                <Ionicons name="navigate" size={20} color="#FFFFFF" />
+              </LinearGradient>
+              <Text style={styles.quickActionText}>Track</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => navigation.navigate('IndividualChat', { cleanerId: cleaner.id, bookingId })}>
+              <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
+                <Ionicons name="chatbubbles" size={20} color="#FFFFFF" />
+              </LinearGradient>
+              <Text style={styles.quickActionText}>Message</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleShareBooking}>
+              <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
+                <Ionicons name="share-social" size={20} color="#FFFFFF" />
+              </LinearGradient>
+              <Text style={styles.quickActionText}>Share</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Modern Details Grid */}
           <View style={styles.modernDetailsGrid}>
             <View style={styles.modernDetailItem}>
@@ -277,7 +315,7 @@ const BookingConfirmationScreen = (props: any) => {
                     <Text style={styles.ratingText}>{cleaner.rating}</Text>
                       </View>
                   <View style={styles.verifiedBadge}>
-                    <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                    <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
                     <Text style={styles.verifiedText}>Verified</Text>
                       </View>
                     </View>
@@ -291,19 +329,19 @@ const BookingConfirmationScreen = (props: any) => {
             <Text style={styles.modernSectionTitle}>What to Expect</Text>
             <View style={styles.modernExpectationsList}>
               <View style={styles.modernExpectationItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
                 <Text style={styles.modernExpectationText}>Professional cleaning supplies included</Text>
                   </View>
               <View style={styles.modernExpectationItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
                 <Text style={styles.modernExpectationText}>Before & after photos documented</Text>
                   </View>
               <View style={styles.modernExpectationItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
                 <Text style={styles.modernExpectationText}>Quality guarantee & satisfaction promise</Text>
                   </View>
               <View style={styles.modernExpectationItem}>
-                <Ionicons name="checkmark-circle" size={16} color="#059669" />
+                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
                 <Text style={styles.modernExpectationText}>Real-time service updates</Text>
                   </View>
                 </View>
@@ -333,7 +371,7 @@ const BookingConfirmationScreen = (props: any) => {
             <View style={styles.modernPaymentMethod}>
               <Ionicons name="card" size={16} color="#64748B" />
               <Text style={styles.modernPaymentText}>Paid with •••• 4242</Text>
-              <Ionicons name="checkmark-circle" size={16} color="#059669" />
+              <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
                 </View>
               </View>
         </Animated.View>
@@ -373,7 +411,7 @@ const BookingConfirmationScreen = (props: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8FAFC',
   },
   scrollView: {
     flex: 1,
@@ -439,8 +477,10 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingVertical: 8,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(5, 150, 105, 0.08)',
+    backgroundColor: 'rgba(58, 211, 219, 0.08)',
     borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
   },
   compactStatItem: {
     flexDirection: 'row',
@@ -450,18 +490,21 @@ const styles = StyleSheet.create({
   compactStatText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#059669',
+    color: '#0F172A',
   },
   quickActionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
-    marginBottom: SPACING.xl,
-    gap: SPACING.lg,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    marginBottom: SPACING.lg,
+    gap: 12,
+    width: '100%',
   },
   quickActionButton: {
     alignItems: 'center',
     gap: SPACING.xs,
+    flex: 1,
   },
   quickActionGradient: {
     width: 56,
@@ -478,102 +521,99 @@ const styles = StyleSheet.create({
   quickActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: COLORS.text.secondary,
+    color: '#374151',
   },
   modernCard: {
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-    padding: 16,
+    marginHorizontal: DESIGN_TOKENS.spacing.xl,
+    marginBottom: DESIGN_TOKENS.spacing.lg,
+    borderRadius: DESIGN_TOKENS.radius.lg,
+    backgroundColor: DESIGN_TOKENS.colors.white,
+    ...DESIGN_TOKENS.shadow.md,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    paddingVertical: DESIGN_TOKENS.spacing.lg,
+    paddingHorizontal: DESIGN_TOKENS.spacing.lg,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   serviceIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(58, 211, 219, 0.1)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
   },
   serviceInfo: {
     flex: 1,
+    marginLeft: 12,
   },
   serviceTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 4,
+    letterSpacing: -0.2,
   },
   bookingId: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#64748B',
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
   },
   statusBadge: {
-    backgroundColor: '#059669',
+    backgroundColor: '#3ad3db',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 20,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: '600',
     color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12,
   },
   modernDetailsGrid: {
-    gap: 12,
-    marginBottom: 16,
+    marginTop: 8,
   },
   modernDetailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: DESIGN_TOKENS.colors.white,
+    borderRadius: DESIGN_TOKENS.radius.lg,
+    paddingVertical: DESIGN_TOKENS.spacing.lg,
+    paddingHorizontal: DESIGN_TOKENS.spacing.lg,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    ...DESIGN_TOKENS.shadow.sm,
+    marginBottom: DESIGN_TOKENS.spacing.sm,
   },
   detailIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(58, 211, 219, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    marginRight: DESIGN_TOKENS.spacing.lg,
   },
   detailContent: {
     flex: 1,
   },
   detailLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
-    marginBottom: 2,
+    fontSize: DESIGN_TOKENS.text.xs,
+    color: DESIGN_TOKENS.colors.text.secondary,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 4,
+    textTransform: 'uppercase',
   },
   detailValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#0F172A',
+    fontSize: DESIGN_TOKENS.text.xl,
+    color: DESIGN_TOKENS.colors.text.primary,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
   modernCleanerCard: {
     backgroundColor: '#F9FAFB',
@@ -623,18 +663,18 @@ const styles = StyleSheet.create({
     color: '#92400E',
   },
   verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#D1FAE5',
-    paddingHorizontal: 8,
+    backgroundColor: 'rgba(58, 211, 219, 0.12)',
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
-    gap: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 211, 219, 0.3)',
   },
   verifiedText: {
+    color: '#0F172A',
+    fontWeight: '700',
     fontSize: 12,
-    fontWeight: '600',
-    color: '#065F46',
+    marginLeft: 6,
   },
   cleanerExperience: {
     fontSize: 12,
@@ -656,18 +696,19 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modernExpectationsList: {
-    gap: 12,
+    paddingTop: 6,
+    gap: 10,
   },
   modernExpectationItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    paddingVertical: 2,
   },
   modernExpectationText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
     color: '#374151',
-    flex: 1,
+    lineHeight: 22,
   },
   modernPaymentSection: {
     backgroundColor: '#F9FAFB',
@@ -724,9 +765,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   modernPaymentText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#64748B',
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '600',
   },
   cardBlur: {
     borderRadius: 20,
