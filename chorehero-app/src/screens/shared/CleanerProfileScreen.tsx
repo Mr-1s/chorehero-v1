@@ -25,6 +25,7 @@ import { contentService } from '../../services/contentService';
 
 import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
+import { supabase } from '../../services/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -79,6 +80,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const { cleanerId } = route.params || {};
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'videos' | 'services' | 'reviews' | 'about'>('videos');
+  const [showFullBio, setShowFullBio] = useState(false);
   const [cleaner, setCleaner] = useState<any | null>(null);
   const [services, setServices] = useState<CleanerService[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -87,6 +89,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isOnline, setIsOnline] = useState(true); // Mock online status
+  const [statsExpanded, setStatsExpanded] = useState(false);
   const [hasRepeatClients, setHasRepeatClients] = useState(true); // Mock data
   const [nextAvailable, setNextAvailable] = useState<string | null>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(true);
@@ -243,16 +246,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     const fetchCleanerData = async () => {
       try {
         setLoading(true);
-        console.log('🔍 CleanerProfileScreen loading with cleanerId:', cleanerId);
-        
-        if (!cleanerId) {
-          console.warn('❌ No cleanerId provided to CleanerProfileScreen');
-          setLoading(false);
-          return;
-        }
+        const idToLoad = cleanerId || 'demo_cleaner_1';
+        console.log('🔍 CleanerProfileScreen loading with cleanerId:', idToLoad);
         
         // Load real cleaner data from database
-        console.log(`🔄 Loading cleaner profile for ID: ${cleanerId}`);
+        console.log(`🔄 Loading cleaner profile for ID: ${idToLoad}`);
 
         // Fetch cleaner data from Supabase
         const { data: cleanerData, error: cleanerError } = await supabase
@@ -278,7 +276,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               video_profile_url
             )
           `)
-          .eq('id', cleanerId)
+          .eq('id', idToLoad)
           .eq('role', 'cleaner')
           .single();
 
@@ -286,7 +284,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           console.error('❌ Error fetching cleaner data:', cleanerError);
           // Fallback to demo cleaner if real data not found
           const demoCleanerData = {
-            id: cleanerId,
+            id: idToLoad,
             name: 'Professional Cleaner',
             phone: '+1-555-0100',
             email: 'cleaner@chorehero.com',
@@ -326,7 +324,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               estimated_duration_minutes
             )
           `)
-          .eq('cleaner_id', cleanerId)
+          .eq('cleaner_id', idToLoad)
           .eq('is_available', true);
 
         if (servicesError) {
@@ -350,7 +348,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               avatar_url
             )
           `)
-          .eq('cleaner_id', cleanerId)
+          .eq('cleaner_id', idToLoad)
           .order('created_at', { ascending: false })
           .limit(10);
 
@@ -363,10 +361,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
         }
 
         // Load videos from content service
-        await loadCleanerVideos(cleanerData.id);
+        await loadCleanerVideos(idToLoad);
         
         // Load cleaner's availability schedule
-        await loadCleanerAvailability(cleanerData.id);
+        await loadCleanerAvailability(idToLoad);
 
       } catch (error) {
         console.error('Error fetching cleaner data:', error);
@@ -425,7 +423,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           >
             <Ionicons name="arrow-back" size={24} color="#3ad3db" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Cleaner Profile</Text>
+          <View style={{ width: 44 }} />
           <View style={styles.shareButton} />
         </View>
 
@@ -606,14 +604,13 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       
 
       {/* Main Header */}
-      <View style={styles.header}>
+      <View style={styles.headerCompact}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
           <Ionicons name="arrow-back" size={24} color="#3ad3db" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Cleaner Profile</Text>
         <TouchableOpacity style={styles.shareButton}>
           <Ionicons name="share-outline" size={24} color="#3ad3db" />
         </TouchableOpacity>
@@ -659,53 +656,79 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               </View>
             </View>
             
-            <Text style={styles.profileBio}>{cleaner.profile.bio}</Text>
+            <Text style={styles.profileBio} numberOfLines={showFullBio ? undefined : 2}>{cleaner.profile.bio}</Text>
+            <TouchableOpacity onPress={() => setShowFullBio(!showFullBio)} activeOpacity={0.7}>
+              <Text style={styles.readMoreText}>{showFullBio ? 'Show less' : 'Read more'}</Text>
+            </TouchableOpacity>
 
             {/* Trust Badges */}
-            <View style={styles.trustBadges}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trustBadges}>
               <View style={styles.trustBadge}>
                 <Ionicons name="shield-checkmark" size={14} color="#059669" />
-                <Text style={styles.trustBadgeText}>✅ Verified by ChoreHero</Text>
+                <Text style={styles.trustBadgeText}>Verified by ChoreHero</Text>
               </View>
               <View style={styles.trustBadge}>
                 <Ionicons name="trophy" size={14} color="#fbbf24" />
-                <Text style={styles.trustBadgeText}>🏆 Top Rated in 2024</Text>
+                <Text style={styles.trustBadgeText}>Top Rated in 2024</Text>
               </View>
               {hasRepeatClients && (
                 <View style={styles.trustBadge}>
                   <Ionicons name="people" size={14} color="#8B5CF6" />
-                  <Text style={styles.trustBadgeText}>🎯 100+ repeat clients</Text>
+                  <Text style={styles.trustBadgeText}>100+ repeat clients</Text>
                 </View>
               )}
-            </View>
+            </ScrollView>
 
-            {/* Stats Row */}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{cleaner.profile.total_jobs}</Text>
-                <Text style={styles.statLabel}>Bookings</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Ionicons name="time-outline" size={16} color="#3ad3db" />
-                <Text style={styles.statValue}>&lt; 1 hour</Text>
-                <Text style={styles.statLabel}>Avg Response</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>${cleaner.profile.hourly_rate}/hr</Text>
-                <Text style={styles.statLabel}>Rate</Text>
-              </View>
-            </View>
+            {/* Stats Row (collapsible) */}
+            <TouchableOpacity 
+              style={styles.statsRow}
+              activeOpacity={0.9}
+              onPress={() => setStatsExpanded(!statsExpanded)}
+            >
+              {statsExpanded ? (
+                <View style={styles.statsExpandedRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>{cleaner.profile.total_jobs}</Text>
+                    <Text style={styles.statLabel}>Bookings</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statValue}>&lt; 1 hour</Text>
+                    <Text style={styles.statLabel}>Avg Response</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>${cleaner.profile.hourly_rate}/hr</Text>
+                    <Text style={styles.statLabel}>Rate</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.statsCollapsedRow}>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="briefcase-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>{cleaner.profile.total_jobs} bookings</Text>
+                  </View>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>&lt; 1 hour</Text>
+                  </View>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="pricetag-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>${cleaner.profile.hourly_rate}/hr</Text>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
 
             {/* Availability */}
-            <View style={styles.availabilityContainer}>
-              <Ionicons name="calendar-outline" size={16} color="#A16207" />
+            <View style={styles.availabilityBubble}>
+              <Ionicons name="calendar-outline" size={16} color="#3ad3db" />
               {loadingAvailability ? (
-                <Text style={styles.availabilityText}>📅 Loading availability...</Text>
+                <Text style={styles.availabilityText}>Loading availability…</Text>
               ) : (
                 <Text style={styles.availabilityText}>
-                  📅 Next Available: {nextAvailable || 'Schedule not set'}
+                  Next available: {nextAvailable || 'Schedule not available'}
                 </Text>
               )}
             </View>
@@ -893,6 +916,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     borderBottomWidth: 0,
   },
+  headerCompact: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#F9FAFB',
+  },
   backButton: {
     width: 44,
     height: 44,
@@ -946,7 +977,7 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   avatarContainer: {
     position: 'relative',
@@ -988,11 +1019,11 @@ const styles = StyleSheet.create({
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   profileName: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
     marginRight: 8,
     letterSpacing: -0.5,
@@ -1000,48 +1031,55 @@ const styles = StyleSheet.create({
   profileUsername: {
     fontSize: 16,
     color: '#64748B',
-    marginBottom: 8,
+    marginBottom: 10,
     fontWeight: '500',
   },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   locationText: {
-    fontSize: 15,
-    color: '#475569',
-    marginLeft: 4,
-    fontWeight: '600',
-  },
-  distanceText: {
     fontSize: 15,
     color: '#64748B',
     marginLeft: 4,
     fontWeight: '500',
   },
+  distanceText: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginLeft: 4,
+    fontWeight: '400',
+  },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 2,
   },
   ratingText: {
     fontSize: 15,
-    color: '#475569',
+    color: '#64748B',
     marginLeft: 4,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   profileBio: {
     fontSize: 16,
     color: '#64748B',
     lineHeight: 24,
-    marginBottom: 20,
+    marginBottom: 8,
     fontWeight: '400',
+  },
+  readMoreText: {
+    fontSize: 13,
+    color: '#3ad3db',
+    fontWeight: '600',
+    marginBottom: 16,
   },
   trustBadges: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   trustBadge: {
     flexDirection: 'row',
@@ -1061,13 +1099,37 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-    paddingVertical: 20,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+  },
+  statsCollapsedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  statCollapsedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statCollapsedText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  statsExpandedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
   },
   statItem: {
     alignItems: 'center',
@@ -1102,6 +1164,18 @@ const styles = StyleSheet.create({
     borderColor: '#FDE047',
     marginBottom: 24,
   },
+  availabilityBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 24,
+    gap: 8,
+  },
   availabilityText: {
     fontSize: 14,
     color: '#A16207',
@@ -1116,10 +1190,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
   },
   primaryActionGradient: {
     flexDirection: 'row',
@@ -1130,10 +1204,10 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     marginLeft: 8,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
   secondaryActions: {
     flexDirection: 'row',
@@ -1171,25 +1245,25 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 20,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 16,
     backgroundColor: '#F9FAFB',
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 18,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     alignItems: 'center',
     position: 'relative',
-    minHeight: 50, // Ensure adequate touch target
+    minHeight: 44,
   },
   activeTabButton: {
     borderBottomWidth: 3,
     borderBottomColor: '#3ad3db',
   },
   tabButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#64748B',
   },
@@ -1200,8 +1274,8 @@ const styles = StyleSheet.create({
   activeTabIndicator: {
     position: 'absolute',
     bottom: 0,
-    left: '25%',
-    right: '25%',
+    left: '30%',
+    right: '30%',
     height: 3,
     backgroundColor: '#3ad3db',
     borderRadius: 2,
@@ -1505,11 +1579,13 @@ const styles = StyleSheet.create({
   videosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    padding: 20,
+    gap: 16,
+    paddingHorizontal: 0,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   videoCard: {
-    width: (width - 56) / 2, // 2 columns with gaps
+    width: (width - 40 - 16) / 2, // 2 columns within tabContent padding and gap
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     shadowColor: '#000',
@@ -1521,7 +1597,7 @@ const styles = StyleSheet.create({
   },
   videoThumbnailContainer: {
     position: 'relative',
-    height: 120,
+    height: 124,
     backgroundColor: '#F2F2F7',
   },
   videoThumbnail: {

@@ -23,6 +23,7 @@ const DynamicBookingScreen: React.FC<DynamicBookingProps> = ({ navigation, route
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [form, setForm] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [availableSlots, setAvailableSlots] = useState<Array<{ label: string; iso: string }>>([]);
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -54,6 +55,34 @@ const DynamicBookingScreen: React.FC<DynamicBookingProps> = ({ navigation, route
       }
     };
     load();
+  }, [cleanerId]);
+
+  // Load availability slots for schedule step
+  useEffect(() => {
+    const loadAvailability = async () => {
+      try {
+        if (!cleanerId) return;
+        const result: any = await availabilityService.getCleanerAvailability(cleanerId);
+        const slots: Array<{ label: string; iso: string }> = [];
+        if (result?.success && Array.isArray(result.data)) {
+          (result.data as string[]).slice(0, 8).forEach((iso) => {
+            const d = new Date(iso);
+            const label = `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+            slots.push({ label, iso });
+          });
+        } else if (result?.slots) {
+          (result.slots as string[]).slice(0, 8).forEach((iso) => {
+            const d = new Date(iso);
+            const label = `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+            slots.push({ label, iso });
+          });
+        }
+        setAvailableSlots(slots);
+      } catch {
+        setAvailableSlots([]);
+      }
+    };
+    loadAvailability();
   }, [cleanerId]);
 
   useEffect(() => {
@@ -112,6 +141,23 @@ const DynamicBookingScreen: React.FC<DynamicBookingProps> = ({ navigation, route
             <DynamicField key={field.id} field={field} value={form[field.id]} onChange={(v: any) => setField(field.id, v)} />
           ))}
         </View>
+
+        {(stepKey?.toLowerCase().includes('schedule') || stepFields.some((f: any) => f.type === 'date' || f.type === 'time')) && (
+          <View style={styles.card}>
+            <Text style={styles.label}>Select an available time</Text>
+            <View style={styles.slotGrid}>
+              {availableSlots.length > 0 ? (
+                availableSlots.map((s) => (
+                  <TouchableOpacity key={s.iso} style={[styles.slotPill, (form as any)['scheduled_at'] === s.iso && styles.slotPillActive]} onPress={() => setField('scheduled_at', s.iso)}>
+                    <Text style={[styles.slotText, (form as any)['scheduled_at'] === s.iso && styles.slotTextActive]}>{s.label}</Text>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <Text style={styles.subtle}>No published availability. You can continue and propose a time.</Text>
+              )}
+            </View>
+          </View>
+        )}
 
         <TouchableOpacity onPress={goNext} activeOpacity={0.9} style={styles.ctaWrap}>
           <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.cta}>
@@ -213,6 +259,11 @@ const styles = StyleSheet.create({
   textArea: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, padding: 12, minHeight: 80, justifyContent: 'center' },
   textAreaPlaceholder: { color: '#9CA3AF' },
   subtle: { color: '#6B7280', fontSize: 12 },
+  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  slotPill: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF' },
+  slotPillActive: { borderColor: '#3ad3db', backgroundColor: 'rgba(58,211,219,0.08)' },
+  slotText: { fontSize: 13, color: '#374151', fontWeight: '600' },
+  slotTextActive: { color: '#0F172A' },
 });
 
 export default DynamicBookingScreen;

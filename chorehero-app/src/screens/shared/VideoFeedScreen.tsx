@@ -956,7 +956,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
           activeOpacity={0.7}
           onPress={() => {
             console.log('🎯 Navigating to cleaner profile:', item.cleaner.name);
-            navigation.navigate('CleanerProfile', { cleanerId: item.cleaner.user_id });
+            const fallbackDemoId = 'demo_cleaner_1';
+            const cleanerId = (item.cleaner && (item.cleaner.user_id || (item.cleaner as any).id || (item.cleaner as any).username)) || fallbackDemoId;
+            navigation.navigate('CleanerProfile', { cleanerId });
           }}
         >
             <View style={styles.modernAvatarContainer}>
@@ -978,6 +980,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
               <Text style={styles.modernCleanerService} numberOfLines={1}>
                 {item.cleaner.service_title || 'Professional Cleaning'}
               </Text>
+              {/* View Profile link removed per request */}
             </View>
 
             <TouchableOpacity 
@@ -2215,6 +2218,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: DESIGN_TOKENS.spacing.xs,
     numberOfLines: 1,
+  },
+  viewProfileLink: {
+    marginTop: 2,
+  },
+  viewProfileText: {
+    fontSize: DESIGN_TOKENS.text.base,
+    color: DESIGN_TOKENS.colors.brand,
+    fontWeight: '600',
   },
   modernFollowButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',

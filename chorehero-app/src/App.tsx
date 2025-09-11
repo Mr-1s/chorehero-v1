@@ -18,7 +18,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import SplashScreen from './components/SplashScreen';
+import AnimatedSplash from './components/AnimatedSplash';
 import { LocationProvider } from './context/LocationContext';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { MessageProvider, useMessages } from './context/MessageContext';
@@ -224,7 +224,7 @@ export default function App() {
   };
 
   if (isSplashVisible) {
-    return <SplashScreen onFinish={handleSplashFinish} />;
+    return <AnimatedSplash onFinish={handleSplashFinish} />;
   }
 
   return (

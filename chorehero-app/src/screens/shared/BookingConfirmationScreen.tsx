@@ -250,21 +250,21 @@ const BookingConfirmationScreen = (props: any) => {
 
           {/* Quick actions */}
           <View style={styles.quickActionsContainer}>
-            <TouchableOpacity style={styles.quickActionButton} onPress={handleTrackService}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleTrackService} activeOpacity={0.9}>
               <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="navigate" size={20} color="#FFFFFF" />
+                <Ionicons name="navigate-outline" size={20} color="#FFFFFF" />
               </LinearGradient>
               <Text style={styles.quickActionText}>Track</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => navigation.navigate('IndividualChat', { cleanerId: cleaner.id, bookingId })}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={() => navigation.navigate('IndividualChat', { cleanerId: cleaner.id, bookingId })} activeOpacity={0.9}>
               <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="chatbubbles" size={20} color="#FFFFFF" />
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFFFFF" />
               </LinearGradient>
               <Text style={styles.quickActionText}>Message</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={handleShareBooking}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleShareBooking} activeOpacity={0.9}>
               <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="share-social" size={20} color="#FFFFFF" />
+                <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
               </LinearGradient>
               <Text style={styles.quickActionText}>Share</Text>
             </TouchableOpacity>
@@ -304,7 +304,7 @@ const BookingConfirmationScreen = (props: any) => {
               </View>
 
           {/* Modern Cleaner Card */}
-          <View style={styles.modernCleanerCard}>
+          <View style={styles.uniformBubble}>
             <View style={styles.cleanerHeader}>
               <Image source={{ uri: cleaner.avatar }} style={styles.modernCleanerAvatar} />
               <View style={styles.cleanerDetails}>
@@ -325,8 +325,8 @@ const BookingConfirmationScreen = (props: any) => {
               </View>
 
               {/* What to Expect Section */}
-          <View style={styles.modernExpectationSection}>
-            <Text style={styles.modernSectionTitle}>What to Expect</Text>
+          <View style={styles.uniformBubble}>
+            <Text style={styles.uniformSectionTitle}>What to Expect</Text>
             <View style={styles.modernExpectationsList}>
               <View style={styles.modernExpectationItem}>
                 <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
@@ -348,8 +348,8 @@ const BookingConfirmationScreen = (props: any) => {
               </View>
 
           {/* Modern Payment Summary */}
-          <View style={styles.modernPaymentSection}>
-            <Text style={styles.modernSectionTitle}>Payment Summary</Text>
+          <View style={styles.uniformBubble}>
+            <Text style={styles.uniformSectionTitle}>Payment Summary</Text>
             <View style={styles.modernPaymentBreakdown}>
               <View style={styles.modernPaymentRow}>
                 <Text style={styles.modernPaymentLabel}>Professional Cleaning</Text>
@@ -496,8 +496,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    marginBottom: SPACING.lg,
+    paddingHorizontal: 4,
+    marginBottom: DESIGN_TOKENS.spacing.md,
     gap: 12,
     width: '100%',
   },
@@ -507,20 +507,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   quickActionGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
   },
   quickActionText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#374151',
   },
   modernCard: {
@@ -538,7 +540,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   serviceIconWrapper: {
     width: 44,
@@ -582,38 +584,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: DESIGN_TOKENS.colors.white,
     borderRadius: DESIGN_TOKENS.radius.lg,
+    paddingVertical: DESIGN_TOKENS.spacing.md,
+    paddingHorizontal: DESIGN_TOKENS.spacing.md,
+    borderWidth: 2,
+    borderColor: DESIGN_TOKENS.colors.brandLight,
+    ...DESIGN_TOKENS.shadow.sm,
+    marginBottom: DESIGN_TOKENS.spacing.sm,
+    minHeight: 64,
+  },
+  // Shared bubble container to visually match the first three detail bubbles
+  uniformBubble: {
+    backgroundColor: DESIGN_TOKENS.colors.white,
+    borderRadius: DESIGN_TOKENS.radius.lg,
     paddingVertical: DESIGN_TOKENS.spacing.lg,
     paddingHorizontal: DESIGN_TOKENS.spacing.lg,
     borderWidth: 2,
     borderColor: DESIGN_TOKENS.colors.brandLight,
     ...DESIGN_TOKENS.shadow.sm,
-    marginBottom: DESIGN_TOKENS.spacing.sm,
+    marginTop: DESIGN_TOKENS.spacing.sm,
+  },
+  uniformSectionTitle: {
+    fontSize: DESIGN_TOKENS.text.lg,
+    fontWeight: '800',
+    color: DESIGN_TOKENS.colors.text.primary,
+    marginBottom: DESIGN_TOKENS.spacing.md,
+    letterSpacing: -0.2,
   },
   detailIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(58, 211, 219, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: DESIGN_TOKENS.spacing.lg,
+    marginRight: DESIGN_TOKENS.spacing.md,
   },
   detailContent: {
     flex: 1,
+    justifyContent: 'center',
   },
   detailLabel: {
     fontSize: DESIGN_TOKENS.text.xs,
     color: DESIGN_TOKENS.colors.text.secondary,
     fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: 4,
+    letterSpacing: 0.8,
+    marginBottom: 2,
     textTransform: 'uppercase',
+    paddingTop: 1,
   },
   detailValue: {
-    fontSize: DESIGN_TOKENS.text.xl,
+    fontSize: DESIGN_TOKENS.text.lg,
     color: DESIGN_TOKENS.colors.text.primary,
-    fontWeight: '800',
+    fontWeight: '500',
     letterSpacing: -0.2,
+    lineHeight: 20,
   },
   modernCleanerCard: {
     backgroundColor: '#F9FAFB',
@@ -641,40 +665,44 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   cleanerBadges: {
     flexDirection: 'row',
     gap: 8,
     marginBottom: 6,
+    marginTop: 2,
+    alignItems: 'center',
   },
   ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 12,
     gap: 4,
   },
   ratingText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: '#92400E',
   },
   verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(58, 211, 219, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(58, 211, 219, 0.3)',
   },
   verifiedText: {
     color: '#0F172A',
     fontWeight: '700',
-    fontSize: 12,
-    marginLeft: 6,
+    fontSize: 11,
+    marginLeft: 4,
   },
   cleanerExperience: {
     fontSize: 12,
@@ -836,17 +864,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.xs,
   },
-  detailLabel: {
+  legacyDetailLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.text.secondary,
     textTransform: 'uppercase',
   },
-  detailValue: {
+  legacyDetailValue: {
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.text.primary,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   sectionTitle: {
     fontSize: 16,
