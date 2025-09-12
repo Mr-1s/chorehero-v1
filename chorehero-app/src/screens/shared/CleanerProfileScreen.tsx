@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
@@ -27,7 +28,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
 import { supabase } from '../../services/supabase';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 type TabParamList = {
   Home: undefined;
@@ -553,10 +554,14 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     </View>
   );
 
+  const { width: winWidth } = useWindowDimensions();
+  const isNarrow = winWidth < 360;
+  const videoCardWidth = isNarrow ? winWidth - 40 : (winWidth - 40 - 16) / 2;
+
   const renderVideoCard = (video: CleanerVideo) => (
     <TouchableOpacity 
       key={video.id} 
-      style={styles.videoCard}
+      style={[styles.videoCard, { width: videoCardWidth }]}
       onPress={() => {
         // Navigate back to main feed focused on this video
         navigation.navigate('Home');
@@ -1585,7 +1590,6 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   videoCard: {
-    width: (width - 40 - 16) / 2, // 2 columns within tabContent padding and gap
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     shadowColor: '#000',

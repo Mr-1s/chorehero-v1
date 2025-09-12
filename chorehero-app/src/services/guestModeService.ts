@@ -53,9 +53,23 @@ class GuestModeService {
   
   private professionalVideos: GuestVideo[] = [
     {
-      id: 'enhanced-prof-video-1',
-      title: 'Professional Kitchen Deep Clean Transformation',
-      description: 'Watch this amazing kitchen transformation using professional-grade equipment and techniques. From greasy surfaces to sparkling clean!',
+      id: 'curated-pexels-4109347',
+      title: 'Curated Cleaning Demo',
+      description: 'Professional cleaning action clip curated for the ChoreHero feed.',
+      video_url: 'https://videos.pexels.com/video-files/4109347/4109347-uhd_4096_2160_25fps.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1581579188871-45ea61f2a0c8?w=400&h=600&fit=crop&auto=format&q=80',
+      cleaner_name: 'ChoreHero Demo',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      duration: 120,
+      view_count: 10234,
+      like_count: 865,
+      category: 'Cleaning',
+      created_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'prof-kitchen-01',
+      title: 'Kitchen Deep Clean Transformation',
+      description: 'Degreasing, scrubbing, sanitizing surfaces and appliances for a spotless kitchen.',
       video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/kitchen_deep_clean.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Professional Cleaning Co.',
@@ -67,10 +81,10 @@ class GuestModeService {
       created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
-      id: 'enhanced-prof-video-2',
-      title: 'Bathroom Grout Restoration Magic',
-      description: 'Professional grout cleaning and restoration techniques that make old bathrooms look brand new. Amazing results!',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      id: 'prof-bathroom-01',
+      title: 'Bathroom Grout Restoration',
+      description: 'Grout scrubbing, tile polish, and full sanitization for a renewed bathroom.',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/bathroom_grout_restoration.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Elite Bathroom Cleaners',
       cleaner_avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b754?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
@@ -81,10 +95,10 @@ class GuestModeService {
       created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
-      id: 'enhanced-prof-video-3',
+      id: 'prof-living-01',
       title: 'Living Room Deep Clean & Organization',
-      description: 'Complete living room transformation including upholstery cleaning, carpet deep clean, and professional organization.',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      description: 'Upholstery refresh, carpet clean, dusting and tidy organization of the living room.',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/living_room_deep_clean.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Home Refresh Specialists',
       cleaner_avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
@@ -95,10 +109,10 @@ class GuestModeService {
       created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
-      id: 'enhanced-prof-video-4',
-      title: 'Master Bedroom Cleaning & Sanitization',
-      description: 'Professional bedroom cleaning including mattress sanitization, closet organization, and deep dusting techniques.',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+      id: 'prof-bedroom-01',
+      title: 'Bedroom Cleaning & Sanitization',
+      description: 'Mattress sanitization, closet organization, and detailed dusting.',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/bedroom_clean_sanitization.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Sleep Clean Experts',
       cleaner_avatar: 'https://images.unsplash.com/photo-1488161628813-04466f872be2?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
@@ -109,10 +123,10 @@ class GuestModeService {
       created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
-      id: 'enhanced-prof-video-5',
+      id: 'prof-office-01',
       title: 'Office Space Deep Sanitization',
-      description: 'Professional office cleaning including electronics, furniture, and air purification systems for a healthy workspace.',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+      description: 'Electronics-safe dusting, furniture wipe-down, and air sanitization.',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/office_sanitization.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Corporate Clean Pro',
       cleaner_avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
@@ -123,10 +137,10 @@ class GuestModeService {
       created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     },
     {
-      id: 'enhanced-prof-video-6',
+      id: 'prof-windows-01',
       title: 'Window & Glass Professional Service',
-      description: 'Expert window cleaning techniques for crystal-clear results on all glass surfaces including mirrors and doors.',
-      video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+      description: 'Crystal-clear technique for windows, mirrors, and glass doors.',
+      video_url: 'https://storage.googleapis.com/chorehero-cleaning-demos/window_glass_service.mp4',
       thumbnail_url: 'https://images.unsplash.com/photo-1527515637462-cff94eecc1ac?w=400&h=600&fit=crop&auto=format&q=80',
       cleaner_name: 'Crystal Clear Windows',
       cleaner_avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
@@ -239,7 +253,12 @@ class GuestModeService {
     try {
       // First, try to get real videos
       const realVideosResponse = await contentService.getFeed({ limit: 20 });
-      const realVideos = realVideosResponse.success ? realVideosResponse.data?.posts || [] : [];
+      const realVideosRaw = realVideosResponse.success ? realVideosResponse.data?.posts || [] : [];
+      const isCleaning = (v: any) => {
+        const text = `${v?.title || ''} ${v?.description || ''} ${v?.category || ''} ${(v?.tags || []).join(' ')}`.toLowerCase();
+        return /clean|sanitize|organize|laundry|dish|vacuum|mop|dust/.test(text);
+      };
+      const realVideos = realVideosRaw.filter(isCleaning);
 
       // If we're in guest mode and there are no real videos, add professional videos
       if (isGuest && realVideos.length === 0) {
