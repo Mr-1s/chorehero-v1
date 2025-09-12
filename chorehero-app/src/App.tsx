@@ -47,6 +47,7 @@ import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
 import BookingTemplateScreen from './screens/cleaner/BookingTemplateScreen';
 import ContentUploadWithPricingScreen from './screens/cleaner/ContentUploadWithPricingScreen';
 import { TutorialDemoScreen } from './screens/tutorial/TutorialDemoScreen';
+import { ToastProvider } from './components/Toast';
 
 
 // Import services for initialization
@@ -232,7 +233,9 @@ export default function App() {
       <LocationProvider>
         <MessageProvider>
           <EnhancedMessageWrapper>
-            <AppNavigator />
+            <ToastProvider>
+              <AppNavigator />
+            </ToastProvider>
           </EnhancedMessageWrapper>
         </MessageProvider>
       </LocationProvider>

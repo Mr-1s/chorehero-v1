@@ -185,7 +185,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
     return (
       <TouchableOpacity 
         style={styles.cleanerCard}
-        onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleaner.id })}
+        onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
         activeOpacity={0.9}
       >
         {/* Media Section */}
@@ -275,7 +275,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
               style={styles.viewProfileButton}
               onPress={(e) => {
                 e.stopPropagation();
-                navigation.navigate('CleanerProfile', { cleanerId: cleaner.id });
+                navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
               }}
             >
               <Text style={styles.viewProfileButtonText}>View Profile</Text>

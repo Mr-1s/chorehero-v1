@@ -25,6 +25,8 @@ import { bookingService } from '../../services/booking';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
+import { SkeletonBlock, SkeletonList } from '../../components/Skeleton';
+import { useToast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
 
@@ -40,7 +42,7 @@ type JobsScreenProps = {
   navigation: StackNavigationProp<StackParamList, 'JobsScreen'>;
 };
 
-type JobStatus = 'available' | 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+type JobStatus = 'available' | 'pending' | 'cleaner_assigned' | 'confirmed' | 'cleaner_en_route' | 'cleaner_arrived' | 'in_progress' | 'completed' | 'cancelled' | 'paid';
 type JobType = 'express' | 'standard' | 'deep';
 
 interface Job {
@@ -88,6 +90,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'today' | 'tomorrow' | 'week'>('all');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [acceptingJobId, setAcceptingJobId] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -192,7 +195,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
               total: booking.total_amount,
               cleanerEarnings: booking.cleaner_earnings || booking.total_amount * 0.7,
             },
-            status: booking.cleaner_id === user.id ? 'confirmed' : 'available',
+            status: booking.cleaner_id === user.id ? 'cleaner_assigned' : 'available',
             priority: 'medium',
             isInstantBook: true,
             createdAt: booking.created_at,
@@ -379,16 +382,16 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
           // Update local job status
           setJobs(prev => prev.map(job => 
             job.id === jobId 
-              ? { ...job, status: 'confirmed' as JobStatus }
+              ? { ...job, status: 'cleaner_assigned' as JobStatus }
               : job
           ));
-          
-          Alert.alert('Success!', 'Job accepted successfully!');
+          // Toast instead of alert for smoother UX
+          try { (showToast as any) && showToast({ type: 'success', message: 'Job accepted' }); } catch {}
           
           // Refresh jobs to get updated data
           await loadJobs();
         } else {
-          Alert.alert('Error', result.error || 'Failed to accept job. Please try again.');
+          try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to accept job' }); } catch {}
         }
       } else {
         // Demo mode - simulate acceptance
@@ -397,12 +400,11 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             ? { ...job, status: 'confirmed' as JobStatus }
             : job
         ));
-        
-        Alert.alert('Success!', 'Job accepted (Demo Mode)');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job accepted (demo)' }); } catch {}
       }
     } catch (error) {
       console.error('Error accepting job:', error);
-      Alert.alert('Error', 'Failed to accept job. Please try again.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Network error' }); } catch {}
     } finally {
       setAcceptingJobId(null);
     }
@@ -421,18 +423,8 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             if (!user?.id) return;
             
             try {
-              // Use job state manager to cancel booking
-              const result = await jobStateManager.cancelBooking(
-                jobId, 
-                user.id, 
-                'Declined by cleaner'
-              );
-              
-              if (result.success) {
-                setJobs(prev => prev.filter(job => job.id !== jobId));
-              } else {
-                Alert.alert('Error', result.error || 'Failed to decline job.');
-              }
+              // Ignore job locally without cancelling it globally
+              setJobs(prev => prev.filter(job => job.id !== jobId));
             } catch (error) {
               console.error('Error declining job:', error);
               Alert.alert('Error', 'Failed to decline job.');
@@ -641,7 +633,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         case 'available':
           return job.status === 'available';
         case 'active':
-          return ['confirmed', 'in_progress'].includes(job.status);
+          return ['cleaner_assigned', 'confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress', 'paid'].includes(job.status as any);
         case 'history':
           return ['completed', 'cancelled'].includes(job.status);
         default:
@@ -947,7 +939,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         <Text style={styles.headerTitle}>Jobs</Text>
         <TouchableOpacity 
           style={styles.profileButton}
-          onPress={() => navigation.navigate('CleanerProfile')}
+          onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
         >
           <Ionicons name="person-outline" size={24} color="#6B7280" />
         </TouchableOpacity>
@@ -966,6 +958,14 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
         ListEmptyComponent={renderEmptyState}
+        ListHeaderComponent={
+          isLoading ? (
+            <View style={{ padding: 16, gap: 16 }}>
+              <SkeletonBlock height={48} />
+              <SkeletonList rows={3} />
+            </View>
+          ) : null
+        }
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
       />
       

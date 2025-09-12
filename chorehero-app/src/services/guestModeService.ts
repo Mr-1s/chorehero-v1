@@ -178,6 +178,50 @@ class GuestModeService {
       category: 'Windows',
       created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
     }
+    ,
+    // Added Pexels videos per request
+    {
+      id: 'pexels-5176975',
+      title: 'Professional Cleaning Showcase',
+      description: 'Curated Pexels clip for ChoreHero demo feed.',
+      video_url: 'https://videos.pexels.com/video-files/5176975/5176975-uhd_2560_1440_30fps.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1581579188871-45ea61f2a0c8?w=400&h=600&fit=crop&auto=format&q=80',
+      cleaner_name: 'Pexels Creator',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      duration: 90,
+      view_count: 14200,
+      like_count: 980,
+      category: 'Cleaning',
+      created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'pexels-6872072',
+      title: 'Vertical Deep Clean Demo',
+      description: 'Portrait UHD cleaning demo added to curated feed.',
+      video_url: 'https://videos.pexels.com/video-files/6872072/6872072-uhd_2160_3840_25fps.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=600&fit=crop&auto=format&q=80',
+      cleaner_name: 'Pexels Creator',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b754?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      duration: 75,
+      view_count: 12150,
+      like_count: 845,
+      category: 'Deep Cleaning',
+      created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'pexels-27452018-12146938',
+      title: 'Portrait Cleaning Routine',
+      description: '1080x1920 portrait cleaning routine clip from Pexels.',
+      video_url: 'https://videos.pexels.com/video-files/27452018/12146938_1080_1920_30fps.mp4',
+      thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop&auto=format&q=80',
+      cleaner_name: 'Pexels Creator',
+      cleaner_avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      duration: 60,
+      view_count: 10980,
+      like_count: 760,
+      category: 'Routine',
+      created_at: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+    }
   ];
 
   /**
@@ -229,7 +273,17 @@ class GuestModeService {
       // Always return professional cleaning videos for guest users
       // This ensures demo mode is always on for guests regardless of real data
       console.log('🎬 Returning professional videos for guest demo mode');
-      return this.professionalVideos;
+      // Feature priority: ensure requested Pexels clips show first
+      const featuredIds = [
+        'pexels-5176975',
+        'pexels-6872072',
+        'pexels-27452018-12146938',
+      ];
+      const rank = (v: GuestVideo) => {
+        const idx = featuredIds.indexOf(v.id);
+        return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+      };
+      return [...this.professionalVideos].sort((a, b) => rank(a) - rank(b));
     } catch (error) {
       console.error('Error getting guest videos:', error);
       return this.professionalVideos; // Fallback to professional videos

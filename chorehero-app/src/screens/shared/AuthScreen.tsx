@@ -185,10 +185,33 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleGuestAccess = () => {
-    // Navigate directly to the main app as a guest
-    // Users can explore the app with limited functionality (read-only mode)
-    navigation.navigate('MainTabs');
+  const handleGuestAccess = async () => {
+    // Let the user choose a guest role immediately, then enter the app
+    try {
+      Alert.alert(
+        'Continue as Guest',
+        'Choose how you want to explore the app',
+        [
+          {
+            text: 'Customer',
+            onPress: async () => {
+              await AsyncStorage.setItem('guest_user_role', 'customer');
+              navigation.navigate('MainTabs');
+            },
+          },
+          {
+            text: 'Cleaner',
+            onPress: async () => {
+              await AsyncStorage.setItem('guest_user_role', 'cleaner');
+              navigation.navigate('MainTabs');
+            },
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    } catch (error) {
+      navigation.navigate('MainTabs');
+    }
   };
 
   return (

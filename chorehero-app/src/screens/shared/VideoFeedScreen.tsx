@@ -955,10 +955,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             style={styles.modernCleanerHeader}
           activeOpacity={0.7}
           onPress={() => {
-            console.log('🎯 Navigating to cleaner profile:', item.cleaner.name);
-            const fallbackDemoId = 'demo_cleaner_1';
-            const cleanerId = (item.cleaner && (item.cleaner.user_id || (item.cleaner as any).id || (item.cleaner as any).username)) || fallbackDemoId;
-            navigation.navigate('CleanerProfile', { cleanerId });
+            console.log('🎯 Navigating to DEMO cleaner profile');
+            navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
           }}
         >
             <View style={styles.modernAvatarContainer}>
@@ -1255,8 +1253,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         />
       )}
       
-      {/* Floating Navigation - Show appropriate navigation based on user role */}
-      {user?.role === 'cleaner' ? (
+      {/* Floating Navigation - Show appropriate navigation based on effective role */}
+      {isCleaner ? (
         <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Heroes" unreadCount={3} />
       ) : (
         <FloatingNavigation navigation={navigation as any} currentScreen="Content" />

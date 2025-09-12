@@ -517,9 +517,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         ...cardData.actions.navigation_params
       });
     } else if (cardData.actions.primary_action === 'view_details') {
-      navigation.navigate('CleanerProfile', {
-        cleanerId: cardData.provider?.cleaner_id
-      });
+      navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
     } else if (cardData.actions.primary_action === 'book_now') {
       navigation.navigate('SimpleBookingFlow', {
         serviceId: cardData.id,
@@ -537,18 +535,15 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   };
 
   const handleVideoPress = (cardData: ServiceCardData) => {
-    console.log('🔍 Discover: Navigating to CleanerProfile with ID:', cardData.provider?.cleaner_id);
-    navigation.navigate('CleanerProfile', { 
-      cleanerId: cardData.provider?.cleaner_id,
-      highlightVideo: cardData.id
-    });
+    console.log('🔍 Discover: Navigating to DEMO CleanerProfile');
+    navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1', highlightVideo: cardData.id });
   };
 
   const renderTrendingCleanerCard = (cleaner: CategoryCleaner) => (
     <TouchableOpacity 
       key={cleaner.id} 
       style={styles.trendingCleanerCard}
-      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleaner.id })}
+      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
       activeOpacity={0.7}
     >
       <View style={styles.trendingCleanerImageContainer}>

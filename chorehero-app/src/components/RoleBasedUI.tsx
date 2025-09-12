@@ -47,11 +47,11 @@ export const useRoleFeatures = () => {
   const [demoRole, setDemoRole] = useState<string | null>(null);
   const userRole = user?.role || 'customer';
   
-  // Check for demo role in AsyncStorage
+  // Check for guest role in AsyncStorage
   useEffect(() => {
     const checkDemoRole = async () => {
       try {
-        const storedRole = await AsyncStorage.getItem('demo_user_role');
+        const storedRole = await AsyncStorage.getItem('guest_user_role');
         setDemoRole(storedRole);
       } catch (error) {
         console.error('Error reading demo role:', error);

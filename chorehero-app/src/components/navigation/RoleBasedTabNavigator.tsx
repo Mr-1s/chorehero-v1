@@ -210,19 +210,8 @@ const RoleBasedTabNavigator = () => {
   });
 
   // Show role selection modal for guest users who haven't chosen a role
-  if (!isAuthenticated && showRoleSelection) {
-    console.log('🚪 Showing role selection modal for guest user');
-    return (
-      <>
-        <CustomerNavigator />
-        <RoleIndicator />
-        <RoleSelectionModal
-          visible={showRoleSelection}
-          onRoleSelected={handleRoleSelected}
-        />
-      </>
-    );
-  }
+  // Remove welcome/role selection screen for guest flow: proceed directly
+  // Guests choose role at the moment they tap Continue as Guest in Auth
 
   // Show appropriate interface based on role
   console.log('🚦 Interface selection decision:', {

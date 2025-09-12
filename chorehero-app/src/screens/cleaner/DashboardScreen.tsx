@@ -22,6 +22,8 @@ import * as Haptics from 'expo-haptics';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
+import { SkeletonBlock, SkeletonList } from '../../components/Skeleton';
+import { useToast } from '../../components/Toast';
 import { COLORS } from '../../utils/constants';
 
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
@@ -79,6 +81,7 @@ interface ActiveJob {
 
 const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
@@ -230,7 +233,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       }
 
     } catch (error) {
-      Alert.alert('Error', 'Failed to load dashboard data');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load dashboard data' }); } catch {}
     } finally {
       setIsLoading(false);
     }
@@ -756,7 +759,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           actions={[
             {
               label: 'Complete Profile',
-              onPress: () => navigation.navigate('CleanerProfile'),
+              onPress: () => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' }),
               icon: 'person'
             },
             {
@@ -813,10 +816,13 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00BFA6" />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
-        </View>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <View style={{ gap: 16 }}>
+            <SkeletonBlock height={64} />
+            <SkeletonBlock height={120} />
+            <SkeletonList rows={3} />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }

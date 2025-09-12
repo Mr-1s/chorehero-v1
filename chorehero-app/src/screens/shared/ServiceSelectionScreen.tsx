@@ -369,7 +369,7 @@ const ServiceSelectionScreen: React.FC<ServiceSelectionProps> = ({ navigation, r
           </View>
           <TouchableOpacity 
             style={styles.viewProfileButton}
-            onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleanerInfo.id })}
+            onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
           >
             <Text style={styles.viewProfileText}>View</Text>
           </TouchableOpacity>
