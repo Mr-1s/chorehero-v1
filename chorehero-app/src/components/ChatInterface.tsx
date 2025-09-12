@@ -7,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   Image,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Dimensions,
@@ -19,6 +18,7 @@ import * as FileSystem from 'expo-file-system';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS } from '../utils/constants';
+import { useToast } from './Toast';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -72,6 +72,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   style,
 }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -136,7 +137,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       channelRef.current = channel;
     } catch (error) {
       console.error('Error setting up chat:', error);
-      Alert.alert('Error', 'Failed to load chat. Please try again.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load chat' }); } catch {}
     } finally {
       setIsLoading(false);
     }
@@ -226,7 +227,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       
     } catch (error) {
       console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to send message' }); } catch {}
     } finally {
       setIsSending(false);
     }
@@ -277,15 +278,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleImagePicker = () => {
-    Alert.alert(
-      'Select Image',
-      'Choose how you want to add an image',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Camera', onPress: () => openImagePicker('camera') },
-        { text: 'Gallery', onPress: () => openImagePicker('library') },
-      ]
-    );
+    // Use toast prompt for MVP, keeping single-tap to open library
+    try { (showToast as any) && showToast({ type: 'info', message: 'Opening photo library…' }); } catch {}
+    openImagePicker('library');
   };
 
   const openImagePicker = async (source: 'camera' | 'library') => {
@@ -295,7 +290,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+          try { (showToast as any) && showToast({ type: 'warning', message: 'Camera permission required' }); } catch {}
           return;
         }
         
@@ -307,7 +302,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         });
       } else {
         if (!hasImagePermission) {
-          Alert.alert('Permission needed', 'Gallery permission is required to select photos.');
+          try { (showToast as any) && showToast({ type: 'warning', message: 'Gallery permission required' }); } catch {}
           return;
         }
         
@@ -326,13 +321,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         if (imageUrl) {
           await sendMessage('', 'image', imageUrl);
         } else {
-          Alert.alert('Error', 'Failed to upload image. Please try again.');
+          try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload image' }); } catch {}
         }
         setIsSending(false);
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to select image. Please try again.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to select image' }); } catch {}
       setIsSending(false);
     }
   };
