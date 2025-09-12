@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../hooks/useAuth';
 import RoleSelectionModal from '../RoleSelectionModal';
 import RoleIndicator from '../RoleIndicator';
@@ -132,6 +133,7 @@ const RoleBasedTabNavigator = () => {
   const { isCleaner, isCustomer, isAuthenticated, user } = useAuth();
   const [isLoadingRole, setIsLoadingRole] = useState(true);
   const [showRoleSelection, setShowRoleSelection] = useState(false);
+  const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
 
   // Check for demo role on mount (only for non-authenticated users)
   useEffect(() => {
@@ -147,20 +149,29 @@ const RoleBasedTabNavigator = () => {
          if (isAuthenticated) {
           // For real authenticated users, ignore demo role
           console.log('Real authenticated user detected, ignoring demo role');
+          setGuestRole(null);
+          setShowRoleSelection(false);
           setIsLoadingRole(false);
           return;
         }
         
-        // Demo mode removed - simplified logic
-
-        // For guest users (not authenticated), show customer interface by default
-        // No need for role selection modal since demo system is removed
-        setShowRoleSelection(false);
+        // For guest users, check if they have a stored role preference
+        const storedGuestRole = await AsyncStorage.getItem('guest_user_role');
+        if (storedGuestRole === 'customer' || storedGuestRole === 'cleaner') {
+          console.log('🎭 Found stored guest role:', storedGuestRole);
+          setGuestRole(storedGuestRole);
+          setShowRoleSelection(false);
+        } else {
+          // No stored role, show selection modal
+          console.log('🎭 No stored guest role, showing selection modal');
+          setGuestRole(null);
+          setShowRoleSelection(true);
+        }
         
         setIsLoadingRole(false);
       } catch (error) {
         console.error('Error in navigation setup:', error);
-        setShowRoleSelection(false); // Always hide role selection since demo is removed
+        setShowRoleSelection(true); // Show role selection for guests
         setIsLoadingRole(false);
       }
     };
@@ -170,11 +181,10 @@ const RoleBasedTabNavigator = () => {
 
   const handleRoleSelected = async (role: 'customer' | 'cleaner') => {
     try {
-      console.log('🎯 Setting demo user role:', role);
-      // Use the new demo system to set a specific demo user
-      const cleanerType = role === 'cleaner' ? 'sarah' : undefined; // Default to Sarah for demo
-      // Demo system removed - this should not be called
-      console.log('Role selection disabled - demo system removed');
+      console.log('🎯 Setting guest user role:', role);
+      // Store the selected role in AsyncStorage for guest mode
+      await AsyncStorage.setItem('guest_user_role', role);
+      setGuestRole(role);
       setShowRoleSelection(false);
     } catch (error) {
       console.error('❌ Role selection error:', error);
@@ -183,30 +193,25 @@ const RoleBasedTabNavigator = () => {
   };
 
   // Determine which interface to show
-  // Priority: Real auth > Default to customer interface for guests
-  const effectiveIsCleaner = isAuthenticated ? isCleaner : false;
-  const effectiveIsCustomer = isAuthenticated ? isCustomer : true; // Default guest mode to customer
+  // Priority: Real auth > Guest role selection > Default to customer
+  const effectiveIsCleaner = isAuthenticated ? isCleaner : guestRole === 'cleaner';
+  const effectiveIsCustomer = isAuthenticated ? isCustomer : guestRole === 'customer' || guestRole === null;
   
   // Debug logging
   console.log('🔍 Role Debug:', {
     isAuthenticated,
     isCleaner,
     isCustomer,
+    guestRole,
     effectiveIsCleaner,
     effectiveIsCustomer,
     userRole: user?.role,
     userName: user?.name
   });
 
-  // Show role selection modal disabled (demo system removed)
-  // Guest users now default to customer interface
-  if (false) { // Disabled - was: !isAuthenticated && !isDemoMode && (isLoadingRole || (!effectiveIsCleaner && !effectiveIsCustomer))
-    console.log('🚪 Showing role selection modal', {
-      isLoadingRole,
-      effectiveIsCleaner,
-      effectiveIsCustomer,
-      showRoleSelection
-    });
+  // Show role selection modal for guest users who haven't chosen a role
+  if (!isAuthenticated && showRoleSelection) {
+    console.log('🚪 Showing role selection modal for guest user');
     return (
       <>
         <CustomerNavigator />
@@ -223,6 +228,7 @@ const RoleBasedTabNavigator = () => {
   console.log('🚦 Interface selection decision:', {
     effectiveIsCleaner,
     effectiveIsCustomer,
+    guestRole,
     userRole: user?.role,
     userName: user?.name,
     willLoadCleanerInterface: effectiveIsCleaner

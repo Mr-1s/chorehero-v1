@@ -69,6 +69,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const { signOut, user, isAuthenticated, isCleaner } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
   const [notifications, setNotifications] = useState<NotificationSettings>({
     bookingUpdates: true,
     jobMatches: true,
@@ -125,11 +126,16 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           avatarUrl: (user as any).avatar_url || null,
         });
       } else {
+        // Load guest role preference
+        const storedGuestRole = await AsyncStorage.getItem('guest_user_role');
+        const role = (storedGuestRole === 'cleaner' ? 'cleaner' : 'customer') as 'customer' | 'cleaner';
+        setGuestRole(storedGuestRole as 'customer' | 'cleaner' | null);
+        
         setUserProfile({
           name: 'Guest',
           email: '',
           phone: '',
-          role: 'customer',
+          role: role,
           joinDate: new Date().toISOString(),
           totalBookings: 0,
           rating: 5.0,
@@ -145,6 +151,39 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   const updateNotificationSetting = (key: keyof NotificationSettings, value: boolean) => {
     setNotifications(prev => ({ ...prev, [key]: value }));
+  };
+
+  const switchGuestRole = async () => {
+    if (isAuthenticated) return; // Only for guest users
+    
+    const newRole = guestRole === 'customer' ? 'cleaner' : 'customer';
+    
+    Alert.alert(
+      'Switch Experience',
+      `Switch to ${newRole} mode? This will change your app experience and you'll need to restart the app.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Switch',
+          onPress: async () => {
+            try {
+              await AsyncStorage.setItem('guest_user_role', newRole);
+              setGuestRole(newRole);
+              setUserProfile(prev => prev ? { ...prev, role: newRole } : null);
+              
+              Alert.alert(
+                'Experience Switched',
+                `You're now in ${newRole} mode. Please restart the app to see the changes.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Error switching guest role:', error);
+              Alert.alert('Error', 'Failed to switch experience. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const updateAppSetting = (key: keyof AppSettings, value: any) => {
@@ -483,8 +522,32 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           </View>
         )}
 
+        {/* Guest Mode Settings */}
+        {!isAuthenticated && renderSettingsSection('Guest Mode', [
+          renderSettingsItem(
+            'swap-horizontal-outline',
+            'Switch Experience',
+            `Currently in ${guestRole || 'customer'} mode`,
+            undefined,
+            switchGuestRole,
+            true
+          ),
+          renderSettingsItem(
+            'information-circle-outline',
+            'About Guest Mode',
+            'You\'re using ChoreHero without an account',
+            undefined,
+            () => Alert.alert(
+              'Guest Mode',
+              'You\'re currently using ChoreHero as a guest. You can switch between customer and cleaner experiences, but your data won\'t be saved. Create an account to save your preferences and bookings.',
+              [{ text: 'OK' }]
+            ),
+            true
+          ),
+        ])}
+
         {/* Account Settings */}
-        {renderSettingsSection('Account', [
+        {isAuthenticated && renderSettingsSection('Account', [
           renderSettingsItem(
             'person-outline',
             'Profile Information',
