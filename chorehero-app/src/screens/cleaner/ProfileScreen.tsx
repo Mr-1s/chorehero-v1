@@ -24,6 +24,7 @@ import { Video, ResizeMode } from 'expo-av';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
+import { useToast } from '../../components/Toast';
 
 import { COLORS } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
@@ -79,6 +80,7 @@ interface CleanerProfileData {
 
 const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => {
   const { user, signOut, setDemoUser } = useAuth();
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -379,9 +381,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
-      Alert.alert('Success', 'Profile updated successfully!');
+      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated' }); } catch {}
     } catch (error) {
-      Alert.alert('Error', 'Failed to save profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save profile' }); } catch {}
     } finally {
       setIsSaving(false);
     }
@@ -403,7 +405,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
         }));
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload image');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload image' }); } catch {}
     }
   };
 
@@ -426,11 +428,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
           ...prev,
           video_profile_url: result.assets[0].uri,
         }));
-        
-        Alert.alert('Success', 'Video uploaded successfully!');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Video uploaded' }); } catch {}
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload video');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload video' }); } catch {}
     } finally {
       setIsUploading(false);
     }
@@ -458,14 +459,14 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
                 if (result.success) {
                   // Remove the post from local state
                   setUserPosts(prev => prev.filter(post => post.id !== postId));
-                  Alert.alert('Success', 'Post deleted successfully');
+                  try { (showToast as any) && showToast({ type: 'success', message: 'Post deleted' }); } catch {}
                 } else {
-                  Alert.alert('Error', result.error || 'Failed to delete post');
+                  try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to delete post' }); } catch {}
                 }
               }
             } catch (error) {
               console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to delete post' }); } catch {}
             } finally {
               setIsLoading(false);
             }
@@ -478,10 +479,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
   const handleSwitchToCustomer = async () => {
     try {
       await setDemoUser('customer');
-      Alert.alert('Account Switched', 'You are now in customer mode');
+      try { (showToast as any) && showToast({ type: 'success', message: 'Switched to customer mode' }); } catch {}
     } catch (error) {
       console.error('Error switching to customer:', error);
-      Alert.alert('Error', 'Failed to switch account mode');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to switch account mode' }); } catch {}
     }
   };
 
@@ -523,7 +524,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
                 ...prev,
                 avatar_url: profileData.avatar_url,
               }));
-              Alert.alert('Error', 'Failed to save profile picture to database');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save picture' }); } catch {}
               return;
             }
             
@@ -540,17 +541,17 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
               console.log('Note: Could not update cleaner_profiles avatar (may not exist yet):', cleanerError);
             }
             
-            Alert.alert('Success', 'Profile picture updated and saved!');
+            try { (showToast as any) && showToast({ type: 'success', message: 'Profile picture updated' }); } catch {}
           } else {
-            Alert.alert('Error', 'User not authenticated');
+            try { (showToast as any) && showToast({ type: 'error', message: 'User not authenticated' }); } catch {}
           }
         } catch (dbError) {
           console.error('Database error:', dbError);
-          Alert.alert('Error', 'Failed to save profile picture');
+          try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save picture' }); } catch {}
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload profile picture');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload picture' }); } catch {}
     } finally {
       setIsUploading(false);
     }

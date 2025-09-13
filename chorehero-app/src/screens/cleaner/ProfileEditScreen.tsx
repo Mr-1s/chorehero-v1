@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useToast } from '../../components/Toast';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -91,6 +92,7 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasBookingTemplate, setHasBookingTemplate] = useState(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadProfile();
@@ -136,7 +138,7 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-      Alert.alert('Error', 'Failed to load profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load profile' }); } catch {}
     } finally {
       setLoading(false);
     }
@@ -148,19 +150,11 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
       // In a real app, this would save to the database
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
       
-      Alert.alert(
-        'Profile Updated',
-        'Your profile has been successfully updated.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
-      );
+      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated' }); } catch {}
+      navigation.goBack();
     } catch (error) {
       console.error('Error saving profile:', error);
-      Alert.alert('Error', 'Failed to save profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save profile' }); } catch {}
     } finally {
       setSaving(false);
     }
@@ -169,7 +163,7 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   const handleImagePicker = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please grant access to your photo library to upload a profile picture.');
+      try { (showToast as any) && showToast({ type: 'warning', message: 'Photo permission required' }); } catch {}
       return;
     }
 

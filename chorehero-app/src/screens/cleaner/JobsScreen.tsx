@@ -427,7 +427,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
               setJobs(prev => prev.filter(job => job.id !== jobId));
             } catch (error) {
               console.error('Error declining job:', error);
-              Alert.alert('Error', 'Failed to decline job.');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to decline job' }); } catch {}
             }
           }
         },
@@ -451,13 +451,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Started tracking your location. Customer will be notified.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Tracking started' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to start traveling.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to start traveling' }); } catch {}
       }
     } catch (error) {
       console.error('Error starting travel:', error);
-      Alert.alert('Error', 'Failed to start traveling.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to start traveling' }); } catch {}
     }
   };
 
@@ -473,13 +473,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Marked as arrived. Customer has been notified.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Marked as arrived' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to mark as arrived.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to mark as arrived' }); } catch {}
       }
     } catch (error) {
       console.error('Error marking arrived:', error);
-      Alert.alert('Error', 'Failed to mark as arrived.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to mark as arrived' }); } catch {}
     }
   };
 
@@ -495,13 +495,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Job started. Timer is now running.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job started' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to start job.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to start job' }); } catch {}
       }
     } catch (error) {
       console.error('Error starting job:', error);
-      Alert.alert('Error', 'Failed to start job.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to start job' }); } catch {}
     }
   };
 
@@ -520,13 +520,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Job completed! Payment processing will begin automatically.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job completed' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to complete job.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to complete job' }); } catch {}
       }
     } catch (error) {
       console.error('Error completing job:', error);
-      Alert.alert('Error', 'Failed to complete job.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to complete job' }); } catch {}
     }
   };
 

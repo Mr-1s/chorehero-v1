@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   Alert,
 } from 'react-native';
+import { useToast } from '../../components/Toast';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -35,6 +36,7 @@ interface Booking {
 }
 
 const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
+  const { showToast } = useToast();
   const [selectedTab, setSelectedTab] = useState<'availability' | 'bookings'>('bookings');
   
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([
@@ -97,6 +99,9 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
           onPress: () => {
             // Handle booking action
             console.log(`${action} booking ${bookingId}`);
+            try {
+              (showToast as any) && showToast({ type: action === 'accept' ? 'success' : 'info', message: action === 'accept' ? 'Booking accepted' : 'Booking declined' });
+            } catch {}
           }
         },
       ]

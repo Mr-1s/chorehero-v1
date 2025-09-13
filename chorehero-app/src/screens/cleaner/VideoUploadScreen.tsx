@@ -22,6 +22,7 @@ import { uploadService, type UploadProgress, type UploadResponse } from '../../s
 import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS } from '../../utils/constants';
+import { useToast } from '../../components/Toast';
 
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { getOptimalListProps, memoryManager, performanceMonitor, optimizeImageUri } from '../../utils/performance';
@@ -50,6 +51,7 @@ interface UploadedVideo {
 
 const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
@@ -101,14 +103,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       console.log('📷 Camera permission status:', status);
       
       if (status !== 'granted') {
-        Alert.alert(
-          'Camera Permission Required', 
-          'ChoreHero needs camera access to record videos. Please enable camera permission in your device settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Settings', onPress: () => console.log('Open settings - implement Linking.openSettings()') }
-          ]
-        );
+        try { (showToast as any) && showToast({ type: 'warning', message: 'Camera permission required' }); } catch {}
         return;
       }
 
@@ -131,11 +126,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('🚨 Camera upload error:', error);
-      Alert.alert(
-        'Camera Error', 
-        `Failed to record video: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use the library option.`,
-        [{ text: 'OK' }]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to record video' }); } catch {}
     }
   };
 
@@ -187,11 +178,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('🚨 Library upload error:', error);
-      Alert.alert(
-        'Library Error', 
-        `Failed to select video: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your media library permissions.`,
-        [{ text: 'OK' }]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to select video' }); } catch {}
     }
   };
 
@@ -213,7 +200,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       if (!validation.isValid) {
         console.error('❌ Video validation failed:', validation.error);
         setUploadError(validation.error || 'Invalid video file');
-        Alert.alert('Upload Error', validation.error || 'Invalid video file');
+        try { (showToast as any) && showToast({ type: 'error', message: validation.error || 'Invalid video file' }); } catch {}
         return;
       }
 
@@ -283,11 +270,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
         setVideos(prev => [newVideo, ...prev]);
         
-        Alert.alert(
-          'Upload Successful! 🎉',
-          'Your video has been uploaded and will appear in the Feed and Discover tabs for customers to see.',
-          [{ text: 'OK', onPress: () => setSelectedVideo(null) }]
-        );
+        try { (showToast as any) && showToast({ type: 'success', message: 'Video uploaded' }); } catch {}
+        setSelectedVideo(null);
 
         // Clear upload state
         setUploadDetails(null);
@@ -327,14 +311,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
         setUploadError(errorMessage);
 
-        const alertButtons = showRetry ? [
-          { text: 'Cancel', style: 'cancel' as const },
-          { text: 'Retry', onPress: () => handleVideoUpload(videoUri) }
-        ] : [
-          { text: 'OK' }
-        ];
-
-        Alert.alert(errorTitle, errorMessage, alertButtons);
+        try { (showToast as any) && showToast({ type: 'error', message: errorMessage }); } catch {}
+        if (showRetry) handleVideoUpload(videoUri);
       }
 
     } catch (error: any) {
@@ -342,14 +320,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       const errorMessage = error.message || 'An unexpected error occurred';
       setUploadError(errorMessage);
       
-      Alert.alert(
-        'Upload Error',
-        errorMessage,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Retry', onPress: () => handleVideoUpload(videoUri) }
-        ]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: errorMessage }); } catch {}
     } finally {
       setIsUploading(false);
       // Keep progress visible for a moment if successful

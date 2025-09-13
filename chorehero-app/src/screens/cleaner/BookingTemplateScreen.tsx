@@ -16,6 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { useToast } from '../../components/Toast';
 import { useAuth } from '../../hooks/useAuth';
 import { bookingTemplateService, BookingTemplate, BookingFlowStep, CustomBookingQuestion, CleanerTemplateAddon } from '../../services/bookingTemplateService';
 
@@ -32,6 +33,7 @@ interface BookingTemplateProps {
 
 const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [templates, setTemplates] = useState<BookingTemplate[]>([]);
   const [activeTemplate, setActiveTemplate] = useState<BookingTemplate | null>(null);
@@ -90,7 +92,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
       }
     } catch (error) {
       console.error('Error loading template data:', error);
-      Alert.alert('Error', 'Failed to load booking templates');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load templates' }); } catch {}
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +116,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
 
   const handleCreateTemplate = async () => {
     if (!user?.id || !newTemplateName.trim()) {
-      Alert.alert('Error', 'Please enter a template name');
+      try { (showToast as any) && showToast({ type: 'warning', message: 'Enter a template name' }); } catch {}
       return;
     }
 
@@ -131,19 +133,19 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
         setNewTemplateName('');
         setNewTemplateDescription('');
         setShowCreateModal(false);
-        Alert.alert('Success', 'Template created successfully!');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Template created' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to create template');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to create template' }); } catch {}
       }
     } catch (error) {
       console.error('Error creating template:', error);
-      Alert.alert('Error', 'Failed to create template');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to create template' }); } catch {}
     }
   };
 
   const handleAddQuestion = async () => {
     if (!activeTemplate || !newQuestion.text.trim()) {
-      Alert.alert('Error', 'Please enter a question');
+      try { (showToast as any) && showToast({ type: 'warning', message: 'Enter a question' }); } catch {}
       return;
     }
 
@@ -161,19 +163,19 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
         setCustomQuestions(prev => [...prev, result.data!]);
         setNewQuestion({ text: '', type: 'text', required: false, placeholder: '', help: '' });
         setShowQuestionModal(false);
-        Alert.alert('Success', 'Question added successfully!');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Question added' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to add question');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to add question' }); } catch {}
       }
     } catch (error) {
       console.error('Error adding question:', error);
-      Alert.alert('Error', 'Failed to add question');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to add question' }); } catch {}
     }
   };
 
   const handleAddAddon = async () => {
     if (!activeTemplate || !newAddon.name.trim() || !newAddon.price) {
-      Alert.alert('Error', 'Please fill in all required fields');
+      try { (showToast as any) && showToast({ type: 'warning', message: 'Fill all fields' }); } catch {}
       return;
     }
 
@@ -191,13 +193,13 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
         setTemplateAddons(prev => [...prev, result.data!]);
         setNewAddon({ name: '', description: '', price: '', duration: '', category: 'convenience' });
         setShowAddonModal(false);
-        Alert.alert('Success', 'Add-on added successfully!');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Add-on added' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to add add-on');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to add add-on' }); } catch {}
       }
     } catch (error) {
       console.error('Error adding addon:', error);
-      Alert.alert('Error', 'Failed to add add-on');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to add add-on' }); } catch {}
     }
   };
 
@@ -222,11 +224,11 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
           await loadTemplateDetails(template.id);
         }
       } else {
-        Alert.alert('Error', result.error || 'Failed to update template');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to update template' }); } catch {}
       }
     } catch (error) {
       console.error('Error toggling template:', error);
-      Alert.alert('Error', 'Failed to update template');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to update template' }); } catch {}
     }
   };
 
