@@ -78,8 +78,21 @@ export function stabilizedPosition(
 // Video feed specific stabilization
 export function getVideoFeedLayout(device: DeviceInfo) {
   const creatorPillTop = device.safeAreaTop + (device.isSmall ? 8 : 12);
-  const actionRailBottom = 180 + (device.safeAreaBottom > 0 ? Math.min(device.safeAreaBottom, 12) : 0);
-  const bookingBottom = 110 + (device.safeAreaBottom > 0 ? Math.min(device.safeAreaBottom, 12) : 0);
+
+  // Normalize bottom overlays relative to screen height and safe area
+  const safeBottom = device.safeAreaBottom > 0 ? Math.min(device.safeAreaBottom, 16) : 0;
+  const bookingHeight = device.isSmall ? 50 : 60;
+  const bookingBottom = Math.round(
+    (device.isTablet ? 0.10 : device.isLarge ? 0.12 : 0.13) * device.height
+  ) + safeBottom;
+
+  // Place action rail just above the booking section with consistent spacing
+  const actionRailBottom = bookingBottom + bookingHeight + (device.isSmall ? 8 : 12);
+
+  // Horizontal padding scales slightly with width and bumps on tablets
+  const horizontalPadding = device.isTablet
+    ? 24
+    : Math.max(16, Math.round(device.width * 0.05));
   
   return {
     creatorPill: {
@@ -89,12 +102,12 @@ export function getVideoFeedLayout(device: DeviceInfo) {
     },
     actionRail: {
       bottom: actionRailBottom,
-      right: device.isTablet ? 24 : 20,
-      buttonSize: device.isSmall ? 36 : 40,
+      right: horizontalPadding,
+      buttonSize: device.isTablet ? 48 : device.isLarge ? 44 : device.isSmall ? 36 : 40,
     },
     bookingSection: {
       bottom: bookingBottom,
-      height: device.isSmall ? 50 : 60, // Smaller height on small devices
+      height: bookingHeight, // Smaller height on small devices
       marginHorizontal: device.isTablet ? 20 : device.isSmall ? 1 : 2,
     },
   };
