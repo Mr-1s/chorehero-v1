@@ -19,6 +19,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -478,7 +479,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
 
   const handleSwitchToCustomer = async () => {
     try {
-      await setDemoUser('customer');
+      await AsyncStorage.setItem('guest_user_role', 'customer');
       try { (showToast as any) && showToast({ type: 'success', message: 'Switched to customer mode' }); } catch {}
     } catch (error) {
       console.error('Error switching to customer:', error);
@@ -1418,10 +1419,12 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#F0FDFA',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
   },
   saveButtonText: {
     fontSize: 14,
@@ -1474,6 +1477,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     marginBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1497,7 +1502,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
@@ -1525,6 +1530,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1587,8 +1594,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   selectedSpecialtyChip: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
   },
   specialtyText: {
     fontSize: 12,
@@ -1634,12 +1641,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDFA',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#00BFA6',
+    borderColor: '#F59E0B',
   },
   videoActionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#00BFA6',
+    color: '#F59E0B',
     marginLeft: 8,
   },
   uploadVideoContainer: {
@@ -1671,9 +1678,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#00BFA6',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: '#F59E0B',
+    height: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
     gap: 8,
   },
   uploadVideoButtonText: {

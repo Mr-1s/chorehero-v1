@@ -283,9 +283,9 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
 
   const getServiceTypeColor = (type: string) => {
     switch (type) {
-      case 'express': return '#3B82F6';
-      case 'standard': return '#3ad3db';
-      case 'deep': return '#8B5CF6';
+      case 'express': return 'rgba(59, 130, 246, 0.15)';
+      case 'standard': return 'rgba(245, 158, 11, 0.15)';
+      case 'deep': return 'rgba(139, 92, 246, 0.15)';
       default: return '#6B7280';
     }
   };
@@ -435,7 +435,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       ) : (
         <EmptyState
           {...EmptyStateConfigs.upcomingBookings}
-          showFeatures={!USE_MOCK_DATA}
+          showFeatures={true}
           actions={[
             {
               label: 'Book Now',
@@ -492,8 +492,8 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       ) : (
         <EmptyState
           {...EmptyStateConfigs.savedServices}
-          showFeatures={!USE_MOCK_DATA}
-          actions={USE_MOCK_DATA ? [] : [
+          showFeatures={true}
+          actions={[
             {
               label: 'Explore Services',
               onPress: () => navigation.navigate('Content'),
@@ -519,8 +519,8 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       ) : (
         <EmptyState
           {...EmptyStateConfigs.recentActivity}
-          showFeatures={!USE_MOCK_DATA}
-          actions={USE_MOCK_DATA ? [] : [
+          showFeatures={true}
+          actions={[
             {
               label: 'Book Your First Service',
               onPress: () => navigation.navigate('BookingFlow', {}),

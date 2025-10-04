@@ -110,9 +110,9 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'confirmed': return '#4ECDC4';
+      case 'confirmed': return '#F59E0B';
       case 'pending': return '#FFD93D';
-      case 'in_progress': return '#FF6B6B';
+      case 'in_progress': return '#F59E0B';
       case 'completed': return '#96CEB4';
       default: return '#718096';
     }
@@ -170,7 +170,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
             {/* Today's Summary */}
             <View style={styles.summaryCard}>
               <LinearGradient
-                colors={['#FF6B6B', '#FF8E53']}
+                colors={['#F59E0B', '#F59E0B']}
                 style={styles.summaryGradient}
               >
                 <View style={styles.summaryHeader}>
@@ -230,7 +230,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
 
                   {booking.status === 'confirmed' && (
                     <TouchableOpacity style={styles.navigateButton}>
-                      <Ionicons name="navigation" size={16} color="#FF6B6B" />
+                      <Ionicons name="navigation" size={16} color="#F59E0B" />
                       <Text style={styles.navigateText}>Start Navigation</Text>
                     </TouchableOpacity>
                   )}
@@ -288,7 +288,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
             {/* Save Changes */}
             <TouchableOpacity style={styles.saveButton}>
               <LinearGradient
-                colors={['#4ECDC4', '#44A08D']}
+                colors={['#F59E0B', '#F59E0B']}
                 style={styles.saveGradient}
               >
                 <Text style={styles.saveButtonText}>Save Changes</Text>
@@ -314,27 +314,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#FF6B6B',
-    paddingTop: 60,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
-    color: '#ffffff',
+    color: '#1F2937',
   },
   settingsButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -343,7 +344,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     marginHorizontal: 20,
     marginTop: 20,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -355,10 +356,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 12,
   },
   activeTab: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#F59E0B',
   },
   tabText: {
     fontSize: 14,
@@ -408,6 +409,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -470,9 +473,10 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
+    justifyContent: 'center',
     marginHorizontal: 4,
   },
   declineButton: {

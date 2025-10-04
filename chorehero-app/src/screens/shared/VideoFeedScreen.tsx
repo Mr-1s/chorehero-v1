@@ -17,6 +17,7 @@ import {
   Animated,
   RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -41,6 +42,8 @@ import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
 import { locationService } from '../../services/location';
 import { guestModeService } from '../../services/guestModeService';
+import { useDeviceStabilization, getVideoFeedLayout } from '../../utils/deviceStabilization';
+import StabilizedText from '../../components/StabilizedText';
 
 type TabParamList = {
   Home: undefined;
@@ -163,6 +166,7 @@ interface CleanerProfile {
   estimated_duration: string;
   latitude?: number;
   longitude?: number;
+  verification_status?: 'verified' | 'pending' | 'rejected';
 }
 
 interface VideoItem {
@@ -359,15 +363,7 @@ const ExpoVideoPlayer: React.FC<{
           pointerEvents="none"
         />
         
-        {/* Enhanced Loading indicator */}
-        {!isReady && (
-          <View style={styles.enhancedLoadingOverlay}>
-            <View style={styles.loadingShimmer}>
-              <ActivityIndicator size="large" color="#3ad3db" />
-              <Text style={styles.enhancedLoadingText}>Loading video...</Text>
-            </View>
-          </View>
-        )}
+        {/* Loading indicator disabled for cleaner experience */}
         
         {/* Duration Badge - Always Visible */}
         {isReady && duration > 0 && (
@@ -378,14 +374,7 @@ const ExpoVideoPlayer: React.FC<{
           </View>
         )}
         
-        {/* Play/Pause Overlay */}
-        {!isPlaying && isActive && isReady && (
-          <View style={styles.playPauseOverlay}>
-            <TouchableOpacity style={styles.playPauseButton} onPress={handleVideoTap}>
-              <Ionicons name="play" size={40} color="rgba(255, 255, 255, 0.9)" />
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Play/Pause Overlay removed - handled by main video touch area */}
 
         {/* Video Controls */}
         {showControls && isReady && duration > 0 && (
@@ -445,6 +434,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const [likedVideos, setLikedVideos] = useState<Set<string>>(new Set());
   const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
   const [followedCleaners, setFollowedCleaners] = useState<Set<string>>(new Set());
+  const insets = useSafeAreaInsets();
+  const device = useDeviceStabilization();
+  const layout = getVideoFeedLayout(device);
 
   const flatListRef = useRef<FlatList>(null);
   const sortButtonRef = useRef<View>(null);
@@ -900,28 +892,12 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
           isActive={index === currentIndex}
           isPlaying={isPlaying && isScreenFocused}
                 style={StyleSheet.absoluteFillObject}
-                showControls
-                useNativeControls
                 onTogglePlay={() => {
                   console.log('🎮 ExpoVideoPlayer onTogglePlay - current state:', isPlaying);
                   setIsPlaying(!isPlaying);
                 }}
               />
-              <TouchableOpacity 
-                style={styles.videoPauseOverlay}
-                onPress={() => {
-                  console.log('🎮 Pause overlay tap - toggling play state from:', isPlaying);
-                  setIsPlaying(!isPlaying);
-                }}
-              >
-                <View style={styles.pauseIndicator}>
-                  <Ionicons 
-                    name={isPlaying ? "pause" : "play"} 
-                    size={32} 
-                    color="rgba(255,255,255,0.8)" 
-                  />
-                </View>
-              </TouchableOpacity>
+              {/* Old pause overlay removed - now handled by center touch area */}
             </View>
           ) : (
             <View style={styles.videoFrame}>
@@ -937,22 +913,59 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         )}
         </View>
         
-        {/* Play Icon */}
-        <PlayIcon 
-          visible={!isPlaying && index === currentIndex} 
+        {/* Video Center Touch Area - Main pause/play area */}
+        <TouchableOpacity 
+          style={styles.videoCenterTouch}
           onPress={() => {
-            console.log('🎮 PlayIcon pressed - current state:', isPlaying);
+            console.log('🎮 Video center tap - toggling play state from:', isPlaying);
             setIsPlaying(!isPlaying);
           }}
+          activeOpacity={1}
+        >
+          {!isPlaying && (
+            <View style={styles.pauseIndicator}>
+              <Ionicons 
+                name="play" 
+                size={32} 
+                color="rgba(255,255,255,0.9)" 
+              />
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Play Icon - Now handled by center touch area, removed duplicate */}
+
+        {/* Video Gradient Overlays - Strong fade to black where UI sits */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.4)', 'transparent']}
+          style={styles.topVideoGradient}
+          pointerEvents="none"
+        />
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)', 'rgba(0,0,0,0.95)']}
+          style={styles.bottomVideoGradient}
+          pointerEvents="none"
         />
 
-        {/* No overlay - video touch handled directly on video frame */}
-
         {/* Unified Feed Overlay - Modern Single Interface */}
-        <View style={styles.unifiedFeedOverlay}>
+        <View
+          style={[
+            styles.unifiedFeedOverlay,
+            {
+              paddingTop: layout.creatorPill.top,
+              paddingBottom: layout.bookingSection.bottom - 1, // 29px spacing
+            },
+          ]}
+        >
           {/* Top Section - Cleaner Header */}
         <TouchableOpacity 
-            style={styles.modernCleanerHeader}
+            style={[
+              styles.modernCleanerHeader,
+              {
+                maxWidth: layout.creatorPill.maxWidth,
+                height: layout.creatorPill.height,
+              }
+            ]}
           activeOpacity={0.7}
           onPress={() => {
             console.log('🎯 Navigating to DEMO cleaner profile');
@@ -972,12 +985,12 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             </View>
             
             <View style={styles.modernCleanerInfo}>
-              <Text style={styles.modernCleanerUsername} numberOfLines={1}>
+              <StabilizedText fontSize={16} style={styles.modernCleanerUsername} numberOfLines={1}>
                 {item.cleaner.username || item.cleaner.name}
-              </Text>
-              <Text style={styles.modernCleanerService} numberOfLines={1}>
+              </StabilizedText>
+              <StabilizedText fontSize={12} style={styles.modernCleanerService} numberOfLines={1}>
                 {item.cleaner.service_title || 'Professional Cleaning'}
-              </Text>
+              </StabilizedText>
               {/* View Profile link removed per request */}
             </View>
 
@@ -988,34 +1001,47 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
               ]}
               onPress={() => handleFollow(item.cleaner.user_id)}
             >
-              <Text style={[
+              <StabilizedText fontSize={13} style={[
                 styles.modernFollowText,
                 followedCleaners.has(item.cleaner.user_id) && styles.modernFollowTextActive
               ]}>
                 {followedCleaners.has(item.cleaner.user_id) ? 'Following' : 'Follow'}
-              </Text>
+              </StabilizedText>
             </TouchableOpacity>
         </TouchableOpacity>
 
           {/* Middle Section - Action Bubbles Integrated */}
-          <Animated.View style={[
-            styles.modernActionSection,
-            {
-              opacity: descriptionSlideAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0], // Hide when description shows
-              }),
-              transform: [{
-                translateX: descriptionSlideAnim.interpolate({
+          <Animated.View
+            style={[
+              styles.modernActionSection,
+              {
+                bottom: layout.actionRail.bottom,
+                right: layout.actionRail.right,
+                opacity: descriptionSlideAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [0, 50], // Slide right and fade out
-                })
-              }]
-            }
-          ]}>
+                  outputRange: [1, 0], // Hide when description shows
+                }),
+                transform: [
+                  {
+                    translateX: descriptionSlideAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 50], // Slide right and fade out
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity 
-                style={styles.modernActionBubble}
+                style={[
+                  styles.modernActionBubble,
+                  {
+                    width: layout.actionRail.buttonSize,
+                    height: layout.actionRail.buttonSize,
+                    borderRadius: layout.actionRail.buttonSize / 2,
+                  }
+                ]}
                 onPress={() => handleLike(item.id)}
               >
                 <Ionicons 
@@ -1029,7 +1055,14 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
             <View style={styles.actionButtonContainer}>
                     <TouchableOpacity 
-                style={styles.modernActionBubble}
+                style={[
+                  styles.modernActionBubble,
+                  {
+                    width: layout.actionRail.buttonSize,
+                    height: layout.actionRail.buttonSize,
+                    borderRadius: layout.actionRail.buttonSize / 2,
+                  }
+                ]}
                 onPress={() => handleComment(item.id)}
                   >
                 <Ionicons name="chatbubble-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
@@ -1039,7 +1072,14 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
                 
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity
-                style={styles.modernActionBubble}
+                style={[
+                  styles.modernActionBubble,
+                  {
+                    width: layout.actionRail.buttonSize,
+                    height: layout.actionRail.buttonSize,
+                    borderRadius: layout.actionRail.buttonSize / 2,
+                  }
+                ]}
                 onPress={() => handleSave(item.id)}
               >
                 <Ionicons
@@ -1052,7 +1092,14 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity
-                style={styles.modernActionBubble}
+                style={[
+                  styles.modernActionBubble,
+                  {
+                    width: layout.actionRail.buttonSize,
+                    height: layout.actionRail.buttonSize,
+                    borderRadius: layout.actionRail.buttonSize / 2,
+                  }
+                ]}
                 onPress={() => handleShare(item.id)}
               >
                 <Ionicons name="share-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
@@ -1095,22 +1142,59 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             </Animated.View>
 
             {/* Enhanced Booking Section with Even Spacing */}
-            <View style={styles.modernBookingSection}>
+            <View style={[
+              styles.modernBookingSection,
+              {
+                height: layout.bookingSection.height,
+                marginHorizontal: layout.bookingSection.marginHorizontal,
+              }
+            ]}>
               {/* Price Section */}
-              <View style={styles.modernPriceContainer}>
-                <Text style={styles.modernPriceLabel}>Starting at</Text>
-                <Text style={styles.modernPriceValue}>${(item as any).hourly_rate || item.cleaner.hourly_rate}/hr</Text>
+              <View style={[
+                styles.modernPriceContainer,
+                device.isSmall ? { marginRight: DESIGN_TOKENS.spacing.xs } : null
+              ]}>
+                <StabilizedText
+                  fontSize={device.isSmall ? 10 : 12}
+                  style={styles.modernPriceLabel}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
+                  Starting at
+                </StabilizedText>
+                <StabilizedText
+                  fontSize={device.isSmall ? 15 : 20}
+                  style={styles.modernPriceValue}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                >
+                  ${((item as any).hourly_rate || item.cleaner.hourly_rate)}{device.isSmall ? '/h' : '/hr'}
+                </StabilizedText>
               </View>
               
               {/* Centered Rating & Duration Stack - Evenly Spaced */}
               <View style={styles.centeredStatsContainer}>
                 <View style={styles.centeredStatItem}>
-                  <Ionicons name="star" size={14} color={DESIGN_TOKENS.colors.accent.orange} />
-                  <Text style={styles.centeredStatText}>{(item as any).rating || item.cleaner.rating_average}</Text>
+                  <Ionicons name="star" size={device.isSmall ? 12 : 14} color={DESIGN_TOKENS.colors.accent.orange} />
+                  <StabilizedText
+                    fontSize={device.isSmall ? 10 : 12}
+                    style={styles.centeredStatText}
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                  >
+                    {(item as any).rating || item.cleaner.rating_average}
+                  </StabilizedText>
           </View>
                 <View style={styles.centeredStatItem}>
-                  <Ionicons name="time-outline" size={14} color={DESIGN_TOKENS.colors.text.secondary} />
-                  <Text style={styles.centeredStatText}>{(item as any).estimated_duration || item.cleaner.estimated_duration}</Text>
+                  <Ionicons name="time-outline" size={device.isSmall ? 12 : 14} color={DESIGN_TOKENS.colors.text.secondary} />
+                  <StabilizedText
+                    fontSize={device.isSmall ? 10 : 12}
+                    style={styles.centeredStatText}
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                  >
+                    {(item as any).estimated_duration || item.cleaner.estimated_duration}
+                  </StabilizedText>
                 </View>
               </View>
               
@@ -1118,26 +1202,42 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
               <View style={styles.bookButtonSection}>
                 <View style={styles.infoAndBookRow}>
                   <TouchableOpacity 
-                    style={styles.descriptionToggleButtonConnected}
+                    style={[
+                      styles.descriptionToggleButtonConnected,
+                      {
+                        width: device.isSmall ? 32 : 40,
+                        height: device.isSmall ? 32 : 40,
+                        borderRadius: device.isSmall ? 16 : 20,
+                      }
+                    ]}
                     onPress={toggleDescriptionCard}
                   >
                     <Ionicons 
                       name={showDescriptionCard ? "information" : "information-outline"} 
-                      size={18} 
+                      size={device.isSmall ? 14 : 18} 
                       color={showDescriptionCard ? DESIGN_TOKENS.colors.brand : DESIGN_TOKENS.colors.text.secondary} 
                     />
                   </TouchableOpacity>
 
                   <TouchableOpacity 
-                    style={styles.modernBookButtonFixed}
+                    style={[
+                      styles.modernBookButtonFixed,
+                      {
+                        height: device.isSmall ? 36 : 44,
+                        minWidth: device.isSmall ? 108 : 136,
+                        maxWidth: device.isSmall ? 140 : 176,
+                        paddingHorizontal: device.isSmall ? 10 : DESIGN_TOKENS.spacing.md,
+                        borderRadius: device.isSmall ? 18 : DESIGN_TOKENS.radius.lg,
+                      }
+                    ]}
                     onPress={() => {
                       console.log('📅 Book button pressed for:', item.cleaner.name);
                       handleBooking(item.cleaner.user_id);
                     }}
                     activeOpacity={0.9}
                   >
-                    <Ionicons name="calendar" size={16} color={DESIGN_TOKENS.colors.white} />
-                    <Text style={styles.modernBookButtonTextFixed}>Book Now</Text>
+                    <Ionicons name="calendar" size={device.isSmall ? 14 : 16} color={DESIGN_TOKENS.colors.white} />
+                    <StabilizedText fontSize={device.isSmall ? 14 : 16} style={styles.modernBookButtonTextFixed}>Book Now</StabilizedText>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1149,6 +1249,25 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
     );
   };
 
+  // Subtle pulse animation for CTA (matches customer feel)
+  const ctaPulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ctaPulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(ctaPulse, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => {
+      // @ts-ignore - stop exists at runtime
+      loop.stop && loop.stop();
+    };
+  }, []);
+
+  const pulseScale = ctaPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const pulseOpacity = ctaPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0] });
+
   const viewabilityConfig = {
     itemVisiblePercentThreshold: 50,
   };
@@ -1156,7 +1275,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0891b2" />
+        <ActivityIndicator size="large" color="#F59E0B" />
         <Text style={styles.loadingText}>Loading cleaners...</Text>
       </View>
     );
@@ -1193,11 +1312,11 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
           <LinearGradient
-            colors={['#0891b2', '#06b6d4']}
+            colors={[(route as any)?.params?.brand || '#0891b2', (route as any)?.params?.brand || '#06b6d4']}
             style={styles.emptyStateGradient}
           >
             <View style={styles.emptyStateIconContainer}>
-              <LinearGradient colors={['#3ad3db', '#2BC8D4']} style={styles.emptyStateIconGradient}>
+              <LinearGradient colors={['#F59E0B', '#F59E0B']} style={styles.emptyStateIconGradient}>
                 <Ionicons name="videocam-outline" size={64} color="#ffffff" />
               </LinearGradient>
             </View>
@@ -1205,7 +1324,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             <Text style={styles.emptyStateSubtitle}>
               Cleaners in your area will share their work here. Check back soon for amazing transformations!
             </Text>
-                                                   {true && (
+            {true && (
                <View style={styles.emptyStateFeatures}>
                  <View style={styles.featureItem}>
                    <Ionicons name="location" size={20} color="#ffffff" />
@@ -1318,23 +1437,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#000', // Ensure black background
   },
   videoFrame: {
-    width: width - 0, // full width of safe area
-    height: '100%',
-    borderRadius: DESIGN_TOKENS.radius.lg, // Add rounded corners
-    overflow: 'hidden',
+    width: '100%', // Full width
+    height: '100%', // Full height
     backgroundColor: '#000',
-    ...DESIGN_TOKENS.shadow.md, // Add subtle shadow
+    // Removed border radius and shadow for full screen video
   },
   videoPauseOverlay: {
     position: 'absolute',
-    top: 0,
+    top: '15%', // Start below creator pill area
     left: 0,
     right: 0,
-    bottom: 0,
+    bottom: '25%', // End above booking section area
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
-    zIndex: 20, // High z-index to capture taps
+    zIndex: 5, // Lower z-index, just above video
   },
   pauseIndicator: {
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -1343,6 +1460,33 @@ const styles = StyleSheet.create({
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  topVideoGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 150, // Larger area for better fade
+    zIndex: 3, // Above video, below UI
+  },
+  bottomVideoGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 280, // Much larger area to cover booking + nav + padding
+    zIndex: 3, // Above video, below UI
+  },
+  videoCenterTouch: {
+    position: 'absolute',
+    top: '25%', // Below creator pill with more space
+    left: '20%', // Centered positioning
+    right: '20%', // Equal spacing from both sides
+    bottom: '35%', // More space above booking section
+    backgroundColor: 'transparent',
+    zIndex: 150, // Highest z-index to ensure touch works
+    alignItems: 'center', // Center the play button horizontally
+    justifyContent: 'center', // Center the play button vertically
   },
   directVideoTouch: {
     position: 'absolute',
@@ -1496,7 +1640,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 2,
     maxWidth: 220,
-    numberOfLines: 1,
   },
 
   // Empty State Styles
@@ -1604,7 +1747,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 15,
-    backdropFilter: 'blur(20px)',
     width: '75%',
     marginLeft: 20,
   },
@@ -1988,7 +2130,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 25,
-    backdropFilter: 'blur(10px)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
@@ -2068,7 +2209,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 16,
     alignItems: 'center',
-    backdropFilter: 'blur(10px)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
@@ -2089,7 +2229,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     borderRadius: 12,
     padding: 12,
-    backdropFilter: 'blur(10px)',
   },
   progressBarContainer: {
     position: 'relative',
@@ -2208,14 +2347,12 @@ const styles = StyleSheet.create({
     fontSize: DESIGN_TOKENS.text.lg,
     fontWeight: '700',
     letterSpacing: -0.2,
-    numberOfLines: 1,
   },
   modernCleanerService: {
     color: DESIGN_TOKENS.colors.text.secondary,
     fontSize: DESIGN_TOKENS.text.base,
     fontWeight: '500',
     marginTop: DESIGN_TOKENS.spacing.xs,
-    numberOfLines: 1,
   },
   viewProfileLink: {
     marginTop: 2,
@@ -2226,21 +2363,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   modernFollowButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: DESIGN_TOKENS.spacing.lg,
-    paddingVertical: DESIGN_TOKENS.spacing.sm,
-    borderRadius: DESIGN_TOKENS.radius.xl,
-    height: 32, // Fixed height
-    minWidth: 72, // Minimum button width
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    height: 36,
+    minWidth: 84,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: DESIGN_TOKENS.colors.brand,
-    ...DESIGN_TOKENS.shadow.sm,
+    // remove shadow to sit naturally within the creator pill
+    shadowColor: 'transparent',
+    flexShrink: 0,
+    alignSelf: 'center', // Fix vertical alignment in creator pill
+    marginTop: 1, // subtle nudge to visually center tall glyphs
   },
   modernFollowText: {
     color: DESIGN_TOKENS.colors.brand,
-    fontSize: DESIGN_TOKENS.text.sm,
+    fontSize: 13,
     fontWeight: '600',
   },
   modernFollowButtonActive: {
@@ -2264,8 +2405,8 @@ const styles = StyleSheet.create({
   modernActionBubble: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 40, // smaller buttons
-    height: 40,
+    width: 40, // Will be overridden by device-specific sizing
+    height: 40, // Will be overridden by device-specific sizing
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque
     borderRadius: 20,
     ...DESIGN_TOKENS.shadow.lg, // Match booking/nav shadow strength
@@ -2288,7 +2429,7 @@ const styles = StyleSheet.create({
 
   // Modern Bottom Section - Fixed Spacing & Dimensions
   modernBottomSection: {
-    gap: 9, // 9px consistent gap as requested
+    gap: 12, // Increased gap to match bottom spacing
     // Remove margin extension to match nav tab exactly
   },
   modernServiceInfo: {
@@ -2359,6 +2500,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     marginRight: DESIGN_TOKENS.spacing.sm,
+    // remove minWidth to restore previous layout on larger devices
   },
   modernPriceLabel: {
     color: DESIGN_TOKENS.colors.text.tertiary, // slightly lighter tone
@@ -2403,7 +2545,7 @@ const styles = StyleSheet.create({
     height: 44, // Slightly smaller to better fit container
     minWidth: 136, // increased width
     maxWidth: 176, // maintain headroom
-    backgroundColor: DESIGN_TOKENS.colors.brand, // Solid color instead of gradient
+    backgroundColor: DESIGN_TOKENS.colors.brand, // Solid color using hero orange
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2411,11 +2553,13 @@ const styles = StyleSheet.create({
     gap: DESIGN_TOKENS.spacing.sm, // 8px
     ...DESIGN_TOKENS.shadow.md,
     // Subtle gradient effect using shadow
-    shadowColor: '#2DD4BF',
+    shadowColor: 'rgba(245, 158, 11, 0.6)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
   modernBookButtonTextFixed: {
     color: '#FFFFFF', // Explicit white color
@@ -2441,7 +2585,7 @@ const styles = StyleSheet.create({
     borderRadius: DESIGN_TOKENS.radius.xl, // 20px
     ...DESIGN_TOKENS.shadow.md,
     borderWidth: 1,
-    borderColor: DESIGN_TOKENS.colors.brandLight,
+    borderColor: 'rgba(229, 231, 235, 1)',
     gap: DESIGN_TOKENS.spacing.xs, // 4px
     height: 32, // Fixed height
     width: 80, // Fixed width instead of minWidth
@@ -2596,7 +2740,7 @@ const styles = StyleSheet.create({
   modernBookButton: {
     borderRadius: 14,
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: 'rgba(245, 158, 11, 0.6)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
@@ -2649,8 +2793,8 @@ const styles = StyleSheet.create({
   infoAndBookRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 4,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   descriptionToggleButtonConnected: {
     width: 40, // match smaller social buttons

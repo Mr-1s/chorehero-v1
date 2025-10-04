@@ -487,7 +487,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
     marginLeft: -8,
   },
   headerTitle: {
@@ -496,13 +501,18 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   saveButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
     marginRight: -8,
   },
   saveButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#F59E0B',
   },
   loadingContainer: {
     flex: 1,
@@ -522,6 +532,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 20,
     paddingVertical: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   sectionTitle: {
     fontSize: 18,
@@ -598,8 +611,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   optionChipSelected: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
   },
   optionChipText: {
     fontSize: 14,

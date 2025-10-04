@@ -3,7 +3,6 @@ import { createStackNavigator } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../hooks/useAuth';
 import RoleSelectionModal from '../RoleSelectionModal';
-import RoleIndicator from '../RoleIndicator';
 
 // Customer Screens
 import CustomerDashboardScreen from '../../screens/customer/DashboardScreen';
@@ -39,25 +38,26 @@ import CleanerProfileEditScreen from '../../screens/cleaner/ProfileEditScreen';
 
 
 import { COLORS } from '../../utils/constants';
+// Responsive container wrapper removed per user request
 
-const Stack = createStackNavigator();
+const Stack = createStackNavigator<any>();
 
 // Content Stack for both users
 const ContentStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="ContentFeed" component={ContentFeedScreen} />
-    <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
-    <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
+    <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
+    <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
   </Stack.Navigator>
 );
 
 // Customer Stack Navigation
 const CustomerDiscoverStack = () => (
-  <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="Discover" component={DiscoverScreen} />
-    <Stack.Screen name="BookingFlow" component={BookingFlowScreen} />
-    <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen} />
-    <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Discover" component={DiscoverScreen as any} />
+      <Stack.Screen name="BookingFlow" component={BookingFlowScreen as any} />
+      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen as any} />
+      <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
   </Stack.Navigator>
 );
 
@@ -73,25 +73,25 @@ const CleanerProfileStack = () => (
 const CustomerNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Home" component={CustomerProfileScreen} />
-      <Stack.Screen name="Content" component={VideoFeedScreen} />
-      <Stack.Screen name="ContentFeed" component={ContentFeedScreen} />
-      <Stack.Screen name="Discover" component={CustomerDiscoverStack} />
-      <Stack.Screen name="Tracking" component={TrackingScreen} />
-      <Stack.Screen name="Messages" component={MessagesScreen} />
-      <Stack.Screen name="Profile" component={CustomerProfileScreen} />
-      <Stack.Screen name="Dashboard" component={CustomerDashboardScreen} />
-      <Stack.Screen name="Bookings" component={BookingScreen} />
-      <Stack.Screen name="UserProfile" component={UserProfileScreen} />
-      <Stack.Screen name="BookingFlow" component={BookingFlowScreen} />
-      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen} />
-      <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
-      <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
-      <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
-      <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} />
-      <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen} />
-      <Stack.Screen name="SavedServices" component={SavedServicesScreen} />
-      <Stack.Screen name="JobDetails" component={JobDetailsScreen} />
+      <Stack.Screen name="Home" component={CustomerProfileScreen as any} />
+      <Stack.Screen name="Content" component={VideoFeedScreen as any} />
+      <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
+      <Stack.Screen name="Discover" component={CustomerDiscoverStack as any} />
+      <Stack.Screen name="Tracking" component={TrackingScreen as any} />
+      <Stack.Screen name="Messages" component={MessagesScreen as any} />
+      <Stack.Screen name="Profile" component={CustomerProfileScreen as any} />
+      <Stack.Screen name="Dashboard" component={CustomerDashboardScreen as any} />
+      <Stack.Screen name="Bookings" component={BookingScreen as any} />
+      <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
+      <Stack.Screen name="BookingFlow" component={BookingFlowScreen as any} />
+      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen as any} />
+      <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
+      <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
+      <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
+      <Stack.Screen name="EditProfileScreen" component={EditProfileScreen as any} />
+      <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen as any} />
+      <Stack.Screen name="SavedServices" component={SavedServicesScreen as any} />
+      <Stack.Screen name="JobDetails" component={JobDetailsScreen as any} />
 
     </Stack.Navigator>
   );
@@ -105,25 +105,25 @@ const CleanerNavigator = () => {
         gestureEnabled: true,
       }}
     >
-      <Stack.Screen name="Home" component={CleanerProfileScreen} />
-      <Stack.Screen name="Dashboard" component={CleanerDashboardScreen} />
-      <Stack.Screen name="Jobs" component={CleanerJobsScreen} />
-      <Stack.Screen name="Heroes" component={VideoFeedScreen} />
+      <Stack.Screen name="Home" component={CleanerProfileScreen as any} />
+      <Stack.Screen name="Dashboard" component={CleanerDashboardScreen as any} />
+      <Stack.Screen name="Jobs" component={CleanerJobsScreen as any} />
+      <Stack.Screen name="Heroes" component={VideoFeedScreen as any} />
                   {/* Content screen removed - Content button now goes directly to ContentCreation */}
       <Stack.Screen name="Schedule" component={CleanerScheduleScreen} />
-      <Stack.Screen name="Earnings" component={CleanerEarningsScreen} />
-      <Stack.Screen name="Messages" component={MessagesScreen} />
-      <Stack.Screen name="Profile" component={CleanerProfileStack} />
-      <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
-      <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
-      <Stack.Screen name="ContentFeed" component={ContentFeedScreen} />
-      <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
-      <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
-      <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} />
-      <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen} />
-      <Stack.Screen name="SavedServices" component={SavedServicesScreen} />
-      <Stack.Screen name="JobDetails" component={JobDetailsScreen} />
-      <Stack.Screen name="CleanerProfileEdit" component={CleanerProfileEditScreen} />
+      <Stack.Screen name="Earnings" component={CleanerEarningsScreen as any} />
+      <Stack.Screen name="Messages" component={MessagesScreen as any} />
+      <Stack.Screen name="Profile" component={CleanerProfileStack as any} />
+      <Stack.Screen name="VideoUpload" component={VideoUploadScreen as any} />
+      <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
+      <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
+      <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
+      <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
+      <Stack.Screen name="EditProfileScreen" component={EditProfileScreen as any} />
+      <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen as any} />
+      <Stack.Screen name="SavedServices" component={SavedServicesScreen as any} />
+      <Stack.Screen name="JobDetails" component={JobDetailsScreen as any} />
+      <Stack.Screen name="CleanerProfileEdit" component={CleanerProfileEditScreen as any} />
 
     </Stack.Navigator>
   );
@@ -228,7 +228,6 @@ const RoleBasedTabNavigator = () => {
     return (
       <>
         <CleanerNavigator />
-        <RoleIndicator />
         <RoleSelectionModal
           visible={showRoleSelection}
           onRoleSelected={handleRoleSelected}
@@ -240,7 +239,6 @@ const RoleBasedTabNavigator = () => {
     return (
       <>
         <CustomerNavigator />
-        <RoleIndicator />
         <RoleSelectionModal
           visible={showRoleSelection}
           onRoleSelected={handleRoleSelected}

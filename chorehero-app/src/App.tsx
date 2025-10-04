@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
 
 // Global error handler for auth token issues
@@ -44,16 +45,17 @@ import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
-import BookingTemplateScreen from './screens/cleaner/BookingTemplateScreen';
-import ContentUploadWithPricingScreen from './screens/cleaner/ContentUploadWithPricingScreen';
-import { TutorialDemoScreen } from './screens/tutorial/TutorialDemoScreen';
+// Removed unused/legacy screens not present in current StackParamList
 import { ToastProvider } from './components/Toast';
+import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
+import { useRoleFeatures } from './components/RoleBasedUI';
 
 
 // Import services for initialization
 import { pushNotificationService } from './services/pushNotifications';
 import { enhancedLocationService } from './services/enhancedLocationService';
 import { jobStateManager } from './services/jobStateManager';
+import { presenceService } from './services/presenceService';
 
 
 type TabParamList = {
@@ -157,6 +159,9 @@ const AppNavigator = () => {
     if (isAuthenticated && user?.id) {
       initializeServices(user.id);
     }
+    return () => {
+      presenceService.cleanup();
+    };
   }, [isAuthenticated, user?.id]);
 
   const initializeServices = async (userId: string) => {
@@ -166,6 +171,9 @@ const AppNavigator = () => {
       
       // Initialize location service
       await enhancedLocationService.initialize();
+
+      // Initialize presence
+      await presenceService.initialize(userId);
 
       console.log('Services initialized successfully');
     } catch (error) {
@@ -207,9 +215,6 @@ const AppNavigator = () => {
           <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
-          <Stack.Screen name="BookingTemplate" component={BookingTemplateScreen} />
-          <Stack.Screen name="ContentUploadWithPricing" component={ContentUploadWithPricingScreen} />
-          <Stack.Screen name="TutorialDemo" component={TutorialDemoScreen} />
           
 
         </Stack.Navigator>
@@ -229,17 +234,23 @@ export default function App() {
   }
 
   return (
-    <AuthProvider>
-      <LocationProvider>
-        <MessageProvider>
-          <EnhancedMessageWrapper>
-            <ToastProvider>
-              <AppNavigator />
-            </ToastProvider>
-          </EnhancedMessageWrapper>
-        </MessageProvider>
-      </LocationProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <LocationProvider>
+          <MessageProvider>
+            <EnhancedMessageWrapper>
+              <ThemeProvider initialTheme={HERO_THEME}>
+                <RoleThemeObserver>
+                  <ToastProvider>
+                    <AppNavigator />
+                  </ToastProvider>
+                </RoleThemeObserver>
+              </ThemeProvider>
+            </EnhancedMessageWrapper>
+          </MessageProvider>
+        </LocationProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -255,5 +266,20 @@ const EnhancedMessageWrapper: React.FC<{ children: React.ReactNode }> = ({ child
     );
   }
   
+  return <>{children}</>;
+};
+
+// Observes role and applies the correct theme dynamically
+const RoleThemeObserver: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isCleaner } = useRoleFeatures();
+  const { theme, setTheme } = useTheme();
+
+  React.useEffect(() => {
+    const target = isCleaner ? HERO_THEME : CUSTOMER_THEME;
+    if (theme.name !== target.name) {
+      setTheme(target);
+    }
+  }, [isCleaner]);
+
   return <>{children}</>;
 };

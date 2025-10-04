@@ -19,10 +19,13 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLORS } from '../../utils/constants';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
 
 import { contentService } from '../../services/contentService';
+import { presenceService } from '../../services/presenceService';
 
 import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
@@ -98,9 +101,52 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const [hasRepeatClients, setHasRepeatClients] = useState(true); // Mock data
   const [nextAvailable, setNextAvailable] = useState<string | null>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [presence, setPresence] = useState<{ online: boolean; last_seen_at?: string } | null>(null);
   
   // Animation values
   const saveButtonScale = useRef(new Animated.Value(1)).current;
+  // Subscribe to presence updates for this cleaner
+  useEffect(() => {
+    if (!cleanerId) return;
+    let unsub: (() => void) | null = null;
+    (async () => {
+      const initial = await presenceService.getPresence(cleanerId);
+      if (initial) setPresence({ online: !!initial.online, last_seen_at: initial.last_seen_at });
+      unsub = presenceService.subscribe(cleanerId, (rec) => {
+        if (rec) setPresence({ online: !!rec.online, last_seen_at: rec.last_seen_at });
+      });
+    })();
+    return () => { if (unsub) unsub(); };
+  }, [cleanerId]);
+
+  // Load saved following state from storage
+  useEffect(() => {
+    const loadFollowing = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('following_cleaners');
+        const set: string[] = raw ? JSON.parse(raw) : [];
+        if (cleanerId && Array.isArray(set)) setIsFollowing(set.includes(cleanerId));
+      } catch {}
+    };
+    loadFollowing();
+  }, [cleanerId]);
+
+  const toggleFollow = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('following_cleaners');
+      const set: string[] = raw ? JSON.parse(raw) : [];
+      let next: string[];
+      if (set.includes(cleanerId)) {
+        next = set.filter(id => id !== cleanerId);
+        setIsFollowing(false);
+      } else {
+        next = [...set, cleanerId];
+        setIsFollowing(true);
+      }
+      await AsyncStorage.setItem('following_cleaners', JSON.stringify(next));
+    } catch {}
+  };
 
   const loadCleanerAvailability = async (cleanerId: string) => {
     try {
@@ -675,10 +721,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#3ad3db" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.shareButton}>
-          <Ionicons name="share-outline" size={24} color="#3ad3db" />
+          <Ionicons name="share-outline" size={24} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
 
@@ -696,7 +742,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   style={styles.profileAvatar} 
                 />
                 {/* Online Status Ring */}
-                <View style={[styles.onlineStatusRing, { backgroundColor: isOnline ? '#10B981' : '#9CA3AF' }]} />
+                <View style={[styles.onlineStatusRing, { backgroundColor: presence?.online ? COLORS.success : '#9CA3AF' }]} />
                 {cleaner.profile.verification_status === 'verified' && (
                   <View style={styles.verifiedBadge}>
                     <Ionicons name="checkmark" size={12} color="white" />
@@ -709,7 +755,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 </View>
                 <Text style={styles.profileUsername}>@{cleaner.name.toLowerCase().replace(' ', '')}</Text>
                 <View style={styles.locationContainer}>
-                  <Ionicons name="location-outline" size={14} color="#3ad3db" />
+                  <Ionicons name="location-outline" size={14} color={COLORS.primary} />
                   <Text style={styles.locationText}>San Francisco, CA</Text>
                   <Text style={styles.distanceText}>• 3.2 miles away</Text>
                 </View>
@@ -801,6 +847,15 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
 
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.secondaryActionButton, isFollowing && styles.savedActionButton]}
+                onPress={toggleFollow}
+              >
+                <Ionicons name={isFollowing ? 'checkmark' : 'add'} size={20} color={isFollowing ? 'white' : COLORS.primary} />
+                <Text style={[styles.secondaryActionText, isFollowing && styles.savedActionText]}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.primaryActionButton}
                 onPress={() => {
@@ -811,7 +866,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 }}
               >
                 <LinearGradient
-                  colors={['#3ad3db', '#2BC8D4']}
+                  colors={[COLORS.primary, COLORS.primary]}
                   style={styles.primaryActionGradient}
                 >
                   <Ionicons name="calendar" size={20} color="white" />
@@ -1326,7 +1381,7 @@ const styles = StyleSheet.create({
   },
   activeTabButton: {
     borderBottomWidth: 3,
-    borderBottomColor: '#3ad3db',
+    borderBottomColor: COLORS.primary,
   },
   tabButtonText: {
     fontSize: 15,
@@ -1334,7 +1389,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   activeTabButtonText: {
-    color: '#3ad3db',
+    color: COLORS.primary,
     fontWeight: '700',
   },
   activeTabIndicator: {
@@ -1343,7 +1398,7 @@ const styles = StyleSheet.create({
     left: '30%',
     right: '30%',
     height: 3,
-    backgroundColor: '#3ad3db',
+    backgroundColor: COLORS.primary,
     borderRadius: 2,
   },
   tabContent: {
@@ -1410,7 +1465,7 @@ const styles = StyleSheet.create({
   servicePrice: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#F59E0B',
+    color: '#3ad3db', // Teal for customer-facing view
     marginBottom: 8,
   },
   bookNowButton: {

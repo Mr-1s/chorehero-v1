@@ -690,7 +690,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    backdropFilter: 'blur(20px)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     zIndex: 15,

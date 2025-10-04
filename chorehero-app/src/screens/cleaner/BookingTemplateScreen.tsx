@@ -236,7 +236,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
     <View style={styles.tabContent}>
       <View style={styles.statsContainer}>
         <LinearGradient
-          colors={['#3ad3db', '#2bc4ce']}
+          colors={['#F59E0B', '#F59E0B']}
           style={styles.statCard}
         >
           <Ionicons name="trending-up" size={32} color="white" />
@@ -273,7 +273,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
               <Switch
                 value={template.is_active}
                 onValueChange={() => handleToggleTemplateActive(template)}
-                trackColor={{ false: '#E5E7EB', true: '#3ad3db' }}
+                trackColor={{ false: '#E5E7EB', true: '#F59E0B' }}
                 thumbColor="white"
               />
             </View>
@@ -289,7 +289,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
           style={styles.createTemplateButton}
           onPress={() => setShowCreateModal(true)}
         >
-          <Ionicons name="add-circle-outline" size={24} color="#3ad3db" />
+          <Ionicons name="add-circle-outline" size={24} color="#F59E0B" />
           <Text style={styles.createTemplateText}>Create New Template</Text>
         </TouchableOpacity>
       </View>
@@ -430,7 +430,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#F59E0B" />
           <Text style={styles.loadingText}>Loading booking templates...</Text>
         </View>
       </SafeAreaView>
@@ -602,7 +602,7 @@ const BookingTemplateScreen: React.FC<BookingTemplateProps> = ({ navigation }) =
                 <Switch
                   value={newQuestion.required}
                   onValueChange={(required) => setNewQuestion(prev => ({ ...prev, required }))}
-                  trackColor={{ false: '#E5E7EB', true: '#3ad3db' }}
+                  trackColor={{ false: '#E5E7EB', true: '#F59E0B' }}
                   thumbColor="white"
                 />
               </View>
@@ -742,7 +742,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   activeTab: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
   },
   tabText: {
     fontSize: 14,
@@ -769,6 +769,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -811,15 +813,17 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
   },
   templateCard: {
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -863,9 +867,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
+    height: 44,
+    paddingHorizontal: 16,
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 22,
     borderWidth: 2,
     borderColor: '#E5E7EB',
     borderStyle: 'dashed',
@@ -873,15 +878,17 @@ const styles = StyleSheet.create({
   createTemplateText: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#3ad3db',
+    color: '#F59E0B',
     marginLeft: 8,
   },
   flowStepCard: {
     flexDirection: 'row',
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -892,7 +899,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -939,9 +946,11 @@ const styles = StyleSheet.create({
   },
   questionCard: {
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -971,9 +980,11 @@ const styles = StyleSheet.create({
   },
   addonCard: {
     backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -994,7 +1005,7 @@ const styles = StyleSheet.create({
   addonPrice: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#F59E0B',
   },
   addonDescription: {
     fontSize: 14,
@@ -1081,7 +1092,7 @@ const styles = StyleSheet.create({
   modalSave: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#F59E0B',
   },
   modalContent: {
     flex: 1,
@@ -1128,7 +1139,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   pickerOptionActive: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
   },
   pickerOptionText: {
     fontSize: 14,
