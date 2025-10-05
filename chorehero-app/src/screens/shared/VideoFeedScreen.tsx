@@ -44,6 +44,8 @@ import { locationService } from '../../services/location';
 import { guestModeService } from '../../services/guestModeService';
 import { useDeviceStabilization, getVideoFeedLayout } from '../../utils/deviceStabilization';
 import StabilizedText from '../../components/StabilizedText';
+import CreatorFollowPill from '../../components/CreatorFollowPill';
+import BookingBubble from '../../components/BookingBubble';
 
 type TabParamList = {
   Home: undefined;
@@ -957,58 +959,18 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             },
           ]}
         >
-          {/* Top Section - Cleaner Header */}
-        <TouchableOpacity 
-            style={[
-              styles.modernCleanerHeader,
-              {
-                maxWidth: layout.creatorPill.maxWidth,
-                height: layout.creatorPill.height,
-              }
-            ]}
-          activeOpacity={0.7}
-          onPress={() => {
-            console.log('🎯 Navigating to DEMO cleaner profile');
-            navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
-          }}
-        >
-            <View style={styles.modernAvatarContainer}>
-          <Image 
-            source={{ uri: item.cleaner.avatar_url || 'https://via.placeholder.com/50' }} 
-                style={styles.modernCleanerAvatar} 
-              />
-              {item.cleaner.verification_status === 'verified' && (
-                <View style={styles.modernVerificationBadge}>
-                  <Ionicons name="checkmark" size={10} color="#FFFFFF" />
-          </View>
-              )}
-            </View>
-            
-            <View style={styles.modernCleanerInfo}>
-              <StabilizedText fontSize={16} style={styles.modernCleanerUsername} numberOfLines={1}>
-                {item.cleaner.username || item.cleaner.name}
-              </StabilizedText>
-              <StabilizedText fontSize={12} style={styles.modernCleanerService} numberOfLines={1}>
-                {item.cleaner.service_title || 'Professional Cleaning'}
-              </StabilizedText>
-              {/* View Profile link removed per request */}
-            </View>
-
-            <TouchableOpacity 
-              style={[
-                styles.modernFollowButton,
-                followedCleaners.has(item.cleaner.user_id) && styles.modernFollowButtonActive
-              ]}
-              onPress={() => handleFollow(item.cleaner.user_id)}
-            >
-              <StabilizedText fontSize={13} style={[
-                styles.modernFollowText,
-                followedCleaners.has(item.cleaner.user_id) && styles.modernFollowTextActive
-              ]}>
-                {followedCleaners.has(item.cleaner.user_id) ? 'Following' : 'Follow'}
-              </StabilizedText>
-            </TouchableOpacity>
-        </TouchableOpacity>
+          {/* Top Section - Creator pill */}
+          <CreatorFollowPill
+            avatarUrl={item.cleaner.avatar_url}
+            username={item.cleaner.username || item.cleaner.name}
+            serviceTitle={item.cleaner.service_title || 'Professional Cleaning'}
+            verified={item.cleaner.verification_status === 'verified'}
+            isFollowing={followedCleaners.has(item.cleaner.user_id)}
+            onPressProfile={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
+            onToggleFollow={() => handleFollow(item.cleaner.user_id)}
+            height={layout.creatorPill.height}
+            maxWidth={layout.creatorPill.maxWidth}
+          />
 
           {/* Middle Section - Action Bubbles Integrated */}
           <Animated.View
@@ -1142,106 +1104,16 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             </Animated.View>
 
             {/* Enhanced Booking Section with Even Spacing */}
-            <View style={[
-              styles.modernBookingSection,
-              {
-                height: layout.bookingSection.height,
-                marginHorizontal: layout.bookingSection.marginHorizontal,
-              }
-            ]}>
-              {/* Price Section */}
-              <View style={[
-                styles.modernPriceContainer,
-                device.isSmall ? { marginRight: DESIGN_TOKENS.spacing.xs } : null
-              ]}>
-                <StabilizedText
-                  fontSize={device.isSmall ? 10 : 12}
-                  style={styles.modernPriceLabel}
-                  numberOfLines={1}
-                  ellipsizeMode="clip"
-                >
-                  Starting at
-                </StabilizedText>
-                <StabilizedText
-                  fontSize={device.isSmall ? 15 : 20}
-                  style={styles.modernPriceValue}
-                  numberOfLines={1}
-                  ellipsizeMode="clip"
-                >
-                  ${((item as any).hourly_rate || item.cleaner.hourly_rate)}{device.isSmall ? '/h' : '/hr'}
-                </StabilizedText>
-              </View>
-              
-              {/* Centered Rating & Duration Stack - Evenly Spaced */}
-              <View style={styles.centeredStatsContainer}>
-                <View style={styles.centeredStatItem}>
-                  <Ionicons name="star" size={device.isSmall ? 12 : 14} color={DESIGN_TOKENS.colors.accent.orange} />
-                  <StabilizedText
-                    fontSize={device.isSmall ? 10 : 12}
-                    style={styles.centeredStatText}
-                    numberOfLines={1}
-                    ellipsizeMode="clip"
-                  >
-                    {(item as any).rating || item.cleaner.rating_average}
-                  </StabilizedText>
-          </View>
-                <View style={styles.centeredStatItem}>
-                  <Ionicons name="time-outline" size={device.isSmall ? 12 : 14} color={DESIGN_TOKENS.colors.text.secondary} />
-                  <StabilizedText
-                    fontSize={device.isSmall ? 10 : 12}
-                    style={styles.centeredStatText}
-                    numberOfLines={1}
-                    ellipsizeMode="clip"
-                  >
-                    {(item as any).estimated_duration || item.cleaner.estimated_duration}
-                  </StabilizedText>
-                </View>
-              </View>
-              
-              {/* Third & Fourth Sections - Connected Info + Book Button */}
-              <View style={styles.bookButtonSection}>
-                <View style={styles.infoAndBookRow}>
-                  <TouchableOpacity 
-                    style={[
-                      styles.descriptionToggleButtonConnected,
-                      {
-                        width: device.isSmall ? 32 : 40,
-                        height: device.isSmall ? 32 : 40,
-                        borderRadius: device.isSmall ? 16 : 20,
-                      }
-                    ]}
-                    onPress={toggleDescriptionCard}
-                  >
-                    <Ionicons 
-                      name={showDescriptionCard ? "information" : "information-outline"} 
-                      size={device.isSmall ? 14 : 18} 
-                      color={showDescriptionCard ? DESIGN_TOKENS.colors.brand : DESIGN_TOKENS.colors.text.secondary} 
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    style={[
-                      styles.modernBookButtonFixed,
-                      {
-                        height: device.isSmall ? 36 : 44,
-                        minWidth: device.isSmall ? 108 : 136,
-                        maxWidth: device.isSmall ? 140 : 176,
-                        paddingHorizontal: device.isSmall ? 10 : DESIGN_TOKENS.spacing.md,
-                        borderRadius: device.isSmall ? 18 : DESIGN_TOKENS.radius.lg,
-                      }
-                    ]}
-                    onPress={() => {
-                      console.log('📅 Book button pressed for:', item.cleaner.name);
-                      handleBooking(item.cleaner.user_id);
-                    }}
-                    activeOpacity={0.9}
-                  >
-                    <Ionicons name="calendar" size={device.isSmall ? 14 : 16} color={DESIGN_TOKENS.colors.white} />
-                    <StabilizedText fontSize={device.isSmall ? 14 : 16} style={styles.modernBookButtonTextFixed}>Book Now</StabilizedText>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
+            <BookingBubble
+              hourlyRate={(item as any).hourly_rate || item.cleaner.hourly_rate}
+              rating={(item as any).rating || item.cleaner.rating_average}
+              duration={(item as any).estimated_duration || item.cleaner.estimated_duration}
+              isSmall={device.isSmall}
+              onToggleInfo={toggleDescriptionCard}
+              onBook={() => handleBooking(item.cleaner.user_id)}
+              height={layout.bookingSection.height}
+              marginHorizontal={layout.bookingSection.marginHorizontal}
+            />
           </View>
 
         </View>
