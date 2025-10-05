@@ -50,7 +50,15 @@ function BookingBubbleBase(props: BookingBubbleProps) {
           activeOpacity={0.9}
           accessibilityRole="button"
           accessibilityLabel="Book now"
-          style={[styles.bookButton, { height: isSmall ? 36 : 44, borderRadius: isSmall ? 18 : 20, paddingHorizontal: isSmall ? 10 : 12 }]}
+          style={[
+            styles.bookButton,
+            {
+              height: isSmall ? 36 : 44,
+              borderRadius: isSmall ? 18 : 20,
+              paddingHorizontal: isSmall ? 10 : 12,
+              minWidth: isSmall ? 112 : 130,
+            },
+          ]}
         > 
           <Ionicons name="calendar" size={isSmall ? 14 : 16} color="#FFFFFF"/>
           <StabilizedText fontSize={isSmall ? 14 : 16} style={styles.bookText}>Book Now</StabilizedText>
@@ -71,14 +79,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.98)',
     borderRadius: 20,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     gap: 8,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#A7F3D0',
+    width: '100%',
   },
   priceBlock: {
     flexShrink: 1,
     minWidth: 0,
+    marginRight: 6,
   },
   priceLabel: {
     color: '#6B7280',
@@ -91,8 +101,9 @@ const styles = StyleSheet.create({
   statsBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     flexShrink: 1,
+    flex: 1,
   },
   statItem: {
     flexDirection: 'row',
