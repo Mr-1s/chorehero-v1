@@ -2394,8 +2394,7 @@ const styles = StyleSheet.create({
   // Modern Action Section - Lowered buttons without bubble background
   modernActionSection: {
     position: 'absolute',
-    right: 20, // Align with unifiedFeedOverlay horizontal padding
-    bottom: 180, // raise icons further up
+    // Position is provided dynamically via getVideoFeedLayout(device)
     alignItems: 'center',
     gap: DESIGN_TOKENS.spacing.lg, // Increased spacing for even distribution
     zIndex: 15, // Higher than unifiedFeedOverlay (10) and videoTapOverlay (5)
