@@ -70,7 +70,7 @@ interface VideoFeedScreenProps {
 
 
 
-import RoleBasedUI, { useRoleFeatures } from '../../components/RoleBasedUI';
+import { useRoleFeatures } from '../../components/RoleBasedUI';
 
 
 const { width, height } = Dimensions.get('window');
@@ -1172,7 +1172,6 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
   // FIX: Remove stray comment, fix JSX structure, and correct indentation
   return (
-    <RoleBasedUI navigation={navigation as any} showUploadButton={showUploadButton}>
       <View ref={videoFeedRef} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="black" translucent />
       {/* Header Controls */}
@@ -1269,7 +1268,6 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         />
       )}
       </View>
-    </RoleBasedUI>
   );
 };
 
