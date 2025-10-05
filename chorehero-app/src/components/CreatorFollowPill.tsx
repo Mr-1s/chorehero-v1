@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import StabilizedText from './StabilizedText';
@@ -15,7 +15,7 @@ type CreatorFollowPillProps = {
   maxWidth: number; // provided by layout for consistency
 };
 
-export default function CreatorFollowPill(props: CreatorFollowPillProps) {
+function CreatorFollowPillBase(props: CreatorFollowPillProps) {
   const {
     avatarUrl,
     username,
@@ -32,6 +32,9 @@ export default function CreatorFollowPill(props: CreatorFollowPillProps) {
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPressProfile}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${username} profile`}
       style={[styles.wrap, { height, maxWidth }]}
     >
       <View style={styles.avatarContainer}>
@@ -55,6 +58,9 @@ export default function CreatorFollowPill(props: CreatorFollowPillProps) {
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={onToggleFollow}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={`${isFollowing ? 'Unfollow' : 'Follow'} ${username}`}
         style={[styles.followButton, isFollowing && styles.followActive]}
       >
         <StabilizedText fontSize={13} style={[styles.followText, isFollowing && styles.followTextActive]}>
@@ -64,6 +70,9 @@ export default function CreatorFollowPill(props: CreatorFollowPillProps) {
     </TouchableOpacity>
   );
 }
+
+const CreatorFollowPill = memo(CreatorFollowPillBase);
+export default CreatorFollowPill;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -102,7 +111,7 @@ const styles = StyleSheet.create({
   },
   texts: {
     flex: 1,
-    minWidth: 120,
+    minWidth: 0, // allow truncation
   },
   username: {
     color: '#0A1A2A',
@@ -111,13 +120,14 @@ const styles = StyleSheet.create({
   subtitle: {
     color: '#4B5563',
     fontWeight: '600',
+    marginTop: 1,
   },
   followButton: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#A7F3D0',
     borderRadius: 18,
-    height: 36,
+    height: 40, // ensure 44 total with hitSlop
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',

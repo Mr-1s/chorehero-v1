@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import StabilizedText from './StabilizedText';
@@ -14,7 +14,7 @@ type BookingBubbleProps = {
   marginHorizontal: number;
 };
 
-export default function BookingBubble(props: BookingBubbleProps) {
+function BookingBubbleBase(props: BookingBubbleProps) {
   const { hourlyRate, rating, duration, isSmall, onToggleInfo, onBook, height, marginHorizontal } = props;
   return (
     <View style={[styles.wrap, { height, marginHorizontal }]}> 
@@ -35,10 +35,23 @@ export default function BookingBubble(props: BookingBubbleProps) {
       </View>
 
       <View style={styles.ctaBlock}>
-        <TouchableOpacity onPress={onToggleInfo} activeOpacity={0.85} style={[styles.infoButton, { width: isSmall ? 32 : 40, height: isSmall ? 32 : 40, borderRadius: isSmall ? 16 : 20 }]}>
+        <TouchableOpacity
+          onPress={onToggleInfo}
+          activeOpacity={0.85}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel="Show service details"
+          style={[styles.infoButton, { width: isSmall ? 32 : 40, height: isSmall ? 32 : 40, borderRadius: isSmall ? 16 : 20 }]}
+        >
           <Ionicons name="information-outline" size={isSmall ? 16 : 18} color="#6B7280"/>
         </TouchableOpacity>
-        <TouchableOpacity onPress={onBook} activeOpacity={0.9} style={[styles.bookButton, { height: isSmall ? 36 : 44, borderRadius: isSmall ? 18 : 20, paddingHorizontal: isSmall ? 10 : 12 }]}> 
+        <TouchableOpacity
+          onPress={onBook}
+          activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="Book now"
+          style={[styles.bookButton, { height: isSmall ? 36 : 44, borderRadius: isSmall ? 18 : 20, paddingHorizontal: isSmall ? 10 : 12 }]}
+        > 
           <Ionicons name="calendar" size={isSmall ? 14 : 16} color="#FFFFFF"/>
           <StabilizedText fontSize={isSmall ? 14 : 16} style={styles.bookText}>Book Now</StabilizedText>
         </TouchableOpacity>
@@ -46,6 +59,9 @@ export default function BookingBubble(props: BookingBubbleProps) {
     </View>
   );
 }
+
+const BookingBubble = memo(BookingBubbleBase);
+export default BookingBubble;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -62,7 +78,7 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     flexShrink: 1,
-    minWidth: 80,
+    minWidth: 0,
   },
   priceLabel: {
     color: '#6B7280',
@@ -82,11 +98,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    minWidth: 48,
+    minWidth: 0,
   },
   statText: {
     color: '#6B7280',
     fontWeight: '700',
+    maxWidth: 80,
   },
   ctaBlock: {
     flexDirection: 'row',
