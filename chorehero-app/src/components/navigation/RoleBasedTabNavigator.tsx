@@ -16,6 +16,7 @@ import CleanerEarningsScreen from '../../screens/cleaner/EarningsScreen';
 import CleanerJobsScreen from '../../screens/cleaner/JobsScreen';
 import CleanerScheduleScreen from '../../screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from '../../screens/cleaner/VideoUploadScreen';
+import TipsScreen from '../../screens/cleaner/TipsScreen';
 // CleanerContentScreen removed - Content button now goes directly to ContentCreation
 
 // Shared Screens
@@ -24,7 +25,6 @@ import MessagesScreen from '../../screens/shared/MessagesScreen';
 import BookingScreen from '../../screens/shared/BookingScreen';
 import BookingFlowScreen from '../../screens/shared/BookingFlowScreen';
 import DynamicBookingScreen from '../../screens/booking/DynamicBookingScreen';
-import ContentFeedScreen from '../../screens/shared/ContentFeedScreen';
 import VideoFeedScreen from '../../screens/shared/VideoFeedScreen';
 import ContentCreationScreen from '../../screens/shared/ContentCreationScreen';
 import UserProfileScreen from '../../screens/shared/UserProfileScreen';
@@ -41,15 +41,6 @@ import { COLORS } from '../../utils/constants';
 // Responsive container wrapper removed per user request
 
 const Stack = createStackNavigator<any>();
-
-// Content Stack for both users
-const ContentStack = () => (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
-    <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
-    <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
-  </Stack.Navigator>
-);
 
 // Customer Stack Navigation
 const CustomerDiscoverStack = () => (
@@ -72,10 +63,9 @@ const CleanerProfileStack = () => (
 
 const CustomerNavigator = () => {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Content">
       <Stack.Screen name="Home" component={CustomerProfileScreen as any} />
       <Stack.Screen name="Content" component={VideoFeedScreen as any} />
-      <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
       <Stack.Screen name="Discover" component={CustomerDiscoverStack as any} />
       <Stack.Screen name="Tracking" component={TrackingScreen as any} />
       <Stack.Screen name="Messages" component={MessagesScreen as any} />
@@ -104,11 +94,12 @@ const CleanerNavigator = () => {
         headerShown: false,
         gestureEnabled: true,
       }}
+      initialRouteName="Heroes"
     >
       <Stack.Screen name="Home" component={CleanerProfileScreen as any} />
       <Stack.Screen name="Dashboard" component={CleanerDashboardScreen as any} />
       <Stack.Screen name="Jobs" component={CleanerJobsScreen as any} />
-      <Stack.Screen name="Heroes" component={VideoFeedScreen as any} />
+      <Stack.Screen name="Heroes" component={TipsScreen as any} />
                   {/* Content screen removed - Content button now goes directly to ContentCreation */}
       <Stack.Screen name="Schedule" component={CleanerScheduleScreen} />
       <Stack.Screen name="Earnings" component={CleanerEarningsScreen as any} />
@@ -116,7 +107,6 @@ const CleanerNavigator = () => {
       <Stack.Screen name="Profile" component={CleanerProfileStack as any} />
       <Stack.Screen name="VideoUpload" component={VideoUploadScreen as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
-      <Stack.Screen name="ContentFeed" component={ContentFeedScreen as any} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
       <Stack.Screen name="EditProfileScreen" component={EditProfileScreen as any} />

@@ -50,7 +50,7 @@ const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
   const getIconName = (screen: keyof CleanerTabParamList, focused: boolean): keyof typeof Ionicons.glyphMap => {
     switch (screen) {
       case 'Heroes':
-        return focused ? 'people' : 'people-outline';
+        return focused ? 'bulb' : 'bulb-outline';
       case 'Jobs':
         return focused ? 'briefcase' : 'briefcase-outline';
       case 'Content':
@@ -60,7 +60,7 @@ const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
       case 'Profile':
         return focused ? 'person' : 'person-outline';
       default:
-        return 'people-outline';
+        return 'bulb-outline';
     }
   };
 
@@ -79,7 +79,7 @@ const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
                 color={getButtonColor('Heroes')} 
               />
             </View>
-            <Text style={getTextStyle('Heroes')}>Heroes</Text>
+            <Text style={getTextStyle('Heroes')}>Tips</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
