@@ -362,41 +362,109 @@ export const bookingStyles = {
 
 export const cleanerTheme = {
   colors: {
-    primary: '#FF9A26', // ChoreHero Orange
-    primaryDark: '#D87400',
-    accentTeal: '#11C5C6', // Same teal as customer side
-    error: '#FF4D4F',
-    bg: '#F7F9FC',
+    // Primary orange accent
+    primary: '#FFA52F',
+    primaryDark: '#E8941A',
+    primaryLight: '#FFF9F0',
+    primaryBorder: '#FFD39A',
+    primarySoft: 'rgba(255, 165, 47, 0.15)',
+    
+    // Secondary accents
+    accentTeal: '#3AD3DB', // Same teal as customer side - for verification only
+    success: '#10B981',
+    successLight: '#D1FAE5',
+    error: '#EF4444',
+    errorLight: '#FEE2E2',
+    errorBorder: '#FCA5A5',
+    
+    // Backgrounds
+    bg: '#F9FAFB',
     cardBg: '#FFFFFF',
-    textPrimary: '#1B2430',
-    textSecondary: '#7A8A9A',
-    borderSubtle: '#E5EDF7',
-    success: '#10B981', // Added for consistency
+    cardGradientStart: '#FFF9F0',
+    cardGradientEnd: '#FFFFFF',
+    metaBg: '#F3F4F6',
+    specialRequestBg: '#FEF3C7',
+    
+    // Text
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    textMuted: '#9CA3AF',
+    textInverse: '#FFFFFF',
+    
+    // Borders
+    borderSubtle: '#E5E7EB',
+    borderLight: '#F3F4F6',
+    
+    // Status colors
+    online: '#10B981',
+    offline: '#9CA3AF',
+    
+    // Shadows
+    shadowColor: '#000000',
   },
   typography: {
-    headingXL: {
-      fontSize: 24,
+    // Title sizes (24-28, semi-bold)
+    title: {
+      fontSize: 26,
       fontWeight: '600' as const,
+      lineHeight: 32,
     },
-    headingL: {
-      fontSize: 20,
-      fontWeight: '600' as const,
-    },
-    cardTitle: {
+    // Section headings (18-20, semi-bold)
+    sectionHeading: {
       fontSize: 18,
       fontWeight: '600' as const,
+      lineHeight: 24,
     },
-    body: {
+    // Card titles
+    cardTitle: {
       fontSize: 16,
-      fontWeight: '400' as const,
+      fontWeight: '600' as const,
+      lineHeight: 22,
     },
-    label: {
+    // Body text
+    body: {
       fontSize: 14,
+      fontWeight: '400' as const,
+      lineHeight: 20,
+    },
+    // Labels/meta (12-14, medium/regular)
+    label: {
+      fontSize: 13,
       fontWeight: '500' as const,
+      lineHeight: 16,
+    },
+    labelSmall: {
+      fontSize: 12,
+      fontWeight: '500' as const,
+      lineHeight: 14,
+    },
+    // Metric numbers
+    metricLarge: {
+      fontSize: 24,
+      fontWeight: '700' as const,
+      lineHeight: 28,
+    },
+    metricMedium: {
+      fontSize: 18,
+      fontWeight: '600' as const,
+      lineHeight: 22,
     },
   },
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    xxl: 24,
+    xxxl: 32,
+  },
   radii: {
-    card: 16,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 20,
+    card: 24,
     pill: 999,
   },
   shadows: {
@@ -407,6 +475,34 @@ export const cleanerTheme = {
       shadowRadius: 8,
       elevation: 2,
     },
+    card: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 4,
+    },
+    pressed: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.03,
+      shadowRadius: 4,
+      elevation: 1,
+    },
+    orange: {
+      shadowColor: '#FFA52F',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+  },
+  // Chip/pill styles
+  chip: {
+    height: 28,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
   },
 };
 
