@@ -173,6 +173,14 @@ export interface CreateContentRequest {
   location_name?: string;
   tags: string[];
   status?: ContentStatus;
+  metadata?: {
+    service_category?: string;
+    base_price?: number;
+    duration_minutes?: number;
+    pricing_display?: string;
+    duration_display?: string;
+    [key: string]: any;
+  };
 }
 
 export interface UpdateContentRequest {

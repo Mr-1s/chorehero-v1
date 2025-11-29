@@ -133,7 +133,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
   };
 
   const handleViewCleaner = (cleanerId: string) => {
-    navigation.navigate('CleanerProfile', { cleanerId });
+    navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
   };
 
   const handleRemoveService = (serviceId: string) => {

@@ -12,11 +12,13 @@ import {
   ActivityIndicator,
   Share,
   Linking,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import { accountDeletionService } from '../../services/accountDeletionService';
 
 type StackParamList = {
   SettingsScreen: undefined;
@@ -60,12 +62,14 @@ interface UserProfile {
   joinDate: string;
   totalBookings: number;
   rating: number;
+  avatarUrl?: string | null;
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
-  const { signOut, user, isAuthenticated, isDemoMode, isCleaner, setDemoUser } = useAuth();
+  const { signOut, user, isAuthenticated, isCleaner } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
   const [notifications, setNotifications] = useState<NotificationSettings>({
     bookingUpdates: true,
     jobMatches: true,
@@ -89,21 +93,55 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     loadSettings();
   }, []);
 
+  // Keep profile preview in sync with auth user updates (e.g., avatar change)
+  useEffect(() => {
+    if (!user) return;
+    setUserProfile(prev => ({
+      name: (user as any).name || prev?.name || 'Customer',
+      email: (user as any).email || prev?.email || '',
+      phone: (user as any).phone || prev?.phone || '',
+      role: ((user as any).role || prev?.role || 'customer') as 'customer' | 'cleaner',
+      joinDate: (user as any).created_at || prev?.joinDate || new Date().toISOString(),
+      totalBookings: prev?.totalBookings ?? 0,
+      rating: prev?.rating ?? 5.0,
+      avatarUrl: (user as any).avatar_url || null,
+    }));
+  }, [user?.avatar_url, (user as any)?.name, (user as any)?.email]);
+
   const loadSettings = async () => {
     setIsLoading(true);
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      setUserProfile({
-        name: 'John Doe',
-        email: 'john.doe@example.com',
-        phone: '+1 (555) 123-4567',
-        role: 'customer',
-        joinDate: '2024-01-15',
-        totalBookings: 12,
-        rating: 4.8,
-      });
+      if (user) {
+        setUserProfile({
+          name: (user as any).name || 'Customer',
+          email: (user as any).email || '',
+          phone: (user as any).phone || '',
+          role: ((user as any).role || 'customer') as 'customer' | 'cleaner',
+          joinDate: (user as any).created_at || new Date().toISOString(),
+          totalBookings: 0,
+          rating: 5.0,
+          avatarUrl: (user as any).avatar_url || null,
+        });
+      } else {
+        // Load guest role preference
+        const storedGuestRole = await AsyncStorage.getItem('guest_user_role');
+        const role = (storedGuestRole === 'cleaner' ? 'cleaner' : 'customer') as 'customer' | 'cleaner';
+        setGuestRole(storedGuestRole as 'customer' | 'cleaner' | null);
+        
+        setUserProfile({
+          name: 'Guest',
+          email: '',
+          phone: '',
+          role: role,
+          joinDate: new Date().toISOString(),
+          totalBookings: 0,
+          rating: 5.0,
+          avatarUrl: null,
+        });
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to load settings');
     } finally {
@@ -113,6 +151,39 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   const updateNotificationSetting = (key: keyof NotificationSettings, value: boolean) => {
     setNotifications(prev => ({ ...prev, [key]: value }));
+  };
+
+  const switchGuestRole = async () => {
+    if (isAuthenticated) return; // Only for guest users
+    
+    const newRole = guestRole === 'customer' ? 'cleaner' : 'customer';
+    
+    Alert.alert(
+      'Switch Experience',
+      `Switch to ${newRole} mode? This will change your app experience and you'll need to restart the app.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Switch',
+          onPress: async () => {
+            try {
+              await AsyncStorage.setItem('guest_user_role', newRole);
+              setGuestRole(newRole);
+              setUserProfile(prev => prev ? { ...prev, role: newRole } : null);
+              
+              Alert.alert(
+                'Experience Switched',
+                `You're now in ${newRole} mode. Please restart the app to see the changes.`,
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Error switching guest role:', error);
+              Alert.alert('Error', 'Failed to switch experience. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const updateAppSetting = (key: keyof AppSettings, value: any) => {
@@ -139,12 +210,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   const handleSwitchAccount = async () => {
     try {
-      if (!isAuthenticated && !isDemoMode) {
+      if (!isAuthenticated) {
         Alert.alert('Error', 'No account to switch from');
         return;
       }
 
-      if (isAuthenticated && !isDemoMode) {
+      if (isAuthenticated) {
         // For real authenticated users, we need to implement account type switching in the database
         // This would require updating the user's role in the database
         Alert.alert(
@@ -170,7 +241,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
               try {
                 // Use the proper demo system
                 const cleanerType = newRole === 'cleaner' ? 'sarah' : undefined;
-                await setDemoUser(newRole, cleanerType);
+                // Demo functionality removed - contact support for account type changes
                 
                 Alert.alert(
                   'Account Switched',
@@ -191,22 +262,111 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This action cannot be undone. Your account and all data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Account',
-          style: 'destructive',
-          onPress: () => {
-            Alert.alert('Account Deleted', 'Your account has been deleted successfully.');
-            navigation.navigate('AuthScreen');
-          },
-        },
-      ]
-    );
+  const handleDeleteAccount = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Unable to identify user account');
+      return;
+    }
+
+    try {
+      // First, show deletion impact to user
+      const impactResult = await accountDeletionService.getAccountDeletionImpact(user.id);
+      
+      if (impactResult.success) {
+        const { active_bookings, content_posts, reviews_given, reviews_received } = impactResult.data;
+        
+        let impactMessage = 'This action cannot be undone. Your account and personal data will be permanently deleted.\n\n';
+        
+        if (active_bookings > 0) {
+          impactMessage += `⚠️ You have ${active_bookings} active booking(s) that will be cancelled.\n`;
+        }
+        if (content_posts > 0) {
+          impactMessage += `📱 ${content_posts} content post(s) will be deleted.\n`;
+        }
+        if (reviews_given > 0) {
+          impactMessage += `⭐ ${reviews_given} review(s) you wrote will be anonymized.\n`;
+        }
+        if (reviews_received > 0) {
+          impactMessage += `💬 ${reviews_received} review(s) about you will remain for other users.\n`;
+        }
+
+        Alert.alert(
+          'Delete Account',
+          impactMessage,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete Account',
+              style: 'destructive',
+              onPress: async () => {
+                setIsLoading(true);
+                await performAccountDeletion();
+              },
+            },
+          ]
+        );
+      } else {
+        // Fallback if impact check fails
+        Alert.alert(
+          'Delete Account',
+          'This action cannot be undone. Your account and all data will be permanently deleted.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete Account',
+              style: 'destructive',
+              onPress: async () => {
+                setIsLoading(true);
+                await performAccountDeletion();
+              },
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to process account deletion request');
+    }
+  };
+
+  const performAccountDeletion = async () => {
+    if (!user?.id) return;
+
+    try {
+      const result = await accountDeletionService.deleteAccount(user.id, {
+        export_data: true,
+        soft_delete_active_bookings: true,
+        anonymize_reviews: true,
+        cancel_subscriptions: true,
+        delete_media_files: true
+      });
+
+      if (result.success) {
+        // If data was exported, we could offer to download it here
+        Alert.alert(
+          'Account Deleted',
+          'Your account has been deleted successfully. Your data has been exported and any active bookings have been handled appropriately.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Clear local storage and navigate to auth
+                AsyncStorage.clear();
+                navigation.navigate('AuthScreen');
+              }
+            }
+          ]
+        );
+      } else {
+        throw new Error(result.error || 'Deletion failed');
+      }
+    } catch (error) {
+      Alert.alert(
+        'Deletion Failed',
+        `Unable to delete account: ${error instanceof Error ? error.message : 'Unknown error'}. Please contact support.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleShare = async () => {
@@ -337,9 +497,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           <View style={styles.profileSection}>
             <View style={styles.profileInfo}>
               <View style={styles.profileAvatar}>
-                <Text style={styles.profileAvatarText}>
-                  {userProfile.name.split(' ').map(n => n[0]).join('')}
-                </Text>
+                {userProfile.avatarUrl ? (
+                  <Image source={{ uri: userProfile.avatarUrl }} style={styles.profileAvatarImage} />
+                ) : (
+                  <Text style={styles.profileAvatarText}>
+                    {userProfile.name.split(' ').map(n => n[0]).join('')}
+                  </Text>
+                )}
               </View>
               <View style={styles.profileDetails}>
                 <Text style={styles.profileName}>{userProfile.name}</Text>
@@ -358,8 +522,32 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           </View>
         )}
 
+        {/* Guest Mode Settings */}
+        {!isAuthenticated && renderSettingsSection('Guest Mode', [
+          renderSettingsItem(
+            'swap-horizontal-outline',
+            'Switch Experience',
+            `Currently in ${guestRole || 'customer'} mode`,
+            undefined,
+            switchGuestRole,
+            true
+          ),
+          renderSettingsItem(
+            'information-circle-outline',
+            'About Guest Mode',
+            'You\'re using ChoreHero without an account',
+            undefined,
+            () => Alert.alert(
+              'Guest Mode',
+              'You\'re currently using ChoreHero as a guest. You can switch between customer and cleaner experiences, but your data won\'t be saved. Create an account to save your preferences and bookings.',
+              [{ text: 'OK' }]
+            ),
+            true
+          ),
+        ])}
+
         {/* Account Settings */}
-        {renderSettingsSection('Account', [
+        {isAuthenticated && renderSettingsSection('Account', [
           renderSettingsItem(
             'person-outline',
             'Profile Information',
@@ -652,6 +840,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
+  },
+  profileAvatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
   },
   profileAvatarText: {
     fontSize: 24,

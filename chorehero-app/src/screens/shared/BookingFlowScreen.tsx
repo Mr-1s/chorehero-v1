@@ -15,12 +15,18 @@ import {
   Animated,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { bookingStateManager } from '../../services/bookingStateManager';
+import { useAuth } from '../../hooks/useAuth';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import { getTemplateForService, SERVICE_TEMPLATES } from '../../services/serviceTemplates';
+import { Easing } from 'react-native';
+const CTA_GRADIENT = ["#3ad3db", "#2BC8D4"] as const;
 
 const { width, height } = Dimensions.get('window');
 
@@ -76,8 +82,37 @@ interface TimeSlot {
   price?: number; // surge pricing
 }
 
+// Default services list (used when template is not overriding options)
+const services: ServiceOption[] = [
+  {
+    id: 'express',
+    name: 'Express Clean',
+    description: 'Quick maintenance clean',
+    basePrice: 45,
+    duration: 30,
+    popular: true,
+  },
+  {
+    id: 'standard',
+    name: 'Standard Clean',
+    description: 'Comprehensive cleaning',
+    basePrice: 75,
+    duration: 90,
+    popular: true,
+  },
+  {
+    id: 'deep',
+    name: 'Deep Clean',
+    description: 'Thorough detailed clean',
+    basePrice: 150,
+    duration: 180,
+  },
+];
+
 const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) => {
   const { cleanerId, serviceType: initialServiceType, location: initialLocation } = route.params || {};
+  const { user } = useAuth();
+  const [isRestoring, setIsRestoring] = useState<boolean>(true);
   
   const [currentStep, setCurrentStep] = useState<BookingStep>('location');
   const [isLoading, setIsLoading] = useState(false);
@@ -95,62 +130,19 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
   const progressAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  const services: ServiceOption[] = [
-    {
-      id: 'express',
-      name: 'Express Clean',
-      description: 'Quick maintenance clean',
-      basePrice: 45,
-      duration: 30,
-      popular: true,
-    },
-    {
-      id: 'standard',
-      name: 'Standard Clean',
-      description: 'Comprehensive cleaning',
-      basePrice: 75,
-      duration: 90,
-      popular: true,
-    },
-    {
-      id: 'deep',
-      name: 'Deep Clean',
-      description: 'Thorough detailed clean',
-      basePrice: 150,
-      duration: 180,
-    },
+  // Base add-ons; can be overridden by template
+  let addOns: AddOn[] = [
+    { id: 'inside_fridge', name: 'Inside Fridge', price: 15, icon: 'snow-outline', description: 'Clean inside refrigerator' },
+    { id: 'inside_oven', name: 'Inside Oven', price: 20, icon: 'flame-outline', description: 'Deep clean oven interior' },
+    { id: 'inside_cabinets', name: 'Inside Cabinets', price: 25, icon: 'file-tray-outline', description: 'Organize and clean cabinets' },
+    { id: 'laundry', name: 'Laundry', price: 10, icon: 'shirt-outline', description: 'Wash and fold clothes' },
   ];
 
-  const addOns: AddOn[] = [
-    {
-      id: 'inside_fridge',
-      name: 'Inside Fridge',
-      price: 15,
-      icon: 'snow-outline',
-      description: 'Clean inside refrigerator',
-    },
-    {
-      id: 'inside_oven',
-      name: 'Inside Oven',
-      price: 20,
-      icon: 'flame-outline',
-      description: 'Deep clean oven interior',
-    },
-    {
-      id: 'inside_cabinets',
-      name: 'Inside Cabinets',
-      price: 25,
-      icon: 'file-tray-outline',
-      description: 'Organize and clean cabinets',
-    },
-    {
-      id: 'laundry',
-      name: 'Laundry',
-      price: 10,
-      icon: 'shirt-outline',
-      description: 'Wash and fold clothes',
-    },
-  ];
+  // Apply template if available (selected service or initial serviceType)
+  const template = getTemplateForService(selectedService?.id || initialServiceType || selectedService?.name || '');
+  if (template?.addOns && template.addOns.length > 0) {
+    addOns = template.addOns.map(a => ({ ...a, description: '' }));
+  }
 
   const timeSlots: TimeSlot[] = [
     { id: '1', time: '9:00 AM', label: 'Morning', available: true },
@@ -164,6 +156,54 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
     updateProgress();
   }, [currentStep]);
 
+  // Restore saved progress on mount
+  useEffect(() => {
+    const restore = async () => {
+      try {
+        const key = cleanerId || 'default';
+        const saved = await bookingStateManager.getBookingProgress(key);
+        if (saved && saved.bookingData) {
+          const d = saved.bookingData || {};
+          if (d.location) setLocation(d.location);
+          if (d.selectedServiceId) {
+            const svc = services.find(s => s.id === d.selectedServiceId) || null;
+            setSelectedService(svc);
+          }
+          if (Array.isArray(d.selectedAddOns)) setSelectedAddOns(d.selectedAddOns);
+          if (d.selectedTimeSlotId) {
+            const slot = timeSlots.find(t => t.id === d.selectedTimeSlotId) || null;
+            setSelectedTimeSlot(slot);
+          }
+          if (d.selectedDate) setSelectedDate(d.selectedDate);
+          if (typeof d.specialInstructions === 'string') setSpecialInstructions(d.specialInstructions);
+          if (saved.currentStep) setCurrentStep(saved.currentStep as any);
+        }
+      } catch (e) {
+        // noop
+      } finally {
+        setIsRestoring(false);
+      }
+    };
+    restore();
+  }, [cleanerId]);
+
+  // Persist progress (debounced)
+  useEffect(() => {
+    if (isRestoring) return;
+    const key = cleanerId || 'default';
+    const timeout = setTimeout(() => {
+      bookingStateManager.saveBookingProgress(key, currentStep as any, {
+        location,
+        selectedServiceId: selectedService?.id,
+        selectedAddOns,
+        selectedTimeSlotId: selectedTimeSlot?.id,
+        selectedDate,
+        specialInstructions,
+      } as any).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [cleanerId, isRestoring, currentStep, location, selectedService?.id, selectedAddOns, selectedTimeSlot?.id, selectedDate, specialInstructions]);
+
   const updateProgress = () => {
     const steps = ['location', 'service', 'addons', 'schedule', 'payment', 'review'];
     const progress = (steps.indexOf(currentStep) + 1) / steps.length;
@@ -171,6 +211,7 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
     Animated.timing(progressAnim, {
       toValue: progress,
       duration: 300,
+      easing: Easing.out(Easing.quad),
       useNativeDriver: false,
     }).start();
   };
@@ -291,6 +332,11 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
       if (elapsedTime <= 60) {
         Alert.alert('🎉 Amazing!', `Booking completed in ${elapsedTime} seconds!`);
       }
+      // Clear persisted progress
+      try {
+        const key = cleanerId || 'default';
+        await bookingStateManager.clearBookingProgress(key);
+      } catch {}
       
     } catch (error) {
       Alert.alert('Error', 'Failed to create booking. Please try again.');
@@ -301,22 +347,47 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
 
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
-      <View style={styles.progressBackground}>
-        <Animated.View 
-          style={[
-            styles.progressFill,
-            {
-              width: progressAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '100%'],
-              }),
-            },
-          ]}
-        />
+      <View style={styles.progressHeader}>
+        <View style={styles.progressTrack}>
+          <Animated.View
+            style={[
+              styles.progressAnimated,
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          >
+            <LinearGradient colors={CTA_GRADIENT as any} style={{ flex: 1 }} />
+          </Animated.View>
+        </View>
+        <Text style={styles.progressText}>{(() => {
+          const labels: Record<BookingStep, string> = {
+            location: 'Location',
+            service: 'Service',
+            addons: 'Add-ons',
+            schedule: 'Schedule',
+            payment: 'Payment',
+            review: 'Review',
+          };
+          const steps: BookingStep[] = ['location', 'service', 'addons', 'schedule', 'payment', 'review'];
+          const currentNum = steps.indexOf(currentStep) + 1;
+          return `${labels[currentStep]} • Step ${currentNum} of ${steps.length}`;
+        })()}</Text>
       </View>
-      <Text style={styles.progressText}>
-        {getElapsedTime()}s • Step {['location', 'service', 'addons', 'schedule', 'payment', 'review'].indexOf(currentStep) + 1} of 6
-      </Text>
+      {false && ( // Demo mode removed
+        <View style={styles.bypassContainer}>
+          <Text style={styles.bypassLabel}>Bypass Mode</Text>
+          <Switch
+            value={bypassMode}
+            onValueChange={setBypassMode}
+            trackColor={{ false: '#767577', true: '#3ad3db' }}
+            thumbColor={bypassMode ? '#ffffff' : '#f4f3f4'}
+          />
+        </View>
+      )}
     </View>
   );
 
@@ -375,25 +446,30 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
             ]}
             onPress={() => setSelectedService(service)}
           >
-            {service.popular && (
-              <View style={styles.popularBadge}>
-                <Text style={styles.popularText}>Popular</Text>
-              </View>
-            )}
             
             <View style={styles.serviceHeader}>
-              <Text style={styles.serviceName}>{service.name}</Text>
-              <Text style={styles.servicePrice}>${service.basePrice}</Text>
+              <View style={styles.serviceTitleRow}>
+                <Ionicons name="sparkles-outline" size={18} color="#3ad3db" style={{ marginRight: 8, transform: [{ translateY: 1 }] }} />
+                <Text style={styles.serviceName}>{service.name}</Text>
+              </View>
+              <View style={styles.serviceMetaRow}>
+                <View style={styles.pricePill}>
+                  <Text style={styles.pricePillText}>${service.basePrice}</Text>
+                </View>
+                {service.popular && (
+                  <View style={styles.popularTag}>
+                    <Text style={styles.popularTagText}>Popular</Text>
+                  </View>
+                )}
+                {selectedService?.id === service.id && (
+                  <Ionicons name="checkmark-circle" size={22} color="#3ad3db" />
+                )}
+              </View>
             </View>
             
             <Text style={styles.serviceDescription}>{service.description}</Text>
             <Text style={styles.serviceDuration}>{service.duration} minutes</Text>
             
-            {selectedService?.id === service.id && (
-              <View style={styles.selectedIndicator}>
-                <Ionicons name="checkmark-circle" size={24} color="#3ad3db" />
-              </View>
-            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -427,19 +503,18 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
                 <Text style={styles.addonName}>{addon.name}</Text>
                 <Text style={styles.addonDescription}>{addon.description}</Text>
               </View>
-              <Text style={styles.addonPrice}>+${addon.price}</Text>
-            </View>
-            
-            {selectedAddOns.includes(addon.id) && (
-              <View style={styles.addonSelected}>
-                <Ionicons name="checkmark-circle" size={20} color="#3ad3db" />
+              <View style={styles.addonMetaRow}>
+                <Text style={styles.addonPrice}>+${addon.price}</Text>
+                {selectedAddOns.includes(addon.id) && (
+                  <Ionicons name="checkmark-circle" size={20} color="#3ad3db" />
+                )}
               </View>
-            )}
+            </View>
           </TouchableOpacity>
         ))}
       </View>
       
-      <TouchableOpacity style={styles.skipButton}>
+      <TouchableOpacity style={styles.skipButton} onPress={() => { setSelectedAddOns([]); handleNext(); }}>
         <Text style={styles.skipButtonText}>Skip - no extras needed</Text>
       </TouchableOpacity>
     </Animated.View>
@@ -481,25 +556,32 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
             onPress={() => slot.available && setSelectedTimeSlot(slot)}
             disabled={!slot.available}
           >
-            <Text style={[
-              styles.timeSlotTime,
-              !slot.available && styles.unavailableText,
-              selectedTimeSlot?.id === slot.id && styles.selectedTimeSlotText,
-            ]}>
-              {slot.time}
-            </Text>
-            <Text style={[
-              styles.timeSlotLabel,
-              !slot.available && styles.unavailableText,
-              selectedTimeSlot?.id === slot.id && styles.selectedTimeSlotText,
-            ]}>
-              {slot.label}
-            </Text>
-            {slot.price && (
-              <Text style={[styles.surgePrice, selectedTimeSlot?.id === slot.id && styles.selectedTimeSlotText]}>
-                +${slot.price}
+            <View style={styles.timeSlotLeft}>
+              <Text style={[
+                styles.timeSlotTime,
+                !slot.available && styles.unavailableText,
+                selectedTimeSlot?.id === slot.id && styles.selectedTimeSlotText,
+              ]}>
+                {slot.time}
               </Text>
-            )}
+            </View>
+            <View style={styles.timeSlotRight}>
+              <Text style={[
+                styles.timeSlotLabel,
+                !slot.available && styles.unavailableText,
+                selectedTimeSlot?.id === slot.id && styles.selectedTimeSlotText,
+              ]}>
+                {slot.label}
+              </Text>
+              {slot.price && (
+                <View style={styles.surgePill}>
+                  <Text style={styles.surgePillText}>+${slot.price}</Text>
+                </View>
+              )}
+              {selectedTimeSlot?.id === slot.id && (
+                <Ionicons name="checkmark-circle" size={20} color="#3ad3db" />
+              )}
+            </View>
           </TouchableOpacity>
         ))}
       </View>
@@ -563,6 +645,7 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
             <Text style={styles.summaryValue}>+${selectedTimeSlot.price}</Text>
           </View>
         )}
+        <View style={styles.summaryDivider} />
         <View style={[styles.summaryRow, styles.totalRow]}>
           <Text style={styles.totalLabel}>Total</Text>
           <Text style={styles.totalValue}>${calculateTotal()}</Text>
@@ -578,18 +661,27 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
       
       <View style={styles.reviewContainer}>
         <View style={styles.reviewSection}>
-          <Text style={styles.reviewSectionTitle}>Service Details</Text>
+          <View style={styles.reviewRowHeader}>
+            <Ionicons name="sparkles-outline" size={18} color="#3ad3db" />
+            <Text style={styles.reviewSectionTitle}>Service Details</Text>
+          </View>
           <Text style={styles.reviewText}>{selectedService?.name}</Text>
           <Text style={styles.reviewSubtext}>{selectedService?.duration} minutes</Text>
         </View>
         
         <View style={styles.reviewSection}>
-          <Text style={styles.reviewSectionTitle}>Location</Text>
+          <View style={styles.reviewRowHeader}>
+            <Ionicons name="location-outline" size={18} color="#3ad3db" />
+            <Text style={styles.reviewSectionTitle}>Location</Text>
+          </View>
           <Text style={styles.reviewText}>{location}</Text>
         </View>
         
         <View style={styles.reviewSection}>
-          <Text style={styles.reviewSectionTitle}>Schedule</Text>
+          <View style={styles.reviewRowHeader}>
+            <Ionicons name="time-outline" size={18} color="#3ad3db" />
+            <Text style={styles.reviewSectionTitle}>Schedule</Text>
+          </View>
           <Text style={styles.reviewText}>
             {selectedDate === 'today' ? 'Today' : 'Tomorrow'} at {selectedTimeSlot?.time}
           </Text>
@@ -597,11 +689,14 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
         
         {selectedAddOns.length > 0 && (
           <View style={styles.reviewSection}>
-            <Text style={styles.reviewSectionTitle}>Add-ons</Text>
+            <View style={styles.reviewRowHeader}>
+              <Ionicons name="list-circle-outline" size={18} color="#3ad3db" />
+              <Text style={styles.reviewSectionTitle}>Add-ons</Text>
+            </View>
             {selectedAddOns.map(addonId => {
               const addon = addOns.find(a => a.id === addonId);
               return addon ? (
-                <Text key={addon.id} style={styles.reviewText}>{addon.name}</Text>
+                <Text key={addon.id} style={styles.reviewSubtext}>• {addon.name}</Text>
               ) : null;
             })}
           </View>
@@ -627,26 +722,42 @@ const BookingFlowScreen: React.FC<BookingFlowProps> = ({ navigation, route }) =>
     }
   };
 
+  const headerShadow = useRef(new Animated.Value(0)).current;
+
+  const onScroll = Animated.event(
+    [{ nativeEvent: { contentOffset: { y: headerShadow } } }],
+    { useNativeDriver: false }
+  );
+
+  const headerShadowStyle = {
+    shadowOpacity: headerShadow.interpolate({ inputRange: [0, 8, 24], outputRange: [0, 0.06, 0.12], extrapolate: 'clamp' }),
+    elevation: headerShadow.interpolate({ inputRange: [0, 8, 24], outputRange: [0, 1, 2], extrapolate: 'clamp' }),
+  } as any;
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      
+      {/* Header */}
+      <Animated.View style={[styles.header, headerShadowStyle]}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+        </TouchableOpacity>
+        <View style={styles.headerPill}>
+          <Ionicons name="flash-outline" size={16} color="#0F172A" />
+          <Text style={styles.headerTitle}>Quick Booking</Text>
+        </View>
+        <View style={styles.placeholder} />
+      </Animated.View>
+
+      {/* Progress Bar */}
+      {renderProgressBar()}
+
       <KeyboardAvoidingView 
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#1F2937" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Quick Booking</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('MainTabs')}>
-            <Text style={styles.exitText}>Exit</Text>
-          </TouchableOpacity>
-        </View>
-
-        {renderProgressBar()}
-
         <ScrollView 
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -696,46 +807,70 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0, // animated
+    shadowRadius: 3,
+    elevation: 0, // animated
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F3F4F6',
+    padding: 4,
+  },
+  headerPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  exitText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#6B7280',
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  placeholder: {
+    width: 32,
   },
   progressContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 20,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  progressBackground: {
-    height: 4,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 2,
+  progressHeader: {
+    flex: 1,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 999,
     marginBottom: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
-  progressFill: {
+  progressAnimated: {
     height: '100%',
-    backgroundColor: '#3ad3db',
-    borderRadius: 2,
   },
   progressText: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 15,
+    color: '#374151',
     textAlign: 'center',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   scrollView: {
     flex: 1,
@@ -764,13 +899,18 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)', // brandLight match
     paddingHorizontal: 16,
     height: 56,
     marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
   locationInput: {
     flex: 1,
@@ -802,11 +942,18 @@ const styles = StyleSheet.create({
   recentAddress: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   recentAddressText: {
     fontSize: 14,
@@ -817,30 +964,30 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   serviceCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
-    borderWidth: 2,
-    borderColor: 'transparent',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
     position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   selectedServiceCard: {
     borderColor: '#3ad3db',
-    backgroundColor: '#F0FDFA',
-  },
-  popularBadge: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: '#F59E0B',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  popularText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    backgroundColor: '#F8FEFF',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+    transform: [{ scale: 1.01 }],
+    // subtle inner border illusion
+    overflow: 'hidden',
   },
   serviceHeader: {
     flexDirection: 'row',
@@ -848,15 +995,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  serviceTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  serviceMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
   serviceName: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#1F2937',
   },
-  servicePrice: {
-    fontSize: 20,
+  pricePill: {
+    backgroundColor: '#3ad3db',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  pricePillText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  popularTag: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  popularTagText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '700',
-    color: '#3ad3db',
+    letterSpacing: 0.2,
   },
   serviceDescription: {
     fontSize: 14,
@@ -890,10 +1072,16 @@ const styles = StyleSheet.create({
   addonHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
   addonInfo: {
     flex: 1,
     marginLeft: 16,
+  },
+  addonMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   addonName: {
     fontSize: 16,
@@ -910,11 +1098,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#3ad3db',
   },
-  addonSelected: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-  },
+  // remove absolute selected check to avoid overlap
   skipButton: {
     alignItems: 'center',
     paddingVertical: 16,
@@ -959,19 +1143,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
     borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   selectedTimeSlot: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F8FEFF',
     borderColor: '#3ad3db',
   },
   unavailableTimeSlot: {
     backgroundColor: '#F3F4F6',
     opacity: 0.5,
+  },
+  timeSlotLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  timeSlotRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   timeSlotTime: {
     fontSize: 16,
@@ -983,15 +1183,21 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   selectedTimeSlotText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
   },
   unavailableText: {
     color: '#9CA3AF',
   },
-  surgePrice: {
+  surgePill: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  surgePillText: {
     fontSize: 12,
-    color: '#F59E0B',
-    fontWeight: '600',
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   instructionsContainer: {
     marginTop: 24,
@@ -1003,11 +1209,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   instructionsInput: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    padding: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
     fontSize: 14,
     color: '#1F2937',
     textAlignVertical: 'top',
@@ -1019,17 +1230,22 @@ const styles = StyleSheet.create({
   paymentMethod: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   paymentMethodIcon: {
     width: 40,
     height: 40,
     borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FEFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -1052,10 +1268,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#3ad3db',
-    borderRadius: 12,
+    borderRadius: 16,
     borderStyle: 'dashed',
+    backgroundColor: 'rgba(58, 211, 219, 0.04)',
   },
   addPaymentMethodText: {
     fontSize: 14,
@@ -1064,9 +1281,16 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   paymentSummary: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   summaryTitle: {
     fontSize: 16,
@@ -1085,8 +1309,13 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#1F2937',
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 12,
   },
   totalRow: {
     borderTopWidth: 1,
@@ -1096,21 +1325,34 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#1F2937',
   },
   totalValue: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#3ad3db',
   },
   reviewContainer: {
     gap: 24,
   },
   reviewSection: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     padding: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  reviewRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
   },
   reviewSectionTitle: {
     fontSize: 14,
@@ -1167,6 +1409,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  bypassContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  bypassLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '500',
   },
 });
 

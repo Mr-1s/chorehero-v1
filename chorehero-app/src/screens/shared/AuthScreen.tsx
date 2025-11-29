@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,10 +13,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
+WebBrowser.maybeCompleteAuthSession();
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { userService } from '../../services/user';
-import { demoAuth } from '../../services/demoAuth';
+
+import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
 type StackParamList = {
@@ -40,7 +44,37 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const { refreshSession, setDemoUser, clearDemo } = useAuth();
+  const { refreshSession } = useAuth();
+
+  // Load remember me preference on mount
+  useEffect(() => {
+    loadRememberMePreference();
+  }, []);
+
+  const loadRememberMePreference = async () => {
+    try {
+      const stored = await AsyncStorage.getItem('rememberMe');
+      if (stored !== null) {
+        setRememberMe(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Error loading remember me preference:', error);
+    }
+  };
+
+  const saveRememberMePreference = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem('rememberMe', JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving remember me preference:', error);
+    }
+  };
+
+  const handleRememberMeToggle = () => {
+    const newValue = !rememberMe;
+    setRememberMe(newValue);
+    saveRememberMePreference(newValue);
+  };
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -61,7 +95,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         
         if (response.success) {
           await refreshSession();
-          navigation.navigate('MainTabs');
+          navigation.navigate('AccountTypeSelection');
         } else {
           Alert.alert('Sign In Failed', response.error || 'Invalid credentials');
         }
@@ -70,20 +104,24 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         const response = await userService.signUp(email, password);
         
         if (response.success) {
-          // New account created successfully – ensure we are NOT in demo mode
-          try { await clearDemo(); } catch {}
+          // New account created successfully
           navigation.navigate('AccountTypeSelection');
+        } else if (response.requiresSignIn) {
+          // Created, but session not present – prompt sign-in path
+          Alert.alert(
+            'Verify & Sign In',
+            response.error || 'Please sign in to continue.',
+            [
+              { text: 'OK', onPress: async () => setIsLogin(true) }
+            ]
+          );
         } else if (response.error && response.error.includes('email')) {
           // Email confirmation required
           Alert.alert(
             'Check Your Email',
             response.error + '\n\nIf the confirmation link doesn\'t work, please contact support.',
             [
-              { text: 'OK', style: 'default' },
-              { 
-                text: 'Try Demo Instead', 
-                onPress: handleDemoAccess
-              }
+              { text: 'OK', style: 'default' }
             ]
           );
         } else if (response.requiresSignIn) {
@@ -113,49 +151,67 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     }
   };
 
-  const handleDemoAccess = () => {
-    Alert.alert(
-      'Demo Access',
-      'Explore ChoreHero with limited functionality. To access all features and save your data, create a real account.',
-      [
-        {
-          text: 'Demo as Customer',
-          onPress: async () => {
-            try {
-              console.log('🎯 Setting demo customer from AuthScreen');
-              await setDemoUser('customer');
-              console.log('✅ Demo customer set, navigating to MainTabs');
-              navigation.navigate('MainTabs');
-            } catch (error) {
-              console.error('❌ Error setting demo customer:', error);
-              navigation.navigate('MainTabs');
-            }
-          }
+
+
+  const handleGoogleSignIn = async () => {
+    try {
+      const redirectUri = makeRedirectUri({
+        native: 'chorehero://auth',
+        scheme: 'chorehero',
+        preferLocalhost: false,
+      });
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
         },
-        {
-          text: 'Demo as Cleaner',
-          onPress: async () => {
-            try {
-              console.log('🎯 Setting demo cleaner (Sarah) from AuthScreen');
-              await setDemoUser('cleaner', 'sarah');
-              console.log('✅ Demo cleaner set, navigating to MainTabs');
+      });
+
+      if (error) {
+        Alert.alert('Google Sign-in Failed', error.message);
+        return;
+      }
+
+      if (data?.url) {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+        await refreshSession();
+        navigation.navigate('AccountTypeSelection');
+      } else {
+        Alert.alert('Google Sign-in', 'Unable to start Google authentication.');
+      }
+    } catch (e) {
+      Alert.alert('Google Sign-in Error', e instanceof Error ? e.message : 'Unexpected error');
+    }
+  };
+
+  const handleGuestAccess = async () => {
+    // Let the user choose a guest role immediately, then enter the app
+    try {
+      Alert.alert(
+        'Continue as Guest',
+        'Choose how you want to explore the app',
+        [
+          {
+            text: 'Customer',
+            onPress: async () => {
+              await AsyncStorage.setItem('guest_user_role', 'customer');
               navigation.navigate('MainTabs');
-            } catch (error) {
-              console.error('❌ Error setting demo cleaner:', error);
+            },
+          },
+          {
+            text: 'Cleaner',
+            onPress: async () => {
+              await AsyncStorage.setItem('guest_user_role', 'cleaner');
               navigation.navigate('MainTabs');
-            }
-          }
-        },
-        {
-          text: 'Create Real Account',
-          onPress: () => navigation.navigate('AccountTypeSelection')
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        }
-      ]
-    );
+            },
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    } catch (error) {
+      navigation.navigate('MainTabs');
+    }
   };
 
   return (
@@ -276,13 +332,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             {isLogin && (
               <TouchableOpacity 
                 style={styles.rememberMeContainer}
-                onPress={() => setRememberMe(!rememberMe)}
+                onPress={handleRememberMeToggle}
                 activeOpacity={0.7}
               >
                 <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
                   {rememberMe && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
                 </View>
-                <Text style={styles.rememberMeText}>Remember me</Text>
+                <Text style={styles.rememberMeText}>Keep me signed in</Text>
               </TouchableOpacity>
             )}
 
@@ -310,9 +366,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             )}
           </View>
 
-          {/* Demo Access */}
-          <TouchableOpacity style={styles.demoButton} onPress={handleDemoAccess}>
-            <Text style={styles.demoButtonText}>Continue as Guest</Text>
+          {/* Continue as Guest */}
+          <TouchableOpacity style={styles.guestButton} onPress={handleGuestAccess}>
+            <Text style={styles.guestButtonText}>Continue as Guest</Text>
           </TouchableOpacity>
 
           {/* Social Login Placeholder */}
@@ -324,7 +380,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             </View>
 
             <View style={styles.socialButtons}>
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} onPress={handleGoogleSignIn}>
                 <Ionicons name="logo-google" size={20} color="#DB4437" />
                 <Text style={styles.socialButtonText}>Google</Text>
               </TouchableOpacity>
@@ -513,7 +569,7 @@ const styles = StyleSheet.create({
     color: '#3ad3db',
     fontWeight: '500',
   },
-  demoButton: {
+  guestButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
     paddingVertical: 16,
@@ -522,11 +578,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  demoButtonText: {
+  guestButtonText: {
     fontSize: 16,
     fontWeight: '500',
     color: '#ffffff',
   },
+
   socialContainer: {
     marginTop: 24,
     paddingHorizontal: 20,
@@ -587,12 +644,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 2,
-    borderColor: '#6B7280',
-    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -600,10 +657,15 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: '#3ad3db',
     borderColor: '#3ad3db',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   rememberMeText: {
     fontSize: 14,
-    color: '#374151',
+    color: '#9CA3AF',
     fontWeight: '500',
   },
 });

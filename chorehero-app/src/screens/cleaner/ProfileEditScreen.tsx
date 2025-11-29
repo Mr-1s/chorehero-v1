@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useToast } from '../../components/Toast';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -90,6 +91,8 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasBookingTemplate, setHasBookingTemplate] = useState(false);
+  const { showToast } = useToast();
 
   useEffect(() => {
     loadProfile();
@@ -117,9 +120,25 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
       };
 
       setProfile(mockProfile);
+
+      // Ensure default booking template exists for this cleaner
+      try {
+        const { supabase } = await import('../../services/supabase');
+        const { data, error } = await supabase
+          .from('cleaner_booking_templates')
+          .select('user_id')
+          .eq('user_id', user?.id)
+          .single();
+        if (error && (error as any).code === 'PGRST116') {
+          await supabase.rpc('ensure_default_booking_template', { p_user_id: user?.id });
+        }
+        setHasBookingTemplate(true);
+      } catch (e) {
+        console.warn('Booking template ensure failed (non-blocking):', e);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
-      Alert.alert('Error', 'Failed to load profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load profile' }); } catch {}
     } finally {
       setLoading(false);
     }
@@ -131,19 +150,11 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
       // In a real app, this would save to the database
       await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
       
-      Alert.alert(
-        'Profile Updated',
-        'Your profile has been successfully updated.',
-        [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack(),
-          },
-        ]
-      );
+      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated' }); } catch {}
+      navigation.goBack();
     } catch (error) {
       console.error('Error saving profile:', error);
-      Alert.alert('Error', 'Failed to save profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save profile' }); } catch {}
     } finally {
       setSaving(false);
     }
@@ -152,7 +163,7 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   const handleImagePicker = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please grant access to your photo library to upload a profile picture.');
+      try { (showToast as any) && showToast({ type: 'warning', message: 'Photo permission required' }); } catch {}
       return;
     }
 
@@ -380,6 +391,19 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
           </View>
         </View>
 
+        {/* Booking Template */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Booking Template</Text>
+          <Text style={styles.sectionDescription}>Customize the booking steps, fields, and add-ons customers see when booking you.</Text>
+          <TouchableOpacity
+            style={styles.templateButton}
+            onPress={() => navigation.navigate('BookingTemplate' as never)}
+          >
+            <Ionicons name="construct-outline" size={18} color="#3ad3db" />
+            <Text style={styles.templateButtonText}>Customize Booking Flow</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Settings</Text>
@@ -463,7 +487,12 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
     marginLeft: -8,
   },
   headerTitle: {
@@ -472,13 +501,18 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   saveButton: {
-    padding: 8,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
     marginRight: -8,
   },
   saveButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#F59E0B',
   },
   loadingContainer: {
     flex: 1,
@@ -498,6 +532,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 20,
     paddingVertical: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   sectionTitle: {
     fontSize: 18,
@@ -574,8 +611,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   optionChipSelected: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
   },
   optionChipText: {
     fontSize: 14,
@@ -631,6 +668,22 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 40,
+  },
+  templateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    marginTop: 8,
+    gap: 8,
+  },
+  templateButtonText: {
+    color: '#3ad3db',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

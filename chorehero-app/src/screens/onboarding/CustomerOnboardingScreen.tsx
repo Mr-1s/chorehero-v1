@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,13 +14,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
-import { demoAuth } from '../../services/demoAuth';
+
 
 type StackParamList = {
   CustomerOnboarding: undefined;
@@ -39,6 +40,7 @@ interface OnboardingData {
   lastName: string;
   email: string;
   phone: string;
+  username: string;
   profilePhoto: string;
   
   // Step 2: Home Details
@@ -76,14 +78,15 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
   const totalSteps = 5;
-  const { refreshSession, isDemoMode } = useAuth();
+  const { refreshSession, authUser } = useAuth();
 
   const [data, setData] = useState<OnboardingData>({
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
-    profilePhoto: 'https://randomuser.me/api/portraits/lego/2.jpg',
+    username: '',
+    profilePhoto: `https://ui-avatars.com/api/?name=Customer&background=6366F1&color=fff&size=160&font-size=0.4&format=png`,
     address: '',
     city: '',
     state: '',
@@ -110,6 +113,24 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   // scrolling helpers
   const scrollRef = useRef<ScrollView>(null);
 
+  // Prefill from authenticated provider (Google/Apple)
+  useEffect(() => {
+    const u = authUser?.user as any;
+    if (!u) return;
+    const fullName: string | undefined = u.name || u.user_metadata?.full_name;
+    const avatar: string | undefined = u.avatar_url || u.user_metadata?.picture;
+    const emailFromAuth: string | undefined = u.email;
+    const [firstName, ...rest] = (fullName || '').split(' ');
+    setData(prev => ({
+      ...prev,
+      firstName: firstName || prev.firstName,
+      lastName: rest.join(' ') || prev.lastName,
+      email: emailFromAuth || prev.email,
+      profilePhoto: avatar || prev.profilePhoto,
+      username: (emailFromAuth ? emailFromAuth.split('@')[0] : (fullName ? (fullName.replace(/\s+/g, '').toLowerCase()) : prev.username)) || prev.username,
+    }));
+  }, [authUser]);
+
   const updateData = (field: keyof OnboardingData, value: any) => {
     setData(prev => ({ ...prev, [field]: value }));
   };
@@ -122,6 +143,9 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         }
         if (!data.email.includes('@')) {
           return 'Please enter a valid email address';
+        }
+        if (!/^[a-zA-Z0-9_]{3,20}$/.test(data.username || '')) {
+          return 'Choose a username (3–20 letters, numbers, or underscore)';
         }
         break;
       case 2:
@@ -163,17 +187,37 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   const handleComplete = async () => {
     setIsLoading(true);
     try {
-      // Get current authenticated user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Resolve current authenticated user robustly
+      let userId: string | undefined;
+      let userEmail: string | undefined;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          userId = session.user.id;
+          userEmail = session.user.email || undefined;
+        }
+      } catch {}
+      if (!userId && authUser?.user?.id) {
+        userId = authUser.user.id as string;
+        userEmail = (authUser.user as any).email as string | undefined;
+      }
+      if (!userId) {
+        await refreshSession();
+        const { data: { session: session2 } } = await supabase.auth.getSession();
+        if (session2?.user) {
+          userId = session2.user.id;
+          userEmail = session2.user.email || undefined;
+        }
+      }
       
-      console.log('Customer onboarding completion - authenticated user:', user?.id, user?.email);
+      console.log('Customer onboarding completion - resolved user:', userId, userEmail);
       
-      if (user) {
+      if (userId) {
         // First, ensure user record exists in our database
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('id')
-          .eq('id', user.id)
+          .eq('id', userId)
           .single();
 
         if (checkError && checkError.code === 'PGRST116') {
@@ -182,9 +226,9 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           const { error: createUserError } = await supabase
             .from('users')
             .insert([{
-              id: user.id,
+              id: userId,
               phone: data.phone,
-              email: user.email,
+              email: userEmail,
               name: `${data.firstName} ${data.lastName}`,
               role: 'customer',
             }]);
@@ -206,7 +250,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
               role: 'customer',
               updated_at: new Date().toISOString()
             })
-            .eq('id', user.id);
+            .eq('id', userId);
 
           if (userError) {
             console.error('Error updating user profile:', userError);
@@ -218,7 +262,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         const { error: customerError } = await supabase
           .from('customer_profiles')
           .insert([{
-            user_id: user.id,
+            user_id: userId,
             preferred_language: 'en',
             special_preferences: `${data.specialInstructions || ''}\n\nProperty: ${data.propertyType}, ${data.squareFootage} sq ft\nBedrooms: ${data.bedrooms}, Bathrooms: ${data.bathrooms}\nCleaning Frequency: ${data.cleaningFrequency}\nPreferred Products: ${data.preferredProducts}\nBudget: ${data.budgetRange}\nPets: ${data.hasPets ? 'Yes - ' + data.petDetails : 'No'}\nAllergies: ${data.hasAllergies ? 'Yes - ' + data.allergyDetails : 'No'}\nChildren: ${data.hasChildren ? 'Yes' : 'No'}`,
           }]);
@@ -228,7 +272,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           const { error: addressError } = await supabase
             .from('addresses')
             .insert([{
-              user_id: user.id,
+              user_id: userId,
               street: data.address,
               city: data.city,
               state: data.state,
@@ -247,9 +291,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           throw new Error('Failed to create customer profile: ' + customerError.message);
         }
 
-        // Clear any existing demo sessions for real authenticated users
-        await demoAuth.clearDemoUser();
-        console.log('Cleared all demo sessions for real authenticated user');
+
 
         Alert.alert(
           'Welcome to ChoreHero!',
@@ -270,23 +312,8 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           ]
         );
       } else {
-        // Fallback to demo mode if no authenticated user
-        await demoAuth.setDemoUser('customer');
-        console.log('Fallback to demo customer role');
-        
-        Alert.alert(
-          'Demo Mode',
-          'You are now exploring ChoreHero in demo mode. Features are limited to demonstration purposes.',
-          [
-            {
-              text: 'Continue',
-              onPress: async () => {
-                await refreshSession();
-                navigation.navigate('MainTabs');
-              }
-            }
-          ]
-        );
+        // No auth user: show an error instead of switching to demo
+        Alert.alert('Authentication required', 'Please sign in again to complete setup.');
       }
     } catch (error) {
       console.error('Onboarding completion error:', error);
@@ -310,7 +337,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         </View>
         <Text style={styles.progressText}>Step {currentStep} of {totalSteps}</Text>
       </View>
-      {isDemoMode && (
+      {false && ( // Demo mode removed
         <View style={styles.bypassContainer}>
           <Text style={styles.bypassLabel}>Bypass Mode</Text>
           <Switch
@@ -329,7 +356,24 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       <Text style={styles.stepTitle}>Let's get to know you</Text>
       <Text style={styles.stepSubtitle}>Basic information to set up your account</Text>
 
-      <TouchableOpacity style={styles.photoContainer}>
+      <TouchableOpacity
+        style={styles.photoContainer}
+        onPress={async () => {
+          try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission required', 'Please allow photo access to set your profile image.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) {
+              setData(prev => ({ ...prev, profilePhoto: result.assets[0].uri }));
+            }
+          } catch (e) {
+            console.error('Image pick error', e);
+          }
+        }}
+      >
         <Image source={{ uri: data.profilePhoto }} style={styles.profilePhoto} />
         <View style={styles.photoOverlay}>
           <Ionicons name="camera" size={20} color="#ffffff" />
@@ -374,6 +418,15 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         onChangeText={(text) => updateData('phone', text)}
         placeholder="+1 (555) 123-4567"
         keyboardType="phone-pad"
+      />
+
+      <Text style={styles.inputLabel}>Username *</Text>
+      <TextInput
+        style={styles.textInput}
+        value={data.username}
+        onChangeText={(text) => updateData('username', text)}
+        placeholder="yourname"
+        autoCapitalize="none"
       />
     </ScrollView>
   );

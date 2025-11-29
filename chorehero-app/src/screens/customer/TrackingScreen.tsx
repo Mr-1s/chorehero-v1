@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 
 interface TrackingData {
   id: string;
@@ -50,12 +50,7 @@ const TrackingScreen: React.FC = () => {
         location: '123 Main St, San Francisco'
       };
 
-      const trackingInfo = MockDataToggle.getFeatureData(
-        'CUSTOMER',
-        'TRACKING',
-        mockTrackingData,
-        null
-      );
+      const trackingInfo = mockTrackingData;
 
       setTrackingData(trackingInfo);
     } catch (error) {

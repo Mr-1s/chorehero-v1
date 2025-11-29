@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { TIKTOK_UI, VIDEO_CONFIG } from '../utils/constants';
-import { MOCK_CLEANERS } from '../utils/mockData';
 import { supabase } from '../services/supabase';
-import { initializeSampleData } from '../services/sampleData';
 import { Database } from '../types/database';
+import { guestModeService } from '../services/guestModeService';
+import { videoFeedAlgorithmService } from '../services/videoFeedAlgorithmService';
 
 interface VideoMetrics {
   likes: number;
@@ -45,12 +45,13 @@ type CleanerWithProfile = Database['public']['Tables']['users']['Row'] & {
   cleaner_profiles: Database['public']['Tables']['cleaner_profiles']['Row'];
 };
 
-export const useVideoFeed = () => {
+export const useVideoFeed = (useEnhancedAlgorithm: boolean = false) => {
   const [videos, setVideos] = useState<CleanerVideo[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [useRealData, setUseRealData] = useState(true);
+  const [sortPreference, setSortPreference] = useState<'balanced' | 'proximity' | 'engagement' | 'price'>('balanced');
   const pageRef = useRef(1);
 
   useEffect(() => {
@@ -58,128 +59,57 @@ export const useVideoFeed = () => {
   }, []);
 
   const generateMockVideos = (count: number, startIndex: number = 0): CleanerVideo[] => {
-    const mockVideos: CleanerVideo[] = [];
-    
-    for (let i = 0; i < count; i++) {
-      const cleaner = MOCK_CLEANERS[Math.floor(Math.random() * MOCK_CLEANERS.length)];
-      const videoTypes = [
-        'before_after_kitchen',
-        'speed_cleaning',
-        'organization_tips',
-        'product_review',
-        'cleaning_dance',
-        'time_lapse',
-      ];
-      
-      const videoType = videoTypes[Math.floor(Math.random() * videoTypes.length)];
-      
-      mockVideos.push({
-        id: `video_${startIndex + i}`,
-        cleaner_id: cleaner.id,
-        cleaner: {
-          id: cleaner.id,
-          name: cleaner.name,
-          avatar_url: cleaner.avatar_url || '',
-          rating: cleaner.rating_average,
-          specialty: cleaner.specialties[0] || 'General cleaning',
-          bio: `${cleaner.specialties.join(', ')} specialist with ${cleaner.total_jobs} completed jobs`,
-          hourly_rate: cleaner.hourly_rate,
-        },
-        video_url: `https://storage.googleapis.com/chorehero-videos/${videoType}_${startIndex + i}.mp4`,
-        thumbnail_url: `https://storage.googleapis.com/chorehero-thumbnails/${videoType}_${startIndex + i}.jpg`,
-        title: getVideoTitle(videoType, cleaner.name),
-        description: getVideoDescription(videoType),
-        duration: Math.floor(Math.random() * 25) + 15, // 15-40 seconds
-        created_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString(),
-        metrics: {
-          likes: Math.floor(Math.random() * 1000),
-          views: Math.floor(Math.random() * 10000),
-          shares: Math.floor(Math.random() * 100),
-          bookings: Math.floor(Math.random() * 50),
-          liked: Math.random() > 0.8,
-          viewed: false,
-        },
-        tags: getVideoTags(videoType),
-        music: Math.random() > 0.5 ? {
-          title: 'Cleaning Vibes',
-          artist: 'ChoreHero Music',
-          url: 'https://audio.googleapis.com/chorehero-music/track_1.mp3',
-        } : undefined,
-      });
-    }
-    
-    return mockVideos;
+    console.log('🎬 Demo video generation disabled - implement real video loading here');
+    // TODO: Implement real video loading from content service
+    return [];
   };
 
-  const getVideoTitle = (type: string, cleanerName: string): string => {
-    const titles = {
-      before_after_kitchen: `${cleanerName}'s Amazing Kitchen Transformation! 🧹✨`,
-      speed_cleaning: `${cleanerName} Speed Cleans in 60 Seconds! ⚡`,
-      organization_tips: `${cleanerName}'s Organization Hack Will Blow Your Mind! 🤯`,
-      product_review: `${cleanerName} Tests This Viral Cleaning Product! 🧽`,
-      cleaning_dance: `${cleanerName}'s Cleaning Dance Challenge! 💃`,
-      time_lapse: `${cleanerName}'s 3-Hour Deep Clean in 30 Seconds! ⏰`,
-    };
-    
-    return titles[type as keyof typeof titles] || `${cleanerName}'s Cleaning Tips`;
-  };
 
-  const getVideoDescription = (type: string): string => {
-    const descriptions = {
-      before_after_kitchen: 'From chaos to spotless in one session! Book me for your kitchen transformation 🏠',
-      speed_cleaning: 'Quick tips for busy people! Every second counts when you have company coming over 🏃‍♀️',
-      organization_tips: 'This one trick will change how you organize forever! Try it and let me know 📝',
-      product_review: 'Honest review of the latest cleaning trend. Worth the hype? 🤔',
-      cleaning_dance: 'Making cleaning fun with music! Who says chores have to be boring? 🎵',
-      time_lapse: 'The satisfaction of a complete transformation! Book for your deep clean 💯',
-    };
-    
-    return descriptions[type as keyof typeof descriptions] || 'Professional cleaning tips and tricks!';
-  };
-
-  const getVideoTags = (type: string): string[] => {
-    const baseTags = ['cleaning', 'chorehero', 'home', 'organization'];
-    const typeTags = {
-      before_after_kitchen: ['kitchen', 'transformation', 'beforeafter'],
-      speed_cleaning: ['speedcleaning', 'quicktips', 'efficient'],
-      organization_tips: ['organization', 'tips', 'lifehacks'],
-      product_review: ['review', 'products', 'honest'],
-      cleaning_dance: ['dance', 'fun', 'music'],
-      time_lapse: ['timelapse', 'deepclean', 'satisfying'],
-    };
-    
-    return [...baseTags, ...(typeTags[type as keyof typeof typeTags] || [])];
-  };
 
   const loadInitialVideos = async () => {
     setLoading(true);
     try {
-      if (useRealData) {
-        await loadVideosFromSupabase();
+      if (useEnhancedAlgorithm) {
+        await loadEnhancedVideos();
       } else {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const initialVideos = generateMockVideos(TIKTOK_UI.feedSettings.preloadCount);
-        setVideos(initialVideos);
-        pageRef.current = 2;
+        await loadVideosFromSupabase();
       }
     } catch (error) {
       console.error('Error loading initial videos:', error);
-      // Fallback to mock data
-      const initialVideos = generateMockVideos(TIKTOK_UI.feedSettings.preloadCount);
-      setVideos(initialVideos);
-      pageRef.current = 2;
+      setVideos([]);
     } finally {
       setLoading(false);
     }
   };
 
+  const loadEnhancedVideos = async () => {
+    try {
+      // Check if user is a guest
+      const isGuest = await guestModeService.isGuestUser();
+      
+      if (isGuest) {
+        // For guests, use the existing guest video logic
+        await loadVideosFromSupabase();
+        return;
+      }
+      
+      // For real users, use enhanced algorithm
+      // Note: This requires user auth context - would need to be passed in
+      // For now, fall back to regular loading
+      console.log('🚀 Enhanced algorithm would be used here with user context');
+      await loadVideosFromSupabase();
+    } catch (error) {
+      console.error('Error in enhanced video loading:', error);
+      await loadVideosFromSupabase(); // Fallback
+    }
+  };
+
   const loadVideosFromSupabase = async () => {
     try {
-      // Initialize sample data if needed
-      await initializeSampleData();
-
+      // Check if user is a guest
+      const isGuest = await guestModeService.isGuestUser();
+      
+      // Try to get real cleaner data first
       const { data, error } = await supabase
         .from('users')
         .select(`
@@ -202,11 +132,51 @@ export const useVideoFeed = () => {
         );
         setVideos(videoItems);
         pageRef.current = 2;
+      } else if (isGuest) {
+        // If no real data and user is guest, show professional videos
+        console.log('🎬 Loading professional videos for guest user');
+        const guestVideos = await guestModeService.getGuestVideos();
+        const transformedVideos = guestVideos.map((video, index) => 
+          transformGuestVideoToCleanerVideo(video, index)
+        );
+        setVideos(transformedVideos);
+        pageRef.current = 2;
       }
     } catch (error) {
       console.error('Error loading videos from Supabase:', error);
       throw error;
     }
+  };
+
+  const transformGuestVideoToCleanerVideo = (video: any, index: number): CleanerVideo => {
+    return {
+      id: video.id,
+      cleaner_id: video.id,
+      cleaner: {
+        id: video.id,
+        name: video.cleaner_name,
+        avatar_url: video.cleaner_avatar,
+        rating: 4.8 + Math.random() * 0.2,
+        total_jobs: video.view_count / 100,
+        bio: video.description.substring(0, 100) + '...',
+        verified: true,
+        specialties: [video.category],
+        hourly_rate: 25 + Math.floor(Math.random() * 20),
+      },
+      video_url: video.video_url,
+      title: video.title,
+      description: video.description,
+      thumbnail: video.thumbnail_url,
+      duration: video.duration,
+      view_count: video.view_count,
+      like_count: video.like_count,
+      share_count: Math.floor(video.like_count * 0.1),
+      created_at: video.created_at,
+      location: 'Professional Service Area',
+      tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
+      is_featured: true,
+      isGuestContent: true,
+    };
   };
 
   const transformCleanerToVideo = (cleaner: CleanerWithProfile, index: number): CleanerVideo => {
@@ -225,7 +195,7 @@ export const useVideoFeed = () => {
         bio: cleaner.cleaner_profiles?.bio || `${specialties.join(', ')} specialist`,
         hourly_rate: cleaner.cleaner_profiles?.hourly_rate || 89,
       },
-      video_url: cleaner.cleaner_profiles?.video_profile_url || `https://assets.mixkit.co/videos/7862/7862-720.mp4`,
+      video_url: cleaner.cleaner_profiles?.video_profile_url || '',
       thumbnail_url: `https://storage.googleapis.com/chorehero-thumbnails/${videoType}_${index}.jpg`,
       title: getVideoTitle(videoType, cleaner.name),
       description: getVideoDescription(videoType),
@@ -386,6 +356,8 @@ export const useVideoFeed = () => {
     loading,
     hasMore,
     refreshing,
+    sortPreference,
+    setSortPreference,
     loadMore,
     refresh,
     like,

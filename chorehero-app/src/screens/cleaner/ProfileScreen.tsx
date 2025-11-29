@@ -19,14 +19,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+import { useToast } from '../../components/Toast';
+
 import { COLORS } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
+import { demoCleanerService } from '../../services/demoCleanerService';
 import { contentService } from '../../services/contentService';
 
 const { width, height } = Dimensions.get('window');
@@ -78,6 +81,7 @@ interface CleanerProfileData {
 
 const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => {
   const { user, signOut, setDemoUser } = useAuth();
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -150,7 +154,45 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
   };
 
   const loadCleanerProfileData = async () => {
-    // Check if user is authenticated and get real data or demo data
+    // Check if user is demo cleaner
+    const isDemoCleanerUser = await demoCleanerService.isDemoCleanerUser();
+    
+    if (isDemoCleanerUser) {
+      console.log('🎭 DEMO CLEANER detected - loading demo data');
+      
+      // Load demo cleaner data
+      const demoData = demoCleanerService.getDemoCleanerData();
+      setProfileData({
+        id: demoData.id,
+        name: demoData.name,
+        email: demoData.email,
+        phone: demoData.phone,
+        bio: demoData.bio,
+        hourlyRate: demoData.hourly_rate,
+        avatar_url: demoData.avatar_url,
+        video_profile_url: demoData.video_profile_url || '',
+        verification_status: demoData.verification_status,
+        background_check_date: '2023-12-15', // Demo data
+        rating_average: demoData.rating_average,
+        total_jobs: demoData.total_jobs,
+        specialties: demoData.specialties,
+        availability: {
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: true,
+          sunday: false,
+        },
+        service_radius: demoData.service_radius_km,
+        instant_booking: true,
+      });
+      
+      return;
+    }
+    
+    // Check if user is authenticated and get real data
     const isRealUser = user?.id && !user.id.startsWith('demo_');
     
     if (isRealUser) {
@@ -245,7 +287,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
         bio: 'Professional cleaner with 5+ years experience. I specialize in deep cleaning and eco-friendly products.',
         hourlyRate: 35,
         avatar_url: 'https://randomuser.me/api/portraits/women/44.jpg',
-        video_profile_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+        video_profile_url: '',
         verification_status: 'verified',
         background_check_date: '2024-01-15',
         rating_average: 4.8,
@@ -258,17 +300,41 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
 
   const loadDashboardData = async () => {
     try {
-      // Check if we should use mock data
+      // Check if user is demo cleaner
+      const isDemoCleanerUser = await demoCleanerService.isDemoCleanerUser();
+      
+      if (isDemoCleanerUser) {
+        console.log('📊 Loading demo cleaner dashboard stats');
+        const demoStats = demoCleanerService.getDemoCleanerStats();
+        
+        setTodayEarnings(demoStats.todayEarnings);
+        setWeeklyEarnings(demoStats.weeklyEarnings);
+        setCompletedJobs(demoStats.completedJobs);
+        setRating(demoStats.averageRating);
+        
+        return;
+      }
+      
+      // Check if we should use mock data for other demo users
       const isRealUser = user?.id && !user.id.startsWith('demo_');
       
       if (isRealUser) {
-        // Real user - start with zeros
+        // Real user - start with zeros until we fetch real data
         setTodayEarnings(0);
         setWeeklyEarnings(0);
         setCompletedJobs(0);
         setRating(0);
+        
+        // TODO: Fetch real earnings data from database
+        // const earningsData = await earningsService.getCleanerEarnings(user.id);
+        // if (earningsData.success) {
+        //   setTodayEarnings(earningsData.data.today);
+        //   setWeeklyEarnings(earningsData.data.week);
+        //   setCompletedJobs(earningsData.data.completedJobs);
+        //   setRating(earningsData.data.averageRating);
+        // }
       } else {
-        // Demo user - mock data
+        // Other demo user - basic mock data
         setTodayEarnings(125.50);
         setWeeklyEarnings(387.25);
         setCompletedJobs(8);
@@ -316,9 +382,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
     try {
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
-      Alert.alert('Success', 'Profile updated successfully!');
+      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated' }); } catch {}
     } catch (error) {
-      Alert.alert('Error', 'Failed to save profile');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save profile' }); } catch {}
     } finally {
       setIsSaving(false);
     }
@@ -340,7 +406,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
         }));
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload image');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload image' }); } catch {}
     }
   };
 
@@ -363,11 +429,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
           ...prev,
           video_profile_url: result.assets[0].uri,
         }));
-        
-        Alert.alert('Success', 'Video uploaded successfully!');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Video uploaded' }); } catch {}
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload video');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload video' }); } catch {}
     } finally {
       setIsUploading(false);
     }
@@ -395,14 +460,14 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
                 if (result.success) {
                   // Remove the post from local state
                   setUserPosts(prev => prev.filter(post => post.id !== postId));
-                  Alert.alert('Success', 'Post deleted successfully');
+                  try { (showToast as any) && showToast({ type: 'success', message: 'Post deleted' }); } catch {}
                 } else {
-                  Alert.alert('Error', result.error || 'Failed to delete post');
+                  try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to delete post' }); } catch {}
                 }
               }
             } catch (error) {
               console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to delete post' }); } catch {}
             } finally {
               setIsLoading(false);
             }
@@ -414,11 +479,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
 
   const handleSwitchToCustomer = async () => {
     try {
-      await setDemoUser('customer');
-      Alert.alert('Account Switched', 'You are now in customer mode');
+      await AsyncStorage.setItem('guest_user_role', 'customer');
+      try { (showToast as any) && showToast({ type: 'success', message: 'Switched to customer mode' }); } catch {}
     } catch (error) {
       console.error('Error switching to customer:', error);
-      Alert.alert('Error', 'Failed to switch account mode');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to switch account mode' }); } catch {}
     }
   };
 
@@ -460,7 +525,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
                 ...prev,
                 avatar_url: profileData.avatar_url,
               }));
-              Alert.alert('Error', 'Failed to save profile picture to database');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save picture' }); } catch {}
               return;
             }
             
@@ -477,17 +542,17 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
               console.log('Note: Could not update cleaner_profiles avatar (may not exist yet):', cleanerError);
             }
             
-            Alert.alert('Success', 'Profile picture updated and saved!');
+            try { (showToast as any) && showToast({ type: 'success', message: 'Profile picture updated' }); } catch {}
           } else {
-            Alert.alert('Error', 'User not authenticated');
+            try { (showToast as any) && showToast({ type: 'error', message: 'User not authenticated' }); } catch {}
           }
         } catch (dbError) {
           console.error('Database error:', dbError);
-          Alert.alert('Error', 'Failed to save profile picture');
+          try { (showToast as any) && showToast({ type: 'error', message: 'Failed to save picture' }); } catch {}
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload profile picture');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to upload picture' }); } catch {}
     } finally {
       setIsUploading(false);
     }
@@ -561,7 +626,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
             onPress={handleSelectProfileImage}
           >
             <Image 
-              source={{ uri: profileData.avatar_url || 'https://via.placeholder.com/60x60' }} 
+              source={{ uri: profileData.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(profileData.name || 'Cleaner')}&background=3ad3db&color=fff&size=120&font-size=0.4&format=png` }} 
               style={styles.profileImage} 
             />
             <View style={styles.profileImageOverlay}>
@@ -709,10 +774,18 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
       <View style={styles.quickActionsGrid}>
         <TouchableOpacity 
           style={styles.quickActionCard}
+          onPress={() => navigation.navigate('ContentUploadWithPricing')}
+        >
+          <Ionicons name="pricetag" size={24} color="#F59E0B" />
+          <Text style={styles.quickActionText}>Create Service</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.quickActionCard}
           onPress={() => navigation.navigate('VideoUpload')}
         >
-          <Ionicons name="videocam" size={24} color="#F59E0B" />
-          <Text style={styles.quickActionText}>Create Post</Text>
+          <Ionicons name="videocam" size={24} color="#8B5CF6" />
+          <Text style={styles.quickActionText}>Quick Upload</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.quickActionCard}
@@ -931,10 +1004,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileProps> = ({ navigation }) => 
           </Text>
           <TouchableOpacity 
             style={styles.createPostButton}
-            onPress={() => navigation.navigate('VideoUpload')}
+            onPress={() => navigation.navigate('ContentUploadWithPricing')}
           >
-            <Ionicons name="add" size={20} color="#FFFFFF" />
-            <Text style={styles.createPostButtonText}>Create Post</Text>
+            <Ionicons name="pricetag" size={20} color="#FFFFFF" />
+            <Text style={styles.createPostButtonText}>Create Service Content</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -1346,10 +1419,12 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   saveButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#F0FDFA',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
   },
   saveButtonText: {
     fontSize: 14,
@@ -1402,6 +1477,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     marginBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1425,7 +1502,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
@@ -1453,6 +1530,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1515,8 +1594,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   selectedSpecialtyChip: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
+    borderColor: '#F59E0B',
   },
   specialtyText: {
     fontSize: 12,
@@ -1562,12 +1641,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDFA',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#00BFA6',
+    borderColor: '#F59E0B',
   },
   videoActionText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#00BFA6',
+    color: '#F59E0B',
     marginLeft: 8,
   },
   uploadVideoContainer: {
@@ -1599,9 +1678,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#00BFA6',
-    borderRadius: 12,
-    paddingVertical: 16,
+    backgroundColor: '#F59E0B',
+    height: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
     gap: 8,
   },
   uploadVideoButtonText: {

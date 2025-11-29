@@ -15,9 +15,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import FloatingNavigation from '../../components/FloatingNavigation';
 
@@ -81,8 +83,9 @@ interface UserStats {
 }
 
 const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [userStats, setUserStats] = useState<UserStats>({
     totalBookings: 0,
@@ -133,6 +136,13 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
     loadProfileData();
   }, []);
 
+  // Keep local avatar preview in sync with authenticated user
+  useEffect(() => {
+    if (user?.avatar_url) {
+      setAvatarUri(user.avatar_url);
+    }
+  }, [user?.avatar_url]);
+
   const loadProfileData = async () => {
     try {
       setIsLoading(true);
@@ -140,28 +150,32 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
       // Check if user is authenticated and try to load real data
       if (user?.id && !user.id.startsWith('demo_')) {
         try {
-          // Real authenticated user - load their actual data (empty for new accounts)
+          // Real authenticated user - load their actual data from database
           console.log('✅ REAL USER detected - loading actual data for:', user.email, user.name, 'ID:', user.id);
           
-          const realStats = {
+          // Load real statistics from database
+          const [statsResult, upcomingResult, recentResult] = await Promise.all([
+            userStatsService.getCustomerStats(user.id),
+            userStatsService.getCustomerUpcomingBookings(user.id),
+            userStatsService.getCustomerRecentActivity(user.id, 5)
+          ]);
+
+          // Use real data if available, fall back to empty states
+          const realStats = statsResult.success ? statsResult.data! : {
             totalBookings: 0,
             completedBookings: 0,
             totalSpent: 0,
             favoriteCleaners: 0,
           };
 
-          // Real bookings would be loaded from database here
-          const realUpcoming: Booking[] = [];
-          const realRecent: Booking[] = [];
+          const realUpcoming = upcomingResult.success ? upcomingResult.data! : [];
+          const realRecent = recentResult.success ? recentResult.data! : [];
 
-                     // For real users, show actual data (empty states) instead of mock data
-           const finalStats = realStats;
-           const finalUpcoming = realUpcoming; 
-           const finalRecent = realRecent;
+          setUserStats(realStats);
+          setUpcomingBookings(realUpcoming);
+          setRecentBookings(realRecent);
 
-          setUserStats(finalStats);
-          setUpcomingBookings(finalUpcoming);
-          setRecentBookings(finalRecent);
+          console.log('📊 Loaded real user statistics:', realStats);
           
         } catch (dbError) {
           console.error('Database error loading profile data:', dbError);
@@ -182,23 +196,13 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   };
 
   const loadMockData = () => {
-    // Fallback mock data loading
-    const mockStats = MockDataToggle.getFeatureData(
-      'CUSTOMER',
-      'PROFILE_STATS',
-      {
-        totalBookings: 24,
-        completedBookings: 22,
-        totalSpent: 1847.50,
-        favoriteCleaners: 8,
-      },
-      {
-        totalBookings: 0,
-        completedBookings: 0,
-        totalSpent: 0,
-        favoriteCleaners: 0,
-      }
-    );
+    // Fallback mock data loading - simplified without MockDataToggle
+    const mockStats = {
+      totalBookings: 24,
+      completedBookings: 22,
+      totalSpent: 1847.50,
+      favoriteCleaners: 8,
+    };
 
     const mockUpcoming = [
       {
@@ -340,23 +344,35 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   const renderProfileHeader = () => (
     <View style={styles.profileHeader}>
       <LinearGradient
-        colors={['#3ad3db', '#1ca7b7']}
+        colors={['#FFFFFF', '#FFFFFF']}
         style={styles.profileGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.profileHeaderContent}>
           <View style={styles.profileInfo}>
-            <View style={styles.profileAvatar}>
-              <Text style={styles.profileAvatarText}>
-                {user?.name ? user.name.charAt(0).toUpperCase() : 'J'}
-              </Text>
-            </View>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleChangeAvatar}
+              style={styles.profileAvatar}
+            >
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={styles.profileAvatarImage}
+                  onError={() => setAvatarUri(null)}
+                />
+              ) : (
+                <Text style={styles.profileAvatarText}>
+                  {user?.name ? user.name.charAt(0).toUpperCase() : (user?.email?.[0]?.toUpperCase() || 'U')}
+                </Text>
+              )}
+            </TouchableOpacity>
             <View style={styles.profileDetails}>
-                          <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
-            <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>
+              <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
+              <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>
               <View style={styles.memberSince}>
-                <Ionicons name="calendar-outline" size={12} color="rgba(255,255,255,0.8)" />
+                <Ionicons name="calendar-outline" size={12} color="#6B7280" />
                 <Text style={styles.memberSinceText}>
                   {user?.id && !user.id.startsWith('demo_') 
                     ? `Real Account • ${new Date(user.created_at || '').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` 
@@ -370,7 +386,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
             style={styles.settingsButton}
             onPress={() => navigation.navigate('SettingsScreen')}
           >
-            <Ionicons name="settings-outline" size={24} color="#FFFFFF" />
+            <Ionicons name="settings-outline" size={24} color="#374151" />
           </TouchableOpacity>
         </View>
       </LinearGradient>
@@ -576,7 +592,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#3ad3db" />
           <Text style={styles.loadingText}>Loading your profile...</Text>
@@ -585,9 +601,46 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
     );
   }
 
+  const handleChangeAvatar = async () => {
+    const persist = async (uri: string) => {
+      if (!user?.id) return;
+      const { error } = await supabase
+        .from('users')
+        .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+      if (!error) {
+        setAvatarUri(uri);
+        await refreshUser();
+      }
+    };
+    try {
+      Alert.alert('Profile Photo', 'Choose a source', [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') return;
+            const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) await persist(result.assets[0].uri);
+          },
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') return;
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) await persist(result.assets[0].uri);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    } catch {}
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
       <ScrollView 
         style={styles.scrollView}
@@ -617,21 +670,26 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#FFFFFF',
   },
   scrollView: {
     flex: 1,
+    backgroundColor: '#F9F9F9',
   },
   scrollContent: {
     paddingBottom: 100,
+  },
+  safeHeader: {
+    height: 0,
   },
 
   // Profile Header
   profileHeader: {
     marginBottom: 0,
+    backgroundColor: '#FFFFFF',
   },
   profileGradient: {
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 30,
     paddingHorizontal: 20,
   },
@@ -649,15 +707,20 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
   },
+  profileAvatarImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
   profileAvatarText: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#374151',
   },
   profileDetails: {
     flex: 1,
@@ -665,12 +728,12 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#1F2937',
     marginBottom: 4,
   },
   profileEmail: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
     marginBottom: 6,
   },
   memberSince: {
@@ -680,13 +743,13 @@ const styles = StyleSheet.create({
   },
   memberSinceText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#6B7280',
   },
   settingsButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },

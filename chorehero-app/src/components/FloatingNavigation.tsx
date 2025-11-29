@@ -4,6 +4,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useMessages } from '../context/MessageContext';
 
 const { width } = Dimensions.get('window');
 
@@ -23,6 +24,7 @@ type FloatingNavigationProps = {
 };
 
 const FloatingNavigation: React.FC<FloatingNavigationProps> = ({ navigation, currentScreen }) => {
+  const { unreadCount } = useMessages();
   const getButtonColor = (screen: keyof TabParamList) => {
     if (currentScreen === screen) {
       return '#3ad3db'; // Cyan for active
@@ -76,13 +78,15 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({ navigation, cur
             style={getButtonStyle('Messages')} 
             onPress={() => navigation.navigate('Messages')}
           >
-            <View style={styles.iconContainer}>
+              <View style={styles.iconContainer}>
               <View style={styles.iconWrapper}>
                 <Ionicons name="chatbubble" size={28} color={getButtonColor('Messages')} />
               </View>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>5</Text>
-              </View>
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{unreadCount}</Text>
+                </View>
+              )}
             </View>
             <Text style={getTextStyle('Messages')}>Messages</Text>
           </TouchableOpacity>

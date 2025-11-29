@@ -6,7 +6,7 @@ module.exports = function (api) {
       '@babel/preset-typescript'
     ],
     plugins: [
-      'react-native-reanimated/plugin'
+      'react-native-worklets/plugin'
     ]
   };
 };

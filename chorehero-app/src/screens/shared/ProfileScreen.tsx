@@ -13,12 +13,13 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import { USE_MOCK_DATA } from '../../utils/constants';
-import { useAuth } from '../../hooks/useAuth';
 
 type TabParamList = {
   Home: undefined;
@@ -40,7 +41,13 @@ const { width } = Dimensions.get('window');
 const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'saved'>('overview');
   const animatedValues = useRef<{ [key: string]: Animated.Value }>({});
-  const { signOut } = useAuth();
+  const { signOut, authUser, refreshUser } = useAuth();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const url = (authUser?.user as any)?.avatar_url as string | undefined;
+    if (url) setAvatarUrl(url);
+  }, [authUser]);
 
   const handleCreateAdditionalAccount = () => {
     Alert.alert(
@@ -75,11 +82,11 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     );
   };
 
-  // Mock user data
+  // Mock user data with smart placeholder
   const user = {
-    name: 'John Smith',
-    email: 'john.smith@email.com',
-    avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
+    name: authUser?.user?.name || 'John Smith',
+    email: authUser?.user?.email || 'john.smith@email.com',
+    avatar: authUser?.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(authUser?.user?.name || 'Customer')}&background=6366F1&color=fff&size=150&font-size=0.4&format=png`,
     location: 'San Francisco, CA',
     phone: '+1 (555) 123-4567',
     memberSince: 'March 2023',
@@ -88,7 +95,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     savedCleaners: 8,
   };
 
-  const recentBookings = USE_MOCK_DATA ? [
+  const recentBookings = false ? [
     {
       id: '1',
       service: 'Kitchen Deep Clean',
@@ -118,7 +125,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
     },
   ] : [];
 
-  const savedCleaners = USE_MOCK_DATA ? [
+  const savedCleaners = false ? [
     {
       id: '1',
       name: 'Sarah Martinez',
@@ -314,7 +321,72 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
           >
             <View style={styles.userInfo}>
               <View style={styles.avatarContainer}>
-                <Image source={{ uri: user.avatar }} style={styles.profileAvatar} />
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={async () => {
+                    const persist = async (uri: string) => {
+                      setAvatarUrl(uri);
+                      const userId = authUser?.user?.id as string | undefined;
+                      if (userId) {
+                        const { error } = await supabase
+                          .from('users')
+                          .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+                          .eq('id', userId);
+                        if (error) {
+                          console.error('Avatar update error:', error);
+                          Alert.alert('Update failed', 'Could not save your profile photo.');
+                        } else {
+                          await refreshUser();
+                        }
+                      }
+                    };
+
+                    try {
+                      Alert.alert(
+                        'Profile Photo',
+                        'Choose a source',
+                        [
+                          {
+                            text: 'Take Photo',
+                            onPress: async () => {
+                              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                              if (status !== 'granted') {
+                                Alert.alert('Permission required', 'Allow camera access to take a photo.');
+                                return;
+                              }
+                              const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+                              if (!result.canceled && result.assets?.[0]?.uri) {
+                                await persist(result.assets[0].uri);
+                              }
+                            }
+                          },
+                          {
+                            text: 'Choose from Library',
+                            onPress: async () => {
+                              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                              if (status !== 'granted') {
+                                Alert.alert('Permission required', 'Allow photo access to set your profile image.');
+                                return;
+                              }
+                              const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+                              if (!result.canceled && result.assets?.[0]?.uri) {
+                                await persist(result.assets[0].uri);
+                              }
+                            }
+                          },
+                          { text: 'Cancel', style: 'cancel' }
+                        ]
+                      );
+                    } catch (e) {
+                      console.error('Image pick error', e);
+                    }
+                  }}
+                >
+                  <Image source={{ uri: avatarUrl || user.avatar }} style={styles.profileAvatar} />
+                  <View style={styles.editBadge}>
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                  </View>
+                </TouchableOpacity>
                 <View style={styles.avatarShadow} />
               </View>
               <View style={styles.userDetails}>
@@ -500,8 +572,8 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
               ) : (
                 <EmptyState
                   {...EmptyStateConfigs.bookingHistory}
-                  showFeatures={!USE_MOCK_DATA}
-                  actions={USE_MOCK_DATA ? [] : [
+                  showFeatures={true}
+                  actions={[
                     {
                       label: 'Book Your First Service',
                       onPress: () => navigation.navigate('Discover'),
@@ -521,8 +593,8 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => {
               ) : (
                 <EmptyState
                   {...EmptyStateConfigs.savedCleaners}
-                  showFeatures={!USE_MOCK_DATA}
-                  actions={USE_MOCK_DATA ? [] : [
+                  showFeatures={true}
+                  actions={[
                     {
                       label: 'Discover Cleaners',
                       onPress: () => navigation.navigate('Discover'),
@@ -556,8 +628,11 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 24,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   headerTitle: {
     fontSize: 32,
@@ -608,6 +683,19 @@ const styles = StyleSheet.create({
     borderRadius: 48,
     backgroundColor: 'rgba(58, 211, 219, 0.15)',
     zIndex: -1,
+  },
+  editBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#3ad3db',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   userDetails: {
     flex: 1,

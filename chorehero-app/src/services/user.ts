@@ -51,13 +51,34 @@ class UserService {
         };
       }
 
-      // Check if email confirmation is required
+      // If Supabase didn't return a session, attempt immediate sign-in (beta convenience)
       if (authData.user && !authData.session) {
-        return {
-          success: false,
-          error: 'Please check your email and click the confirmation link to activate your account. Then return to sign in.',
-          requiresSignIn: false
-        };
+        try {
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: email.toLowerCase(),
+            password,
+          });
+          if (signInError) {
+            return {
+              success: false,
+              error: signInError.message || 'Please check your email for a confirmation link, then sign in.',
+              requiresSignIn: true,
+            };
+          }
+          if (!signInData.user) {
+            return {
+              success: false,
+              error: 'Please check your email for a confirmation link, then sign in.',
+              requiresSignIn: true,
+            };
+          }
+        } catch (e) {
+          return {
+            success: false,
+            error: 'Please check your email for a confirmation link, then sign in.',
+            requiresSignIn: true,
+          };
+        }
       }
 
       // Do NOT insert into public.users here due to RLS; onboarding will create the profile

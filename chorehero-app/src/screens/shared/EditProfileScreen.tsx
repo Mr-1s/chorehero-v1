@@ -30,6 +30,7 @@ interface UserProfile {
   name: string;
   email: string;
   phone: string;
+  username?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   specialPreferences?: string;
@@ -59,7 +60,7 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
       // Get user basic info
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('name, email, phone')
+        .select('name, email, phone, username')
         .eq('id', user.id)
         .single();
 
@@ -85,6 +86,7 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
         name: userData.name || '',
         email: userData.email || '',
         phone: userData.phone || '',
+        username: (userData as any)?.username || '',
         emergencyContactName: customerData?.emergency_contact_name || '',
         emergencyContactPhone: customerData?.emergency_contact_phone || '',
         specialPreferences: customerData?.special_preferences || '',
@@ -124,6 +126,7 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
           name: profile.name.trim(),
           email: profile.email.trim() || null,
           phone: profile.phone.trim(),
+          username: profile.username?.trim() || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', user.id);

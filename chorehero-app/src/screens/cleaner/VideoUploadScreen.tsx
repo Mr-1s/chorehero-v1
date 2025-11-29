@@ -11,7 +11,7 @@ import {
   FlatList,
   Image,
 } from 'react-native';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,7 +22,9 @@ import { uploadService, type UploadProgress, type UploadResponse } from '../../s
 import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+import { useToast } from '../../components/Toast';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { getOptimalListProps, memoryManager, performanceMonitor, optimizeImageUri } from '../../utils/performance';
 
@@ -49,37 +51,17 @@ interface UploadedVideo {
 }
 
 const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+  const NAV_CLEARANCE = 110; // CleanerFloatingNavigation: height ~80 + bottom offset ~30
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
   const [uploadDetails, setUploadDetails] = useState<UploadProgress | null>(null);
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [videos, setVideos] = useState<UploadedVideo[]>(
-    MockDataToggle.getFeatureData('CLEANER', 'VIDEOS', [
-      {
-        id: '1',
-        uri: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-        title: 'Kitchen Deep Clean Demo',
-        duration: 45,
-        uploadDate: '2023-12-15',
-        status: 'live',
-        views: 1200,
-        bookings: 8,
-      },
-      {
-        id: '2',
-        uri: 'https://assets.mixkit.co/videos/preview/mixkit-person-cleaning-a-surface-with-disinfectant-4203-large.mp4',
-        title: 'Bathroom Sanitization',
-        duration: 38,
-        uploadDate: '2023-12-10',
-        status: 'live',
-        views: 850,
-        bookings: 5,
-      },
-    ], [])
-  );
+  const [videos, setVideos] = useState<UploadedVideo[]>([]);
 
   // Calculate analytics metrics
   const totalViews = videos.reduce((sum, video) => sum + video.views, 0);
@@ -124,14 +106,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       console.log('📷 Camera permission status:', status);
       
       if (status !== 'granted') {
-        Alert.alert(
-          'Camera Permission Required', 
-          'ChoreHero needs camera access to record videos. Please enable camera permission in your device settings.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Settings', onPress: () => console.log('Open settings - implement Linking.openSettings()') }
-          ]
-        );
+        try { (showToast as any) && showToast({ type: 'warning', message: 'Camera permission required' }); } catch {}
         return;
       }
 
@@ -154,11 +129,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('🚨 Camera upload error:', error);
-      Alert.alert(
-        'Camera Error', 
-        `Failed to record video: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or use the library option.`,
-        [{ text: 'OK' }]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to record video' }); } catch {}
     }
   };
 
@@ -210,11 +181,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('🚨 Library upload error:', error);
-      Alert.alert(
-        'Library Error', 
-        `Failed to select video: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your media library permissions.`,
-        [{ text: 'OK' }]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to select video' }); } catch {}
     }
   };
 
@@ -236,7 +203,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       if (!validation.isValid) {
         console.error('❌ Video validation failed:', validation.error);
         setUploadError(validation.error || 'Invalid video file');
-        Alert.alert('Upload Error', validation.error || 'Invalid video file');
+        try { (showToast as any) && showToast({ type: 'error', message: validation.error || 'Invalid video file' }); } catch {}
         return;
       }
 
@@ -306,11 +273,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
         setVideos(prev => [newVideo, ...prev]);
         
-        Alert.alert(
-          'Upload Successful! 🎉',
-          'Your video has been uploaded and will appear in the Feed and Discover tabs for customers to see.',
-          [{ text: 'OK', onPress: () => setSelectedVideo(null) }]
-        );
+        try { (showToast as any) && showToast({ type: 'success', message: 'Video uploaded' }); } catch {}
+        setSelectedVideo(null);
 
         // Clear upload state
         setUploadDetails(null);
@@ -350,14 +314,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
         setUploadError(errorMessage);
 
-        const alertButtons = showRetry ? [
-          { text: 'Cancel', style: 'cancel' as const },
-          { text: 'Retry', onPress: () => handleVideoUpload(videoUri) }
-        ] : [
-          { text: 'OK' }
-        ];
-
-        Alert.alert(errorTitle, errorMessage, alertButtons);
+        try { (showToast as any) && showToast({ type: 'error', message: errorMessage }); } catch {}
+        if (showRetry) handleVideoUpload(videoUri);
       }
 
     } catch (error: any) {
@@ -365,14 +323,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       const errorMessage = error.message || 'An unexpected error occurred';
       setUploadError(errorMessage);
       
-      Alert.alert(
-        'Upload Error',
-        errorMessage,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Retry', onPress: () => handleVideoUpload(videoUri) }
-        ]
-      );
+      try { (showToast as any) && showToast({ type: 'error', message: errorMessage }); } catch {}
     } finally {
       setIsUploading(false);
       // Keep progress visible for a moment if successful
@@ -427,7 +378,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
             source={{ uri: selectedVideo }}
             style={styles.videoPreview}
             useNativeControls
-            resizeMode="cover"
+            resizeMode={ResizeMode.COVER}
             shouldPlay={false}
           />
         </View>
@@ -506,7 +457,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       <Video
         source={{ uri: item.uri }}
         style={styles.videoThumbnail}
-        resizeMode="cover"
+        resizeMode={ResizeMode.COVER}
         shouldPlay={false}
       />
       
@@ -573,8 +524,21 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
             {renderUploadOptions()}
           </>
         )}
+        ListFooterComponent={() => (
+          <View style={styles.tipsFooter}>
+            <Text style={styles.tipsTitle}>Video Tips</Text>
+            <Text style={styles.tipsText}>
+              • Keep videos 30-60 seconds • Show before/after • Good lighting • Clear audio
+            </Text>
+            {/* Spacer to ensure content clears the floating nav */}
+            <View style={{ height: NAV_CLEARANCE + insets.bottom }} />
+          </View>
+        )}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: NAV_CLEARANCE + insets.bottom },
+        ]}
         // Performance optimizations
         {...getOptimalListProps(120)} // Estimated item height
         removeClippedSubviews={true}
@@ -598,14 +562,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         }}
       />
 
-      {/* Tips */}
-      <View style={styles.tipsContainer}>
-        <Text style={styles.tipsTitle}>Video Tips</Text>
-        <Text style={styles.tipsText}>
-          • Keep videos 30-60 seconds • Show before/after • Good lighting • Clear audio
-        </Text>
-      </View>
-      
+      {/* Floating Navigation */}
       <CleanerFloatingNavigation 
         navigation={navigation as any}
         currentScreen="Content"
@@ -635,7 +592,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   listContent: {
-    paddingBottom: 100,
+    paddingBottom: 0, // dynamic via insets + nav clearance
   },
   uploadSection: {
     padding: 20,
@@ -643,10 +600,11 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 22, // Slightly larger for better hierarchy
+    fontWeight: '800',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: 6,
+    letterSpacing: -0.3, // Tighter spacing for headers
   },
   sectionSubtitle: {
     fontSize: 14,
@@ -662,10 +620,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3ad3db',
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: '#F59E0B',
+    height: 48, // Slightly taller for better touch target
+    paddingHorizontal: 16,
+    borderRadius: 24,
     gap: 8,
+    shadowColor: 'rgba(245, 158, 11, 0.4)', // Orange shadow
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)', // Subtle white border
   },
   uploadButtonText: {
     fontSize: 16,
@@ -690,7 +656,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     backgroundColor: '#F8F9FA',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
@@ -791,13 +757,10 @@ const styles = StyleSheet.create({
   actionButton: {
     padding: 4,
   },
-  tipsContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  tipsFooter: {
     backgroundColor: '#F9FAFB',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
   },
@@ -816,32 +779,36 @@ const styles = StyleSheet.create({
   analyticsSection: {
     marginHorizontal: 20,
     marginBottom: 24,
+    marginTop: 8, // Add top spacing
   },
   analyticsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 16,
+    gap: 16, // Increased gap for better breathing room
+    marginTop: 20,
   },
   analyticsCard: {
     flex: 1,
     minWidth: '47%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    padding: 20, // Increased padding for better spacing
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowColor: 'rgba(245, 158, 11, 0.15)', // Orange-tinted shadow
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 4,
   },
   analyticsValue: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 28, // Larger, more prominent numbers
+    fontWeight: '800',
     color: '#1F2937',
-    marginTop: 8,
-    marginBottom: 4,
+    marginTop: 12,
+    marginBottom: 6,
+    letterSpacing: -0.5, // Tighter letter spacing for large numbers
   },
   analyticsLabel: {
     fontSize: 12,

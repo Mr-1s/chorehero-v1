@@ -15,9 +15,14 @@ import {
   Animated,
   FlatList,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../context/ThemeContext';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import PillBadge from '../../components/PillBadge';
+import PillRow from '../../components/PillRow';
+import { StyleSheet as RNStyleSheet } from 'react-native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { jobStateManager } from '../../services/jobStateManager';
 import { enhancedLocationService } from '../../services/enhancedLocationService';
@@ -25,6 +30,8 @@ import { bookingService } from '../../services/booking';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
+import { SkeletonBlock, SkeletonList } from '../../components/Skeleton';
+import { useToast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
 
@@ -40,7 +47,7 @@ type JobsScreenProps = {
   navigation: StackNavigationProp<StackParamList, 'JobsScreen'>;
 };
 
-type JobStatus = 'available' | 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+type JobStatus = 'available' | 'pending' | 'cleaner_assigned' | 'confirmed' | 'cleaner_en_route' | 'cleaner_arrived' | 'in_progress' | 'completed' | 'cancelled' | 'paid';
 type JobType = 'express' | 'standard' | 'deep';
 
 interface Job {
@@ -81,6 +88,8 @@ interface Job {
 }
 
 const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
+  const { theme } = useTheme();
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,6 +97,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'today' | 'tomorrow' | 'week'>('all');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [acceptingJobId, setAcceptingJobId] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -192,7 +202,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
               total: booking.total_amount,
               cleanerEarnings: booking.cleaner_earnings || booking.total_amount * 0.7,
             },
-            status: booking.cleaner_id === user.id ? 'confirmed' : 'available',
+            status: booking.cleaner_id === user.id ? 'cleaner_assigned' : 'available',
             priority: 'medium',
             isInstantBook: true,
             createdAt: booking.created_at,
@@ -379,16 +389,16 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
           // Update local job status
           setJobs(prev => prev.map(job => 
             job.id === jobId 
-              ? { ...job, status: 'confirmed' as JobStatus }
+              ? { ...job, status: 'cleaner_assigned' as JobStatus }
               : job
           ));
-          
-          Alert.alert('Success!', 'Job accepted successfully!');
+          // Toast instead of alert for smoother UX
+          try { (showToast as any) && showToast({ type: 'success', message: 'Job accepted' }); } catch {}
           
           // Refresh jobs to get updated data
           await loadJobs();
         } else {
-          Alert.alert('Error', result.error || 'Failed to accept job. Please try again.');
+          try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to accept job' }); } catch {}
         }
       } else {
         // Demo mode - simulate acceptance
@@ -397,12 +407,11 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             ? { ...job, status: 'confirmed' as JobStatus }
             : job
         ));
-        
-        Alert.alert('Success!', 'Job accepted (Demo Mode)');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job accepted (demo)' }); } catch {}
       }
     } catch (error) {
       console.error('Error accepting job:', error);
-      Alert.alert('Error', 'Failed to accept job. Please try again.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Network error' }); } catch {}
     } finally {
       setAcceptingJobId(null);
     }
@@ -421,21 +430,11 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             if (!user?.id) return;
             
             try {
-              // Use job state manager to cancel booking
-              const result = await jobStateManager.cancelBooking(
-                jobId, 
-                user.id, 
-                'Declined by cleaner'
-              );
-              
-              if (result.success) {
-                setJobs(prev => prev.filter(job => job.id !== jobId));
-              } else {
-                Alert.alert('Error', result.error || 'Failed to decline job.');
-              }
+              // Ignore job locally without cancelling it globally
+              setJobs(prev => prev.filter(job => job.id !== jobId));
             } catch (error) {
               console.error('Error declining job:', error);
-              Alert.alert('Error', 'Failed to decline job.');
+              try { (showToast as any) && showToast({ type: 'error', message: 'Failed to decline job' }); } catch {}
             }
           }
         },
@@ -459,13 +458,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Started tracking your location. Customer will be notified.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Tracking started' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to start traveling.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to start traveling' }); } catch {}
       }
     } catch (error) {
       console.error('Error starting travel:', error);
-      Alert.alert('Error', 'Failed to start traveling.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to start traveling' }); } catch {}
     }
   };
 
@@ -481,13 +480,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Marked as arrived. Customer has been notified.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Marked as arrived' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to mark as arrived.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to mark as arrived' }); } catch {}
       }
     } catch (error) {
       console.error('Error marking arrived:', error);
-      Alert.alert('Error', 'Failed to mark as arrived.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to mark as arrived' }); } catch {}
     }
   };
 
@@ -503,13 +502,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Job started. Timer is now running.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job started' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to start job.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to start job' }); } catch {}
       }
     } catch (error) {
       console.error('Error starting job:', error);
-      Alert.alert('Error', 'Failed to start job.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to start job' }); } catch {}
     }
   };
 
@@ -528,13 +527,13 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
             : job
         ));
         
-        Alert.alert('Success!', 'Job completed! Payment processing will begin automatically.');
+        try { (showToast as any) && showToast({ type: 'success', message: 'Job completed' }); } catch {}
       } else {
-        Alert.alert('Error', result.error || 'Failed to complete job.');
+        try { (showToast as any) && showToast({ type: 'error', message: result.error || 'Failed to complete job' }); } catch {}
       }
     } catch (error) {
       console.error('Error completing job:', error);
-      Alert.alert('Error', 'Failed to complete job.');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to complete job' }); } catch {}
     }
   };
 
@@ -552,7 +551,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
           }
         })}
       >
-        <Ionicons name="chatbubble" size={16} color="#00BFA6" />
+        <Ionicons name="chatbubble" size={16} color={theme.colors.primary} />
         <Text style={styles.actionButtonText}>Chat</Text>
       </TouchableOpacity>
     );
@@ -624,7 +623,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
               style={styles.actionButton}
               onPress={() => navigation.navigate('ActiveJob', { jobId: job.id })}
             >
-              <Ionicons name="receipt" size={16} color="#00BFA6" />
+              <Ionicons name="receipt" size={16} color={theme.colors.primary} />
               <Text style={styles.actionButtonText}>View Receipt</Text>
             </TouchableOpacity>
           </View>
@@ -641,7 +640,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         case 'available':
           return job.status === 'available';
         case 'active':
-          return ['confirmed', 'in_progress'].includes(job.status);
+          return ['cleaner_assigned', 'confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress', 'paid'].includes(job.status as any);
         case 'history':
           return ['completed', 'cancelled'].includes(job.status);
         default:
@@ -678,9 +677,9 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
 
   const getServiceTypeColor = (type: JobType) => {
     switch (type) {
-      case 'express': return '#3B82F6';
-      case 'standard': return '#00BFA6';
-      case 'deep': return '#8B5CF6';
+      case 'express': return 'rgba(59, 130, 246, 0.15)';
+      case 'standard': return 'rgba(245, 158, 11, 0.15)';
+      case 'deep': return 'rgba(139, 92, 246, 0.15)';
       default: return '#6B7280';
     }
   };
@@ -697,9 +696,9 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
   const getStatusColor = (status: JobStatus) => {
     switch (status) {
       case 'available': return '#10B981';
-      case 'confirmed': return '#3B82F6';
-      case 'in_progress': return '#8B5CF6';
-      case 'completed': return '#059669';
+      case 'confirmed': return '#F59E0B';
+      case 'in_progress': return '#F59E0B';
+      case 'completed': return '#6B7280';
       case 'cancelled': return '#DC2626';
       default: return '#6B7280';
     }
@@ -809,12 +808,8 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
 
       <View style={styles.serviceInfo}>
         <View style={styles.serviceHeader}>
-          <View style={[styles.serviceTypeBadge, { backgroundColor: getServiceTypeColor(job.service.type) }]}>
-            <Text style={styles.serviceTypeText}>{job.service.title}</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(job.status) }]}>
-            <Text style={styles.statusText}>{getStatusText(job.status)}</Text>
-          </View>
+          <PillBadge label={job.service.title} variant="filled" backgroundColor={getServiceTypeColor(job.service.type)} />
+          <PillBadge label={getStatusText(job.status)} variant="filled" backgroundColor={getStatusColor(job.status)} />
         </View>
         
         {job.service.addOns.length > 0 && (
@@ -825,23 +820,17 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         )}
       </View>
 
-      <View style={styles.scheduleInfo}>
-        <View style={styles.scheduleItem}>
-          <Ionicons name="calendar-outline" size={16} color="#6B7280" />
-          <Text style={styles.scheduleText}>{job.schedule.date} at {job.schedule.time}</Text>
-        </View>
-        <View style={styles.scheduleItem}>
-          <Ionicons name="time-outline" size={16} color="#6B7280" />
-          <Text style={styles.scheduleText}>{job.schedule.duration} minutes</Text>
-        </View>
-        <View style={styles.scheduleItem}>
-          <Ionicons name="location-outline" size={16} color="#6B7280" />
-          <Text style={styles.scheduleText}>{job.location.distance} mi away</Text>
-        </View>
-      </View>
+      <PillRow 
+        leftItems={[
+          { icon: 'calendar-outline', text: `${job.schedule.date} at ${job.schedule.time}` },
+          { icon: 'time-outline', text: `${job.schedule.duration} minutes` },
+          { icon: 'location-outline', text: `${job.location.distance} mi away` },
+        ]}
+        style={styles.scheduleInfo}
+      />
 
       <View style={styles.locationInfo}>
-        <Text style={styles.addressText}>{job.location.address}</Text>
+        <Text style={styles.addressText} numberOfLines={1} ellipsizeMode="tail">{job.location.address}</Text>
       </View>
 
       {job.specialRequests && (
@@ -923,7 +912,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00BFA6" />
+          <ActivityIndicator size="large" color={theme.colors.primary} />
           <Text style={styles.loadingText}>Loading jobs...</Text>
         </View>
       </SafeAreaView>
@@ -947,7 +936,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
         <Text style={styles.headerTitle}>Jobs</Text>
         <TouchableOpacity 
           style={styles.profileButton}
-          onPress={() => navigation.navigate('CleanerProfile')}
+          onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
         >
           <Ionicons name="person-outline" size={24} color="#6B7280" />
         </TouchableOpacity>
@@ -966,6 +955,14 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
         ListEmptyComponent={renderEmptyState}
+        ListHeaderComponent={
+          isLoading ? (
+            <View style={{ padding: 16, gap: 16 }}>
+              <SkeletonBlock height={48} />
+              <SkeletonList rows={3} />
+            </View>
+          ) : null
+        }
         ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
       />
       
@@ -978,7 +975,7 @@ const JobsScreen: React.FC<JobsScreenProps> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
@@ -1002,6 +999,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    shadowColor: 'rgba(0,0,0,0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
   },
   backButton: {
     width: 44,
@@ -1010,6 +1012,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   headerTitle: {
     fontSize: 18,
@@ -1023,6 +1027,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   tabBar: {
     flexDirection: 'row',
@@ -1040,7 +1046,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#00BFA6',
+    borderBottomColor: '#F59E0B',
   },
   tabText: {
     fontSize: 14,
@@ -1048,7 +1054,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   activeTabText: {
-    color: '#00BFA6',
+    color: '#F59E0B',
     fontWeight: '600',
   },
   tabBadge: {
@@ -1059,7 +1065,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   activeTabBadge: {
-    backgroundColor: '#00BFA6',
+    backgroundColor: '#F59E0B',
   },
   tabBadgeText: {
     fontSize: 10,
@@ -1074,6 +1080,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
   filterScrollContent: {
     paddingHorizontal: 20,
@@ -1084,30 +1092,47 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     borderRadius: 20,
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: 'rgba(0,0,0,0.04)',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 1,
+    shadowRadius: 3,
+    elevation: 1,
   },
   activeFilterChip: {
-    backgroundColor: '#00BFA6',
+    backgroundColor: theme.colors.primary,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
   filterChipText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#6B7280',
   },
   activeFilterChipText: {
     color: '#FFFFFF',
   },
   listContent: {
-    padding: 20,
+    paddingHorizontal: 0, // Remove horizontal padding, cards handle their own
+    paddingVertical: 20,
+    paddingBottom: 140, // ensure content clears bottom nav
   },
   jobCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginHorizontal: 16, // Add horizontal margin for better spacing
+    marginBottom: 16, // Consistent bottom margin
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.28)',
+    shadowColor: 'rgba(245, 158, 11, 0.45)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    elevation: 6,
+    // stronger left accent for better visibility
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
   },
   jobHeader: {
     flexDirection: 'row',
@@ -1164,8 +1189,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F59E0B',
     borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    shadowColor: 'rgba(245, 158, 11, 0.5)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
   instantBookText: {
     fontSize: 10,
@@ -1186,6 +1218,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   serviceTypeText: {
     fontSize: 12,
@@ -1196,6 +1235,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
+    shadowColor: 'rgba(0,0,0,0.08)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   statusText: {
     fontSize: 12,
@@ -1208,7 +1254,7 @@ const styles = StyleSheet.create({
   },
   addOnsLabel: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#6B7280',
     marginRight: 8,
   },
@@ -1221,29 +1267,47 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   scheduleItem: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minHeight: 44,
   },
   scheduleText: {
     fontSize: 12,
     color: '#6B7280',
     marginLeft: 6,
+    lineHeight: 20,
+    flexShrink: 1,
   },
   locationInfo: {
     marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   addressText: {
     fontSize: 14,
     color: '#374151',
     lineHeight: 20,
+    flexShrink: 1,
   },
   specialRequestsContainer: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: '#FFFBEB',
     borderRadius: 12,
     padding: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
     marginBottom: 16,
   },
   specialRequestsHeader: {
@@ -1266,6 +1330,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 8,
   },
   paymentLeft: {
     flex: 1,
@@ -1279,7 +1344,7 @@ const styles = StyleSheet.create({
   earningsAmount: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#00BFA6',
+    color: theme.colors.primary,
     marginBottom: 2,
   },
   tipAmount: {
@@ -1302,11 +1367,18 @@ const styles = StyleSheet.create({
   acceptButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#00BFA6',
+    backgroundColor: '#F59E0B',
+    height: 44,
     borderRadius: 22,
     paddingHorizontal: 20,
-    paddingVertical: 12,
     gap: 8,
+    shadowColor: 'rgba(245, 158, 11, 0.5)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
   },
   acceptButtonText: {
     fontSize: 14,
@@ -1320,16 +1392,18 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDFA',
-    borderRadius: 20,
+    height: 44,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
     paddingHorizontal: 16,
-    paddingVertical: 10,
     gap: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   actionButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#00BFA6',
+    color: theme.colors.primary,
   },
   emptyState: {
     alignItems: 'center',

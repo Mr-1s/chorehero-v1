@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,12 +14,13 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
-import { demoAuth } from '../../services/demoAuth';
+
 import { supabase } from '../../services/supabase';
 
 type StackParamList = {
@@ -87,14 +88,14 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
   const totalSteps = 6;
-  const { refreshSession, isDemoMode } = useAuth();
+  const { refreshSession, authUser } = useAuth();
 
   const [data, setData] = useState<CleanerOnboardingData>({
     firstName: '',
     lastName: '',
     email: '',
     phone: '',
-    profilePhoto: 'https://randomuser.me/api/portraits/lego/3.jpg',
+    profilePhoto: `https://ui-avatars.com/api/?name=Cleaner&background=3ad3db&color=fff&size=160&font-size=0.4&format=png`,
     dateOfBirth: '',
     yearsExperience: '',
     previousEmployer: '',
@@ -128,6 +129,23 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   });
 
   const scrollRef = useRef<ScrollView>(null);
+
+  // Prefill from provider
+  useEffect(() => {
+    const u = authUser?.user as any;
+    if (!u) return;
+    const fullName: string | undefined = u.name || u.user_metadata?.full_name;
+    const avatar: string | undefined = u.avatar_url || u.user_metadata?.picture;
+    const emailFromAuth: string | undefined = u.email;
+    const [firstName, ...rest] = (fullName || '').split(' ');
+    setData(prev => ({
+      ...prev,
+      firstName: firstName || prev.firstName,
+      lastName: rest.join(' ') || prev.lastName,
+      email: emailFromAuth || prev.email,
+      profilePhoto: avatar || prev.profilePhoto,
+    }));
+  }, [authUser]);
 
   const updateData = (field: keyof CleanerOnboardingData, value: any) => {
     setData(prev => ({ ...prev, [field]: value }));
@@ -199,18 +217,37 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         return;
       }
 
-      // Get current authenticated user
-      const { data: { user } } = await supabase.auth.getUser();
+      // Resolve current authenticated user robustly
+      let userId: string | undefined;
+      let userEmail: string | undefined;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          userId = session.user.id;
+          userEmail = session.user.email || undefined;
+        }
+      } catch {}
+      if (!userId && authUser?.user?.id) {
+        userId = authUser.user.id as string;
+        userEmail = (authUser.user as any).email as string | undefined;
+      }
+      if (!userId) {
+        await refreshSession();
+        const { data: { session: session2 } } = await supabase.auth.getSession();
+        if (session2?.user) {
+          userId = session2.user.id;
+          userEmail = session2.user.email || undefined;
+        }
+      }
       
-      console.log('Cleaner onboarding completion - authenticated user:', user?.id, user?.email);
-      console.log('Form data phone:', data.phone);
+      console.log('Cleaner onboarding completion - resolved user:', userId, userEmail);
       
-      if (user) {
+      if (userId) {
         // First, ensure user record exists in our database
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('id')
-          .eq('id', user.id)
+          .eq('id', userId)
           .single();
 
         if (checkError && checkError.code === 'PGRST116') {
@@ -219,9 +256,9 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           const { error: createUserError } = await supabase
             .from('users')
             .insert([{
-              id: user.id,
+              id: userId,
               phone: data.phone,
-              email: user.email,
+              email: userEmail,
               name: `${data.firstName} ${data.lastName}`,
               role: 'cleaner',
             }]);
@@ -243,7 +280,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
               role: 'cleaner',
               updated_at: new Date().toISOString()
             })
-            .eq('id', user.id);
+            .eq('id', userId);
 
           if (userError) {
             console.error('Error updating user profile:', userError);
@@ -255,7 +292,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         const { error: cleanerError } = await supabase
           .from('cleaner_profiles')
           .insert([{
-            user_id: user.id,
+            user_id: userId,
             hourly_rate: parseFloat(data.hourlyRate) || 25.00,
             bio: `${data.bio || ''}\n\nExperience: ${data.experienceYears} years\nServices: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}\nTransportation: ${data.transportation}\nAvailability: ${Object.entries(data.availability || {}).filter(([day, available]) => available).map(([day]) => day).join(', ')}\nService Radius: ${data.serviceRadius} miles\n\nSkills:\n- Cleaning Knowledge: ${data.cleaningKnowledge}/5\n- Customer Service: ${data.customerService}/5\n- Time Management: ${data.timeManagement}/5\n\nWork Samples: ${data.workSamples || 'None provided'}\n\nAuthorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}\nEmergency Contact: ${data.emergencyContact} (${data.emergencyPhone})\nBackground Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
             years_experience: parseInt(data.experienceYears) || 0,
@@ -270,7 +307,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           const { error: addressError } = await supabase
             .from('addresses')
             .insert([{
-              user_id: user.id,
+              user_id: userId,
               street: data.address,
               city: data.city,
               state: data.state,
@@ -289,9 +326,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           throw new Error('Failed to create cleaner profile: ' + cleanerError.message);
         }
 
-        // Clear any existing demo sessions for real authenticated users
-        await demoAuth.clearDemoUser();
-        console.log('Cleared all demo sessions for real authenticated user');
+
 
         console.log('Cleaner onboarding completed successfully for real user');
         Alert.alert(
@@ -313,23 +348,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           ]
         );
       } else {
-        // Fallback to demo mode if no authenticated user
-        await demoAuth.setDemoUser('cleaner', 'sarah');
-        console.log('Fallback to demo cleaner role - using Sarah Johnson');
-        
-        Alert.alert(
-          'Demo Mode',
-          'You are now exploring ChoreHero in demo mode as a cleaner. Features are limited to demonstration purposes.',
-          [
-            {
-              text: 'Continue',
-              onPress: async () => {
-                await refreshSession();
-                navigation.navigate('MainTabs');
-              }
-            }
-          ]
-        );
+        Alert.alert('Authentication required', 'Please sign in again to complete setup.');
       }
     } catch (error) {
       console.error('Onboarding completion error:', error);
@@ -353,7 +372,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         </View>
         <Text style={styles.progressText}>Step {currentStep} of {totalSteps}</Text>
       </View>
-      {isDemoMode && (
+      {false && ( // Demo mode removed
         <View style={styles.bypassContainer}>
           <Text style={styles.bypassLabel}>Bypass Mode</Text>
           <Switch
@@ -378,7 +397,24 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       <Text style={styles.stepTitle}>Professional Profile</Text>
       <Text style={styles.stepSubtitle}>Let's set up your cleaner profile</Text>
 
-      <TouchableOpacity style={styles.photoContainer}>
+      <TouchableOpacity
+        style={styles.photoContainer}
+        onPress={async () => {
+          try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission required', 'Please allow photo access to set your profile image.');
+              return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            if (!result.canceled && result.assets?.[0]?.uri) {
+              setData(prev => ({ ...prev, profilePhoto: result.assets[0].uri }));
+            }
+          } catch (e) {
+            console.error('Image pick error', e);
+          }
+        }}
+      >
         <Image source={{ uri: data.profilePhoto }} style={styles.profilePhoto} />
         <View style={styles.photoOverlay}>
           <Ionicons name="camera" size={20} color="#ffffff" />

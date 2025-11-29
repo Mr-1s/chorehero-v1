@@ -18,28 +18,31 @@ interface SplashScreenProps {
 }
 
 const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
-  const logoScale = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.3)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
-  const textTranslateY = useRef(new Animated.Value(20)).current;
+  const textTranslateY = useRef(new Animated.Value(30)).current;
+  const brandOpacity = useRef(new Animated.Value(0)).current;
+  const brandTranslateY = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
-    // Start animations
+    // Start animations with improved timing
     Animated.sequence([
-      // Logo scale and fade in
+      // Logo entrance with elegant scale and fade
       Animated.parallel([
-        Animated.timing(logoScale, {
+        Animated.spring(logoScale, {
           toValue: 1,
-          duration: 800,
+          tension: 50,
+          friction: 8,
           useNativeDriver: true,
         }),
         Animated.timing(logoOpacity, {
           toValue: 1,
-          duration: 800,
+          duration: 1000,
           useNativeDriver: true,
         }),
       ]),
-      // Text animation
+      // Brand name animation
       Animated.parallel([
         Animated.timing(textOpacity, {
           toValue: 1,
@@ -52,13 +55,26 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           useNativeDriver: true,
         }),
       ]),
-      // Wait a bit
-      Animated.delay(1000),
+      // Tagline animation  
+      Animated.parallel([
+        Animated.timing(brandOpacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(brandTranslateY, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]),
+      // Hold the screen a bit longer for better UX
+      Animated.delay(1200),
     ]).start(() => {
-      // Navigate to main app after animations complete
+      // Smooth transition to main app
       setTimeout(() => {
         onFinish();
-      }, 500);
+      }, 300);
     });
   }, []);
 
@@ -66,12 +82,14 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A1A2A" />
       <LinearGradient
-        colors={['#0A1A2A', '#1A2A3A', '#2A3A4A', '#1A2A3A', '#0A1A2A']}
+        colors={['#0F172A', '#3ad3db', '#0F172A']}
         style={styles.background}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        end={{ x: 0, y: 1 }}
+        locations={[0, 0.5, 1]}
       >
         <View style={styles.content}>
+          {/* Logo with improved animation */}
           <Animated.View
             style={[
               styles.logoContainer,
@@ -81,11 +99,40 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
               },
             ]}
           >
-            <Image
-              source={require('../../assets/icon.png')}
-              style={styles.logo}
-              contentFit="contain"
-            />
+            <View style={styles.logoWrapper}>
+              <Image
+                source={require('../../assets/icon.png')}
+                style={styles.logo}
+                contentFit="contain"
+              />
+              <View style={styles.logoGlow} />
+            </View>
+          </Animated.View>
+
+          {/* Brand Name */}
+          <Animated.View
+            style={[
+              styles.brandContainer,
+              {
+                opacity: textOpacity,
+                transform: [{ translateY: textTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.brandName}>ChoreHero</Text>
+          </Animated.View>
+
+          {/* Tagline */}
+          <Animated.View
+            style={[
+              styles.taglineContainer,
+              {
+                opacity: brandOpacity,
+                transform: [{ translateY: brandTranslateY }],
+              },
+            ]}
+          >
+            <Text style={styles.tagline}>Where clean meets hero</Text>
           </Animated.View>
         </View>
       </LinearGradient>
@@ -113,10 +160,46 @@ const styles = StyleSheet.create({
   logoContainer: {
     marginBottom: 40,
   },
+  logoWrapper: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logo: {
-    width: 444,
-    height: 444,
-    borderRadius: 222,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#3ad3db',
+    opacity: 0.15,
+    top: -10,
+    left: -10,
+  },
+  brandContainer: {
+    marginBottom: 12,
+  },
+  brandName: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  taglineContainer: {
+    paddingHorizontal: 40,
+  },
+  tagline: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.8)',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    lineHeight: 24,
   },
 });
 

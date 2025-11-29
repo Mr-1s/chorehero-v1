@@ -17,16 +17,21 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLORS } from '../../utils/constants';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
-import { getCleanerById, getCleanerServices, getCleanerReviews, SampleCleaner } from '../../services/sampleData';
+
 import { contentService } from '../../services/contentService';
-import { USE_MOCK_DATA } from '../../utils/constants';
+import { presenceService } from '../../services/presenceService';
+
 import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
+import { supabase } from '../../services/supabase';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 type TabParamList = {
   Home: undefined;
@@ -78,8 +83,13 @@ interface CleanerVideo {
 const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation, route }) => {
   const { cleanerId } = route.params || {};
   const { user } = useAuth();
+  // Call hooks unconditionally and before any early returns to avoid hook-order errors
+  const { width: winWidth } = useWindowDimensions();
+  const isNarrow = winWidth < 360;
+  const videoCardWidth = isNarrow ? winWidth - 40 : (winWidth - 40 - 16) / 2;
   const [activeTab, setActiveTab] = useState<'videos' | 'services' | 'reviews' | 'about'>('videos');
-  const [cleaner, setCleaner] = useState<SampleCleaner | null>(null);
+  const [showFullBio, setShowFullBio] = useState(false);
+  const [cleaner, setCleaner] = useState<any | null>(null);
   const [services, setServices] = useState<CleanerService[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [videos, setVideos] = useState<CleanerVideo[]>([]);
@@ -87,17 +97,68 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isOnline, setIsOnline] = useState(true); // Mock online status
+  const [statsExpanded, setStatsExpanded] = useState(false);
   const [hasRepeatClients, setHasRepeatClients] = useState(true); // Mock data
   const [nextAvailable, setNextAvailable] = useState<string | null>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [presence, setPresence] = useState<{ online: boolean; last_seen_at?: string } | null>(null);
   
   // Animation values
   const saveButtonScale = useRef(new Animated.Value(1)).current;
+  // Subscribe to presence updates for this cleaner
+  useEffect(() => {
+    if (!cleanerId) return;
+    let unsub: (() => void) | null = null;
+    (async () => {
+      const initial = await presenceService.getPresence(cleanerId);
+      if (initial) setPresence({ online: !!initial.online, last_seen_at: initial.last_seen_at });
+      unsub = presenceService.subscribe(cleanerId, (rec) => {
+        if (rec) setPresence({ online: !!rec.online, last_seen_at: rec.last_seen_at });
+      });
+    })();
+    return () => { if (unsub) unsub(); };
+  }, [cleanerId]);
+
+  // Load saved following state from storage
+  useEffect(() => {
+    const loadFollowing = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('following_cleaners');
+        const set: string[] = raw ? JSON.parse(raw) : [];
+        if (cleanerId && Array.isArray(set)) setIsFollowing(set.includes(cleanerId));
+      } catch {}
+    };
+    loadFollowing();
+  }, [cleanerId]);
+
+  const toggleFollow = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('following_cleaners');
+      const set: string[] = raw ? JSON.parse(raw) : [];
+      let next: string[];
+      if (set.includes(cleanerId)) {
+        next = set.filter(id => id !== cleanerId);
+        setIsFollowing(false);
+      } else {
+        next = [...set, cleanerId];
+        setIsFollowing(true);
+      }
+      await AsyncStorage.setItem('following_cleaners', JSON.stringify(next));
+    } catch {}
+  };
 
   const loadCleanerAvailability = async (cleanerId: string) => {
     try {
       setLoadingAvailability(true);
       console.log('📅 Loading availability for cleaner:', cleanerId);
+
+      // Skip DB availability when cleanerId is not a UUID (e.g., pexels/demo ids)
+      if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cleanerId)) {
+        setNextAvailable('This week');
+        setLoadingAvailability(false);
+        return;
+      }
 
       // Get cleaner's availability schedule
       const availabilityResponse = await availabilityService.getCleanerAvailability(cleanerId);
@@ -182,6 +243,24 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       setLoadingVideos(true);
       console.log('🎬 Loading videos for cleaner:', cleanerId);
       
+      // For non-UUID demo/pexels ids, show sample placeholder videos
+      if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(cleanerId)) {
+        const sampleVideos: CleanerVideo[] = [
+          {
+            id: 'demo-vid-1',
+            title: 'Cleaning Showcase',
+            description: '',
+            media_url: 'https://images.unsplash.com/photo-1581579188871-45ea61f2a0c8?w=800',
+            thumbnail_url: 'https://images.unsplash.com/photo-1581579188871-45ea61f2a0c8?w=800',
+            view_count: 1200,
+            like_count: 89,
+            created_at: new Date().toISOString(),
+          },
+        ];
+        setVideos(sampleVideos);
+        return;
+      }
+
       // Get videos by this specific cleaner from content service
       const response = await contentService.getFeed({
         filters: { 
@@ -213,8 +292,8 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           {
             id: '1',
             title: 'Kitchen Deep Clean Demo',
-            media_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
-            thumbnail_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+            media_url: '',
+            thumbnail_url: '',
             view_count: 1200,
             like_count: 89,
             created_at: new Date().toISOString(),
@@ -222,8 +301,8 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           {
             id: '2',
             title: 'Bathroom Sanitization',
-            media_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
-            thumbnail_url: 'https://assets.mixkit.co/videos/1190/1190-720.mp4',
+            media_url: '',
+            thumbnail_url: '',
             view_count: 850,
             like_count: 67,
             created_at: new Date().toISOString(),
@@ -243,37 +322,47 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     const fetchCleanerData = async () => {
       try {
         setLoading(true);
-        console.log('🔍 CleanerProfileScreen loading with cleanerId:', cleanerId);
+        const idToLoad = cleanerId || 'demo_cleaner_1';
+        console.log('🔍 CleanerProfileScreen loading with cleanerId:', idToLoad);
+        const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(idToLoad);
         
-        if (!cleanerId) {
-          console.warn('❌ No cleanerId provided to CleanerProfileScreen');
-          setLoading(false);
-          return;
+        // Load real cleaner data from database (only for UUIDs)
+        console.log(`🔄 Loading cleaner profile for ID: ${idToLoad}`);
+
+        let cleanerData: any = null; let cleanerError: any = null;
+        if (isUuid) {
+          const result = await supabase
+            .from('users')
+            .select(`
+              id,
+              name,
+              phone,
+              email,
+              avatar_url,
+              role,
+              is_active,
+              created_at
+            `)
+            .eq('id', idToLoad)
+            .eq('role', 'cleaner')
+            .single();
+          cleanerData = result.data;
+          cleanerError = result.error;
         }
-        
-        // Always try to load cleaner data, with smart fallback logic
-        let cleanerData = null;
-        
-        if (USE_MOCK_DATA) {
-          // Try to fetch from mock data first
-          cleanerData = await getCleanerById(cleanerId);
-        }
-        
-        // If no cleaner found, use fallback strategy
-        if (!cleanerData) {
-          console.log(`🔄 Cleaner ID ${cleanerId} not found, creating fallback cleaner profile`);
-          
-          // Create a fallback cleaner profile using mock data structure
-          cleanerData = {
-            id: cleanerId, // Keep the original ID
+
+        if (cleanerError) {
+          console.error('❌ Error fetching cleaner data:', cleanerError);
+          // Fallback to demo cleaner if real data not found
+          const demoCleanerData = {
+            id: idToLoad,
             name: 'Professional Cleaner',
             phone: '+1-555-0100',
             email: 'cleaner@chorehero.com',
-            avatar_url: 'https://randomuser.me/api/portraits/women/32.jpg',
+            avatar_url: `https://ui-avatars.com/api/?name=Professional+Cleaner&size=120&background=0ea5e9&color=ffffff&bold=true`,
             role: 'cleaner' as const,
             is_active: true,
             profile: {
-              video_profile_url: 'https://assets.mixkit.co/videos/7862/7862-720.mp4',
+              video_profile_url: '',
               hourly_rate: 85,
               rating_average: 4.8,
               total_jobs: 120,
@@ -284,40 +373,116 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               service_radius_km: 25,
             },
           };
-        }
-        
-        if (cleanerData) {
-          setCleaner(cleanerData);
-          
-          // Fetch services for the cleaner
-          const servicesData = await getCleanerServices(cleanerData.id);
-          setServices(servicesData);
-
-          // Fetch reviews
-          const reviewsData = await getCleanerReviews(cleanerData.id);
-          setReviews(reviewsData);
-
-          // Always load videos from content service (regardless of mock mode)
-          await loadCleanerVideos(cleanerData.id);
-          
-          // Load cleaner's availability schedule
-          await loadCleanerAvailability(cleanerData.id);
+          setCleaner(demoCleanerData);
         } else {
-          // Set empty data if no cleaner data found
-          setCleaner(null);
-          setServices([]);
-          setReviews([]);
-          setVideos([]);
+          if (!isUuid || !cleanerData) {
+            // Non-UUID demo/pexels id path
+            const demoCleanerData = {
+              id: idToLoad,
+              name: 'Professional Cleaner',
+              phone: '+1-555-0100',
+              email: 'cleaner@chorehero.com',
+              avatar_url: `https://ui-avatars.com/api/?name=Professional+Cleaner&size=120&background=0ea5e9&color=ffffff&bold=true`,
+              role: 'cleaner' as const,
+              is_active: true,
+              profile: {
+                video_profile_url: '',
+                hourly_rate: 85,
+                rating_average: 4.8,
+                total_jobs: 120,
+                bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
+                specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
+                verification_status: 'verified' as const,
+                is_available: true,
+                service_radius_km: 25,
+              },
+            };
+            setCleaner(demoCleanerData);
+          } else {
+            console.log('✅ Loaded real cleaner data:', cleanerData.name);
+            // Attach minimal profile fields to align with render expectations
+            setCleaner({
+              ...cleanerData,
+              profile: {
+                video_profile_url: '',
+                hourly_rate: 85,
+                rating_average: 4.8,
+                total_jobs: 120,
+                bio: 'Professional cleaning specialist',
+                specialties: ['Deep Cleaning'],
+                verification_status: 'verified',
+                is_available: true,
+                service_radius_km: 25,
+              },
+            });
+          }
         }
+
+        // Load cleaner's services (skip when not UUID)
+        let services: any[] | null = null; let servicesError: any = null;
+        if (isUuid) {
+          const res = await supabase
+            .from('cleaner_services')
+            .select(`
+              id,
+              custom_price,
+              is_available,
+              category:service_categories(
+                name,
+                description,
+                base_price,
+                estimated_duration_minutes
+              )
+            `)
+            .eq('cleaner_id', idToLoad)
+            .eq('is_available', true);
+          services = res.data; servicesError = res.error;
+        }
+
+        if (servicesError) {
+          console.warn('⚠️ Error loading services:', servicesError);
+          setServices([]);
+        } else {
+          setServices(services || []);
+          console.log(`✅ Loaded ${services?.length || 0} services for cleaner`);
+        }
+
+        // Load cleaner's reviews
+        const { data: reviews, error: reviewsError } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            rating,
+            comment,
+            created_at,
+            customer:users!customer_id(
+              name,
+              avatar_url
+            )
+          `)
+          .eq('cleaner_id', idToLoad)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (reviewsError) {
+          console.warn('⚠️ Error loading reviews:', reviewsError);
+          setReviews([]);
+        } else {
+          setReviews(reviews || []);
+          console.log(`✅ Loaded ${reviews?.length || 0} reviews for cleaner`);
+        }
+
+        // Load videos and availability
+        await loadCleanerVideos(idToLoad);
+        await loadCleanerAvailability(idToLoad);
 
       } catch (error) {
         console.error('Error fetching cleaner data:', error);
-        // Set empty data on error when not using mock data
-        if (!USE_MOCK_DATA) {
-          setCleaner(null);
-          setServices([]);
-          setReviews([]);
-        }
+        // Set empty data on error
+        setCleaner(null);
+        setServices([]);
+        setReviews([]);
+        setVideos([]);
       } finally {
         setLoading(false);
       }
@@ -368,7 +533,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           >
             <Ionicons name="arrow-back" size={24} color="#3ad3db" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Cleaner Profile</Text>
+          <View style={{ width: 44 }} />
           <View style={styles.shareButton} />
         </View>
 
@@ -383,15 +548,12 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               </LinearGradient>
             </View>
             <Text style={styles.emptyStateTitle}>
-              {USE_MOCK_DATA ? 'Cleaner not found' : 'No cleaner data available'}
+              No cleaner data available
             </Text>
             <Text style={styles.emptyStateSubtitle}>
-              {USE_MOCK_DATA 
-                ? 'The cleaner profile you are looking for could not be found.'
-                : 'Cleaner profiles will appear here when cleaners join your area and create their profiles.'
-              }
+              Cleaner profiles will appear here when cleaners join your area and create their profiles.
             </Text>
-            {!USE_MOCK_DATA && (
+            {true && (
               <View style={styles.emptyStateFeatures}>
                 <View style={styles.featureItem}>
                   <Ionicons name="star" size={20} color="#3ad3db" />
@@ -501,10 +663,12 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     </View>
   );
 
+  // dimensions computed at top to ensure stable hook order
+
   const renderVideoCard = (video: CleanerVideo) => (
     <TouchableOpacity 
       key={video.id} 
-      style={styles.videoCard}
+      style={[styles.videoCard, { width: videoCardWidth }]}
       onPress={() => {
         // Navigate back to main feed focused on this video
         navigation.navigate('Home');
@@ -552,16 +716,15 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       
 
       {/* Main Header */}
-      <View style={styles.header}>
+      <View style={styles.headerCompact}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#3ad3db" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Cleaner Profile</Text>
         <TouchableOpacity style={styles.shareButton}>
-          <Ionicons name="share-outline" size={24} color="#3ad3db" />
+          <Ionicons name="share-outline" size={24} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
 
@@ -575,11 +738,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             <View style={styles.profileHeader}>
               <View style={styles.avatarContainer}>
                 <Image 
-                  source={{ uri: cleaner.avatar_url || 'https://via.placeholder.com/80x80/009688/FFFFFF?text=👤' }} 
+                  source={{ uri: cleaner.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(cleaner.name || 'Cleaner')}&background=3ad3db&color=fff&size=160&font-size=0.4&format=png` }} 
                   style={styles.profileAvatar} 
                 />
                 {/* Online Status Ring */}
-                <View style={[styles.onlineStatusRing, { backgroundColor: isOnline ? '#10B981' : '#9CA3AF' }]} />
+                <View style={[styles.onlineStatusRing, { backgroundColor: presence?.online ? COLORS.success : '#9CA3AF' }]} />
                 {cleaner.profile.verification_status === 'verified' && (
                   <View style={styles.verifiedBadge}>
                     <Ionicons name="checkmark" size={12} color="white" />
@@ -592,7 +755,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 </View>
                 <Text style={styles.profileUsername}>@{cleaner.name.toLowerCase().replace(' ', '')}</Text>
                 <View style={styles.locationContainer}>
-                  <Ionicons name="location-outline" size={14} color="#3ad3db" />
+                  <Ionicons name="location-outline" size={14} color={COLORS.primary} />
                   <Text style={styles.locationText}>San Francisco, CA</Text>
                   <Text style={styles.distanceText}>• 3.2 miles away</Text>
                 </View>
@@ -605,70 +768,105 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               </View>
             </View>
             
-            <Text style={styles.profileBio}>{cleaner.profile.bio}</Text>
+            <Text style={styles.profileBio} numberOfLines={showFullBio ? undefined : 2}>{cleaner.profile.bio}</Text>
+            <TouchableOpacity onPress={() => setShowFullBio(!showFullBio)} activeOpacity={0.7}>
+              <Text style={styles.readMoreText}>{showFullBio ? 'Show less' : 'Read more'}</Text>
+            </TouchableOpacity>
 
             {/* Trust Badges */}
-            <View style={styles.trustBadges}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trustBadges}>
               <View style={styles.trustBadge}>
                 <Ionicons name="shield-checkmark" size={14} color="#059669" />
-                <Text style={styles.trustBadgeText}>✅ Verified by ChoreHero</Text>
+                <Text style={styles.trustBadgeText}>Verified by ChoreHero</Text>
               </View>
               <View style={styles.trustBadge}>
                 <Ionicons name="trophy" size={14} color="#fbbf24" />
-                <Text style={styles.trustBadgeText}>🏆 Top Rated in 2024</Text>
+                <Text style={styles.trustBadgeText}>Top Rated in 2024</Text>
               </View>
               {hasRepeatClients && (
                 <View style={styles.trustBadge}>
                   <Ionicons name="people" size={14} color="#8B5CF6" />
-                  <Text style={styles.trustBadgeText}>🎯 100+ repeat clients</Text>
+                  <Text style={styles.trustBadgeText}>100+ repeat clients</Text>
                 </View>
               )}
-            </View>
+            </ScrollView>
 
-            {/* Stats Row */}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{cleaner.profile.total_jobs}</Text>
-                <Text style={styles.statLabel}>Bookings</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Ionicons name="time-outline" size={16} color="#3ad3db" />
-                <Text style={styles.statValue}>&lt; 1 hour</Text>
-                <Text style={styles.statLabel}>Avg Response</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>${cleaner.profile.hourly_rate}/hr</Text>
-                <Text style={styles.statLabel}>Rate</Text>
-              </View>
-            </View>
+            {/* Stats Row (collapsible) */}
+            <TouchableOpacity 
+              style={styles.statsRow}
+              activeOpacity={0.9}
+              onPress={() => setStatsExpanded(!statsExpanded)}
+            >
+              {statsExpanded ? (
+                <View style={styles.statsExpandedRow}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>{cleaner.profile.total_jobs}</Text>
+                    <Text style={styles.statLabel}>Bookings</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statValue}>&lt; 1 hour</Text>
+                    <Text style={styles.statLabel}>Avg Response</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>${cleaner.profile.hourly_rate}/hr</Text>
+                    <Text style={styles.statLabel}>Rate</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.statsCollapsedRow}>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="briefcase-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>{cleaner.profile.total_jobs} bookings</Text>
+                  </View>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>&lt; 1 hour</Text>
+                  </View>
+                  <View style={styles.statCollapsedItem}>
+                    <Ionicons name="pricetag-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>${cleaner.profile.hourly_rate}/hr</Text>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
 
             {/* Availability */}
-            <View style={styles.availabilityContainer}>
-              <Ionicons name="calendar-outline" size={16} color="#A16207" />
+            <View style={styles.availabilityBubble}>
+              <Ionicons name="calendar-outline" size={16} color="#3ad3db" />
               {loadingAvailability ? (
-                <Text style={styles.availabilityText}>📅 Loading availability...</Text>
+                <Text style={styles.availabilityText}>Loading availability…</Text>
               ) : (
                 <Text style={styles.availabilityText}>
-                  📅 Next Available: {nextAvailable || 'Schedule not set'}
+                  Next available: {nextAvailable || 'Schedule not available'}
                 </Text>
               )}
             </View>
 
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={[styles.secondaryActionButton, isFollowing && styles.savedActionButton]}
+                onPress={toggleFollow}
+              >
+                <Ionicons name={isFollowing ? 'checkmark' : 'add'} size={20} color={isFollowing ? 'white' : COLORS.primary} />
+                <Text style={[styles.secondaryActionText, isFollowing && styles.savedActionText]}>
+                  {isFollowing ? 'Following' : 'Follow'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.primaryActionButton}
                 onPress={() => {
-                  navigation.navigate('SimpleBookingFlow', {
-                    cleanerId: cleaner?.id,
-                    serviceType: 'general_cleaning'
+                  // Prefer DynamicBooking if template exists; the screen will fallback if not
+                  navigation.navigate('DynamicBooking', {
+                    cleanerId: cleaner?.id
                   });
                 }}
               >
                 <LinearGradient
-                  colors={['#3ad3db', '#2BC8D4']}
+                  colors={[COLORS.primary, COLORS.primary]}
                   style={styles.primaryActionGradient}
                 >
                   <Ionicons name="calendar" size={20} color="white" />
@@ -839,6 +1037,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     borderBottomWidth: 0,
   },
+  headerCompact: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#F9FAFB',
+  },
   backButton: {
     width: 44,
     height: 44,
@@ -892,7 +1098,7 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   avatarContainer: {
     position: 'relative',
@@ -934,11 +1140,11 @@ const styles = StyleSheet.create({
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   profileName: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
     marginRight: 8,
     letterSpacing: -0.5,
@@ -946,48 +1152,55 @@ const styles = StyleSheet.create({
   profileUsername: {
     fontSize: 16,
     color: '#64748B',
-    marginBottom: 8,
+    marginBottom: 10,
     fontWeight: '500',
   },
   locationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   locationText: {
-    fontSize: 15,
-    color: '#475569',
-    marginLeft: 4,
-    fontWeight: '600',
-  },
-  distanceText: {
     fontSize: 15,
     color: '#64748B',
     marginLeft: 4,
     fontWeight: '500',
   },
+  distanceText: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginLeft: 4,
+    fontWeight: '400',
+  },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 2,
   },
   ratingText: {
     fontSize: 15,
-    color: '#475569',
+    color: '#64748B',
     marginLeft: 4,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   profileBio: {
     fontSize: 16,
     color: '#64748B',
     lineHeight: 24,
-    marginBottom: 20,
+    marginBottom: 8,
     fontWeight: '400',
+  },
+  readMoreText: {
+    fontSize: 13,
+    color: '#3ad3db',
+    fontWeight: '600',
+    marginBottom: 16,
   },
   trustBadges: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   trustBadge: {
     flexDirection: 'row',
@@ -1007,13 +1220,37 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-    paddingVertical: 20,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+  },
+  statsCollapsedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  statCollapsedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statCollapsedText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  statsExpandedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
   },
   statItem: {
     alignItems: 'center',
@@ -1048,6 +1285,18 @@ const styles = StyleSheet.create({
     borderColor: '#FDE047',
     marginBottom: 24,
   },
+  availabilityBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 24,
+    gap: 8,
+  },
   availabilityText: {
     fontSize: 14,
     color: '#A16207',
@@ -1062,10 +1311,10 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 4,
   },
   primaryActionGradient: {
     flexDirection: 'row',
@@ -1076,10 +1325,10 @@ const styles = StyleSheet.create({
   },
   primaryActionText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     marginLeft: 8,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
   secondaryActions: {
     flexDirection: 'row',
@@ -1117,39 +1366,39 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginTop: 24,
-    marginBottom: 20,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 16,
     backgroundColor: '#F9FAFB',
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 18,
+    paddingVertical: 12,
     paddingHorizontal: 12,
     alignItems: 'center',
     position: 'relative',
-    minHeight: 50, // Ensure adequate touch target
+    minHeight: 44,
   },
   activeTabButton: {
     borderBottomWidth: 3,
-    borderBottomColor: '#3ad3db',
+    borderBottomColor: COLORS.primary,
   },
   tabButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#64748B',
   },
   activeTabButtonText: {
-    color: '#3ad3db',
+    color: COLORS.primary,
     fontWeight: '700',
   },
   activeTabIndicator: {
     position: 'absolute',
     bottom: 0,
-    left: '25%',
-    right: '25%',
+    left: '30%',
+    right: '30%',
     height: 3,
-    backgroundColor: '#3ad3db',
+    backgroundColor: COLORS.primary,
     borderRadius: 2,
   },
   tabContent: {
@@ -1216,7 +1465,7 @@ const styles = StyleSheet.create({
   servicePrice: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#F59E0B',
+    color: '#3ad3db', // Teal for customer-facing view
     marginBottom: 8,
   },
   bookNowButton: {
@@ -1451,11 +1700,12 @@ const styles = StyleSheet.create({
   videosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    padding: 20,
+    gap: 16,
+    paddingHorizontal: 0,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   videoCard: {
-    width: (width - 56) / 2, // 2 columns with gaps
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     shadowColor: '#000',
@@ -1467,7 +1717,7 @@ const styles = StyleSheet.create({
   },
   videoThumbnailContainer: {
     position: 'relative',
-    height: 120,
+    height: 124,
     backgroundColor: '#F2F2F7',
   },
   videoThumbnail: {

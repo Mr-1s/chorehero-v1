@@ -320,6 +320,7 @@ class AuthService {
     updates: Partial<{
       name: string;
       email: string;
+      username: string;
       avatar_url: string;
     }>
   ): Promise<ApiResponse<User>> {
@@ -416,10 +417,22 @@ class AuthService {
         },
       };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Session refresh failed';
+      
+      // Handle specific refresh token errors more gracefully
+      if (errorMessage.includes('refresh') || errorMessage.includes('token')) {
+        console.log('🔄 Refresh token error, session will be cleared');
+        return {
+          success: false,
+          data: null,
+          error: 'Invalid Refresh Token: Session expired',
+        };
+      }
+      
       return {
         success: false,
         data: null,
-        error: error instanceof Error ? error.message : 'Session refresh failed',
+        error: errorMessage,
       };
     }
   }

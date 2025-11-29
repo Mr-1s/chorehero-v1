@@ -1,10 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
+
+// Global error handler for auth token issues
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  const message = args.join(' ');
+  // Suppress specific refresh token errors from console
+  if (message.includes('Invalid Refresh Token') || 
+      message.includes('Refresh Token Not Found') ||
+      message.includes('AuthApiError')) {
+    console.log('🔄 Auth error suppressed:', message.split('AuthApiError')[0]);
+    return;
+  }
+  originalConsoleError.apply(console, args);
+};
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
-import SplashScreen from './components/SplashScreen';
+import SplashHero from './components/SplashHero';
 import { LocationProvider } from './context/LocationContext';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { MessageProvider, useMessages } from './context/MessageContext';
@@ -26,16 +41,22 @@ import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectio
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
 import SimpleBookingFlowScreen from './screens/booking/SimpleBookingFlowScreen';
+import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
+// Removed unused/legacy screens not present in current StackParamList
+import { ToastProvider } from './components/Toast';
+import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
+import { useRoleFeatures } from './components/RoleBasedUI';
 
 
 // Import services for initialization
 import { pushNotificationService } from './services/pushNotifications';
 import { enhancedLocationService } from './services/enhancedLocationService';
 import { jobStateManager } from './services/jobStateManager';
-import { dummyWalletService } from './services/dummyWalletService';
+import { presenceService } from './services/presenceService';
+
 
 type TabParamList = {
   Home: undefined;
@@ -53,6 +74,11 @@ type StackParamList = {
   SimpleBookingFlow: {
     cleanerId?: string;
     serviceType?: string;
+  };
+  ServiceDetail: {
+    serviceId: string;
+    serviceName: string;
+    category: string;
   };
   MainTabs: undefined;
   CleanerProfile: { cleanerId: string };
@@ -112,7 +138,7 @@ const Stack = createStackNavigator<StackParamList>();
 const TabNavigator = RoleBasedTabNavigator;
 
 const AppNavigator = () => {
-  const { isAuthenticated, user, isDemoMode } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigationRef = useRef<any>(null);
 
   // Handle logout navigation
@@ -133,6 +159,9 @@ const AppNavigator = () => {
     if (isAuthenticated && user?.id) {
       initializeServices(user.id);
     }
+    return () => {
+      presenceService.cleanup();
+    };
   }, [isAuthenticated, user?.id]);
 
   const initializeServices = async (userId: string) => {
@@ -142,17 +171,10 @@ const AppNavigator = () => {
       
       // Initialize location service
       await enhancedLocationService.initialize();
-      
-      // Ensure dummy wallet exists for REAL users (not demo)
-      if (!isDemoMode && user?.id && user?.role) {
-        try {
-          await dummyWalletService.initializeDummyWallet(user.id, user.role as 'customer' | 'cleaner');
-          console.log('✅ Dummy wallet initialized for user:', user.id);
-        } catch (walletError) {
-          console.warn('⚠️ Failed to initialize dummy wallet:', walletError);
-        }
-      }
-      
+
+      // Initialize presence
+      await presenceService.initialize(userId);
+
       console.log('Services initialized successfully');
     } catch (error) {
       console.error('Error initializing services:', error);
@@ -176,6 +198,7 @@ const AppNavigator = () => {
           
           {/* Booking Flow */}
           <Stack.Screen name="SimpleBookingFlow" component={SimpleBookingFlowScreen} />
+          <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
           
           {/* Other Screens */}
           <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />
@@ -192,6 +215,7 @@ const AppNavigator = () => {
           <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
+          
 
         </Stack.Navigator>
       </NavigationContainer>
@@ -205,20 +229,38 @@ export default function App() {
     setIsSplashVisible(false);
   };
 
+  // Safety timeout: if onDone never fires, force transition after ~4000ms
+  useEffect(() => {
+    if (isSplashVisible) {
+      const safetyTimeout = setTimeout(() => {
+        setIsSplashVisible(false);
+      }, 4000);
+      return () => clearTimeout(safetyTimeout);
+    }
+  }, [isSplashVisible]);
+
   if (isSplashVisible) {
-    return <SplashScreen onFinish={handleSplashFinish} />;
+    return <SplashHero onDone={handleSplashFinish} />;
   }
 
   return (
-    <AuthProvider>
-      <LocationProvider>
-        <MessageProvider>
-          <EnhancedMessageWrapper>
-            <AppNavigator />
-          </EnhancedMessageWrapper>
-        </MessageProvider>
-      </LocationProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <LocationProvider>
+          <MessageProvider>
+            <EnhancedMessageWrapper>
+              <ThemeProvider initialTheme={HERO_THEME}>
+                <RoleThemeObserver>
+                  <ToastProvider>
+                    <AppNavigator />
+                  </ToastProvider>
+                </RoleThemeObserver>
+              </ThemeProvider>
+            </EnhancedMessageWrapper>
+          </MessageProvider>
+        </LocationProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -234,5 +276,20 @@ const EnhancedMessageWrapper: React.FC<{ children: React.ReactNode }> = ({ child
     );
   }
   
+  return <>{children}</>;
+};
+
+// Observes role and applies the correct theme dynamically
+const RoleThemeObserver: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isCleaner } = useRoleFeatures();
+  const { theme, setTheme } = useTheme();
+
+  React.useEffect(() => {
+    const target = isCleaner ? HERO_THEME : CUSTOMER_THEME;
+    if (theme.name !== target.name) {
+      setTheme(target);
+    }
+  }, [isCleaner]);
+
   return <>{children}</>;
 };

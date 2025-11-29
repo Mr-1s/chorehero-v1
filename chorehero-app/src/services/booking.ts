@@ -601,7 +601,7 @@ class BookingService {
         .from('bookings')
         .update({
           cleaner_id: cleanerId,
-          status: 'confirmed',
+          status: 'cleaner_assigned',
           updated_at: new Date().toISOString(),
         })
         .eq('id', bookingId)

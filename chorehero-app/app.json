@@ -2,19 +2,20 @@
   "expo": {
     "name": "ChoreHero",
     "slug": "chorehero-app",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#00D4AA"
+      "backgroundColor": "#0A1A2A"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
+    "scheme": "chorehero",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.chorehero.app",
@@ -32,11 +33,11 @@
           "background-processing"
         ]
       },
-      "runtimeVersion": "1.0.0"
+      "runtimeVersion": "1.1.0"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/app-icon.png",
         "backgroundColor": "#00D4AA"
       },
       "edgeToEdgeEnabled": true,

@@ -20,7 +20,7 @@ export interface EmptyStateProps {
   icon: string;
   title: string;
   subtitle: string;
-  gradientColors?: readonly string[];
+  gradientColors?: readonly [string, string, ...string[]];
   features?: EmptyStateFeature[];
   actions?: EmptyStateAction[];
   showFeatures?: boolean;
@@ -40,7 +40,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {/* Icon */}
       <View style={styles.emptyIconContainer}>
         <LinearGradient
-          colors={gradientColors}
+          colors={gradientColors as any}
           style={styles.emptyIconGradient}
         >
           <Ionicons name={icon as any} size={64} color="#ffffff" />

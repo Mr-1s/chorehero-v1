@@ -22,8 +22,10 @@ import * as Haptics from 'expo-haptics';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import { USE_MOCK_DATA, COLORS } from '../../utils/constants';
-import { MockDataToggle } from '../../utils/mockDataToggle';
+import { SkeletonBlock, SkeletonList } from '../../components/Skeleton';
+import { useToast } from '../../components/Toast';
+import { COLORS } from '../../utils/constants';
+
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { notificationService } from '../../services/notificationService';
 import { jobService, type JobServiceResponse, type Job } from '../../services/jobService';
@@ -79,6 +81,7 @@ interface ActiveJob {
 
 const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation }) => {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
@@ -88,7 +91,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   const [rating, setRating] = useState(0);
   const [jobOpportunities, setJobOpportunities] = useState<JobOpportunity[]>([]);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
-  const [useDemoData, setUseDemoData] = useState(MockDataToggle.isEnabledForFeature('CLEANER', 'DASHBOARD'));
+  const [useDemoData, setUseDemoData] = useState(false); // Always use real data
   const [notificationCount, setNotificationCount] = useState(0);
   const [weeklyGoal, setWeeklyGoal] = useState(400);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -230,7 +233,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       }
 
     } catch (error) {
-      Alert.alert('Error', 'Failed to load dashboard data');
+      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load dashboard data' }); } catch {}
     } finally {
       setIsLoading(false);
     }
@@ -756,7 +759,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           actions={[
             {
               label: 'Complete Profile',
-              onPress: () => navigation.navigate('CleanerProfile'),
+              onPress: () => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' }),
               icon: 'person'
             },
             {
@@ -813,10 +816,13 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00BFA6" />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
-        </View>
+        <ScrollView contentContainerStyle={{ padding: 16 }}>
+          <View style={{ gap: 16 }}>
+            <SkeletonBlock height={64} />
+            <SkeletonBlock height={120} />
+            <SkeletonList rows={3} />
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -897,7 +903,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
             <View style={styles.profileContainer}>
               <TouchableOpacity style={styles.profileButton}>
                 <Image 
-                  source={{ uri: user?.avatar_url || 'https://randomuser.me/api/portraits/men/1.jpg' }} 
+                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=3ad3db&color=fff&size=120&font-size=0.4&format=png` }} 
                   style={styles.profileImage} 
                 />
                 <View style={styles.profileBadge}>
@@ -937,9 +943,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
               <TouchableOpacity
                 style={[styles.devToggleButton, useDemoData && styles.devToggleButtonActive]}
                 onPress={() => {
-                  const newValue = !useDemoData;
-                  setUseDemoData(newValue);
-                  MockDataToggle.setFeatureEnabled('CLEANER', 'DASHBOARD', newValue);
+                  // Demo toggle disabled - always use real data
                 }}
               >
                 <View style={[styles.devToggleThumb, useDemoData && styles.devToggleThumbActive]} />
@@ -1096,6 +1100,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -1150,12 +1156,14 @@ const styles = StyleSheet.create({
   viewAllText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#00BFA6',
+    color: '#F59E0B',
   },
   activeJobCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -1220,10 +1228,12 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    height: 44,
     paddingHorizontal: 16,
-    backgroundColor: '#F0FDFA',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   actionButtonText: {
     fontSize: 14,
@@ -1236,6 +1246,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -1275,10 +1287,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   acceptButton: {
-    backgroundColor: '#00BFA6',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: '#F59E0B',
+    height: 44,
+    paddingHorizontal: 20,
+    borderRadius: 22,
   },
   acceptButtonText: {
     fontSize: 14,
@@ -1309,6 +1321,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,

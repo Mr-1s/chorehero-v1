@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,15 +16,22 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import type { NavigationProp } from '@react-navigation/native';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { useLocationContext } from '../../context/LocationContext';
 import { supabase } from '../../services/supabase';
 import { categoryService, CategoryService, CategoryCleaner } from '../../services/category';
 import { contentService } from '../../services/contentService';
-import { getSampleVideoUrls, getSampleCleaners } from '../../services/sampleData';
-import { USE_MOCK_DATA } from '../../utils/constants';
+import { guestModeService, GuestService } from '../../services/guestModeService';
+import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
+import { TutorialOverlay } from '../../components/TutorialOverlay';
+import { useTutorial } from '../../hooks/useTutorial';
+import { ServiceCard } from '../../components/ServiceCard';
+import { serviceCardService } from '../../services/serviceCardService';
+import { ServiceCardData } from '../../types/serviceCard';
+
+
 
 type TabParamList = {
   Home: undefined;
@@ -39,10 +46,15 @@ type TabParamList = {
     basePrice: number;
     duration: number;
   };
+  ServiceDetail: {
+    serviceId: string;
+    serviceName: string;
+    category: string;
+  };
   NotificationsScreen: undefined;
 };
 
-type DiscoverScreenNavigationProp = BottomTabNavigationProp<TabParamList, 'Discover'>;
+type DiscoverScreenNavigationProp = NavigationProp<TabParamList>;
 
 interface DiscoverScreenProps {
   navigation: DiscoverScreenNavigationProp;
@@ -103,14 +115,16 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [popularServices, setPopularServices] = useState<CategoryService[]>([]);
   const [recommendedServices, setRecommendedServices] = useState<CategoryService[]>([]);
   const [featuredVideos, setFeaturedVideos] = useState<VideoContent[]>([]);
+  const [serviceCategories, setServiceCategories] = useState<GuestService[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
+  const [couponClaimed, setCouponClaimed] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(3);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: string]: boolean}>({});
-  const [useMockData, setUseMockData] = useState(USE_MOCK_DATA);
-  const { isDemoMode } = require('../../hooks/useAuth') as any;
+  const [useMockData, setUseMockData] = useState(false); // Always use real data
+  // Demo mode removed
   const [locationText, setLocationText] = useState('Getting location...');
 
   // Animation values for micro-interactions
@@ -119,10 +133,27 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
   // Location context
   const { location } = useLocationContext();
+  
+  // Animation for claim button
+  const claimButtonScale = useRef(new Animated.Value(1)).current;
+  
+  // Tutorial system
+  const { 
+    currentTutorial, 
+    currentStepIndex, 
+    isActive: isTutorialActive,
+    nextStep, 
+    completeTutorial, 
+    skipTutorial,
+    triggerTutorial 
+  } = useTutorial();
 
   // Load initial data
   useEffect(() => {
     loadCategoryData('Featured');
+    loadServiceCategories();
+    // Start subtle claim button animation
+    startClaimButtonAnimation();
   }, []);
 
   // Load data when category changes
@@ -135,6 +166,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   // Reload data when mock data toggle changes
   useEffect(() => {
     loadCategoryData(selectedCategory);
+    loadServiceCategories();
   }, [useMockData]);
 
   // Update location text when location changes
@@ -165,68 +197,114 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const loadFeaturedVideos = async () => {
     try {
       setLoadingVideos(true);
-      console.log('🎬 Loading featured videos for Discover tab...', { useMockData });
-      
-      if (useMockData) {
-        // Use sample videos for demo mode
-        const sampleVideos = getSampleVideoUrls();
-        const sampleCleaners = getSampleCleaners();
-        
-        const videos = sampleVideos.slice(0, 6).map((videoUrl, index) => {
-          const cleaner = sampleCleaners[index % sampleCleaners.length];
-          return {
-            id: `demo-video-${index}`,
-            title: `Cleaning Demo ${index + 1}`,
-            description: `Professional cleaning demonstration by ${cleaner.name}`,
-            media_url: videoUrl,
-            thumbnail_url: videoUrl, // Use same URL for thumbnail
-            user: { 
-              id: cleaner.id,
-              name: cleaner.name, 
-              avatar_url: cleaner.avatar_url,
-              role: 'cleaner'
-            },
-            view_count: Math.floor(Math.random() * 1000) + 100,
-            like_count: Math.floor(Math.random() * 100) + 10,
-            created_at: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
-          };
-        });
-        
-        console.log(`✅ Loaded ${videos.length} demo featured videos`);
+      console.log('🎬 Loading featured videos for Discover tab...');
+
+      // Check if user is a guest - prioritize demo mode for guest users
+      const isGuest = await guestModeService.isGuestUser();
+      console.log('🚪 Is guest user in Discover:', isGuest);
+
+      // If user is a guest, always show professional demo videos
+      if (isGuest) {
+        console.log('🎬 Guest user detected - Loading demo videos for Discover Featured Videos');
+        const guestVideos = await guestModeService.getGuestVideos();
+        const transformedVideos = guestVideos.slice(0, 3).map(video => ({
+          id: video.id,
+          title: video.title,
+          description: video.description,
+          media_url: video.video_url,
+          thumbnail_url: video.thumbnail_url,
+          user: {
+            id: video.id,
+            name: video.cleaner_name,
+            avatar_url: video.cleaner_avatar,
+          },
+          view_count: video.view_count,
+          like_count: video.like_count,
+          created_at: video.created_at
+        }));
+        setFeaturedVideos(transformedVideos);
+        console.log(`✅ Loaded ${transformedVideos.length} professional videos for guest`);
+        return;
+      }
+
+      // For authenticated users, get videos from the real content service
+      const response = await contentService.getFeed({
+        filters: { content_type: 'video' },
+        sort_by: 'recent',
+        limit: 6 // Show 6 featured videos
+      });
+
+      if (response.success && response.data?.posts && response.data.posts.length > 0) {
+        const videos = response.data.posts.map((post: any) => ({
+          id: post.id,
+          title: post.title || 'Cleaning Video',
+          description: post.description || '',
+          media_url: post.media_url,
+          thumbnail_url: post.thumbnail_url,
+          user: post.user,
+          view_count: post.view_count || 0,
+          like_count: post.like_count || 0,
+          created_at: post.created_at
+        }));
+
+        console.log(`✅ Loaded ${videos.length} real featured videos`);
         setFeaturedVideos(videos);
       } else {
-        // Get videos from the real content service
-        const response = await contentService.getFeed({
-          filters: { content_type: 'video' },
-          sort_by: 'recent',
-          limit: 6 // Show 6 featured videos
-        });
-
-        if (response.success && response.data?.posts) {
-          const videos = response.data.posts.map((post: any) => ({
-            id: post.id,
-            title: post.title || 'Cleaning Video',
-            description: post.description || '',
-            media_url: post.media_url,
-            thumbnail_url: post.thumbnail_url,
-            user: post.user,
-            view_count: post.view_count || 0,
-            like_count: post.like_count || 0,
-            created_at: post.created_at
-          }));
-          
-          console.log(`✅ Loaded ${videos.length} real featured videos`);
-          setFeaturedVideos(videos);
-        } else {
-          console.log('📭 No real videos found - showing empty state');
-          setFeaturedVideos([]);
-        }
+        console.log('📭 No real videos found for authenticated user');
+        setFeaturedVideos([]);
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
       setFeaturedVideos([]);
     } finally {
       setLoadingVideos(false);
+    }
+  };
+
+  const loadServiceCategories = async () => {
+    try {
+      console.log('🏠 Loading service categories...');
+      
+      // Check if user is guest, then decide data source
+      const isGuest = await guestModeService.isGuestUser();
+      
+      if (isGuest) {
+        // Guest user - use guest mode categories
+        console.log('👤 Guest user detected, loading guest categories');
+        const categories = await guestModeService.getGuestServiceCategories();
+        setServiceCategories(categories);
+        console.log(`✅ Loaded ${categories.length} guest service categories`);
+      } else {
+        // Real user - use service discovery service with real data
+        console.log('🔄 Real user detected, loading real service categories');
+        const response = await serviceDiscoveryService.getServiceCategories();
+        
+        if (response.success && response.data) {
+          // Transform real service categories to match UI format
+          const transformedCategories = response.data.map(category => ({
+            id: category.id,
+            title: category.name,
+            description: category.description,
+            image: category.image,
+            cleaners_count: category.cleaners_count,
+            avg_rating: category.avg_rating,
+            starting_price: category.starting_price
+          }));
+          
+          setServiceCategories(transformedCategories);
+          console.log(`✅ Loaded ${transformedCategories.length} real service categories`);
+        } else {
+          // Fallback to guest categories if real data fails
+          console.log('⚠️ Failed to load real categories, falling back to guest mode');
+          const categories = await guestModeService.getGuestServiceCategories();
+          setServiceCategories(categories);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading service categories:', error);
+      // Fallback to guest categories on error
+      const categories = await guestModeService.getGuestServiceCategories();
+      setServiceCategories(categories);
     }
   };
 
@@ -342,20 +420,36 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     ]).start();
   };
 
-  const handleButtonPress = () => {
+  // Start subtle button pulsing animation
+  const startClaimButtonAnimation = () => {
+    Animated.loop(
     Animated.sequence([
-      Animated.timing(buttonScaleAnim, {
-        toValue: 0.9,
-        duration: 100,
+        Animated.timing(claimButtonScale, {
+          toValue: 1.02,
+          duration: 2000,
         useNativeDriver: true,
       }),
-      Animated.timing(buttonScaleAnim, {
+        Animated.timing(claimButtonScale, {
         toValue: 1,
-        duration: 100,
+          duration: 2000,
         useNativeDriver: true,
       }),
-    ]).start();
+      ])
+    ).start();
   };
+
+  const handleButtonPress = () => {
+    if (!couponClaimed) {
+      // Apply coupon to user's account/session
+      console.log('Applying HERO25 coupon...');
+      // TODO: Save coupon to AsyncStorage or user account
+      setCouponClaimed(true);
+      
+      // Show success feedback (you might want to add a toast here)
+      console.log('Coupon successfully applied!');
+    }
+  };
+
 
   const categories = [
     'Featured',
@@ -385,83 +479,71 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderServiceCard = (service: CategoryService, isPopular = false) => {
-    const isLoading = imageLoadingStates[service.id] !== false;
+  const renderServiceCard = (service: CategoryService | GuestService, isPopular = false) => {
+    // Transform service data to standardized service card format
+    const cardData = serviceCardService.createServiceCard({
+      id: service.id,
+      title: service.name,
+      description: service.description,
+      category: service.category,
+      base_price: (service as CategoryService).base_price ? (service as CategoryService).base_price * 100 : undefined, // Convert to cents
+      price_range: (service as GuestService).price_range || ((service as CategoryService).base_price ? `$${(service as CategoryService).base_price}` : 'Contact for pricing'),
+      duration: (service as CategoryService).estimated_duration ? `${Math.floor((service as CategoryService).estimated_duration / 60)} hours` : '2-3 hours',
+      rating: service.rating || 4.8,
+      reviews: (service as CategoryService).reviews || 0,
+      custom_image: (service as any).image || (service as any).image_url,
+      is_featured: isPopular
+    });
     
     return (
-      <Animated.View
+      <ServiceCard
         key={service.id}
-        style={[
-          styles.serviceCard,
-          isPopular && styles.popularServiceCard,
-          { transform: [{ scale: cardScaleAnim }] }
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.serviceImageContainer}
-          onPress={handleCardPress}
-          activeOpacity={0.9}
-        >
-          <Image 
-            source={{ uri: service.image || 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80' }} 
-            style={styles.serviceImage}
-            onLoadStart={() => handleImageLoadStart(service.id)}
-            onLoad={() => handleImageLoad(service.id)}
-          />
-          
-          {/* Loading Skeleton */}
-          {isLoading && (
-            <View style={styles.imageSkeleton}>
-              <ActivityIndicator size="small" color="#3ad3db" />
-            </View>
-          )}
-          
-          {/* Enhanced Gradient Overlay - Top to Bottom */}
-          <LinearGradient
-            colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-            style={styles.serviceGradientOverlay}
-          />
-          
-          {/* Star Rating Badge */}
-          <View style={styles.serviceBadge}>
-            <Ionicons name="star" size={12} color="#FFC93C" />
-            <Text style={styles.serviceBadgeText}>{service.rating?.toFixed(1) || '4.5'}</Text>
-          </View>
-          
-          {/* Service Title - Bottom Left */}
-          <Text style={styles.serviceTitleOverlay}>{service.name}</Text>
-          
-          {/* Price and Duration */}
-          <Text style={styles.servicePriceOverlay}>${service.base_price} • {Math.floor(service.estimated_duration / 60)}h</Text>
-          
-          {/* Book Button - Bottom Center */}
-          <Animated.View style={[styles.browseButtonContainer, { transform: [{ scale: buttonScaleAnim }] }]}>
-            <TouchableOpacity 
-              style={styles.browseButtonOverlay}
-              onPress={() => {
-                // Navigate to booking flow with service details
-                navigation.navigate('SimpleBookingFlow', {
-                  serviceId: service.id,
-                  serviceName: service.name,
-                  basePrice: service.base_price,
-                  duration: service.estimated_duration
-                });
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.browseButtonText}>Book</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </TouchableOpacity>
-      </Animated.View>
+        data={cardData}
+        variant={isPopular ? "featured" : "compact"}
+        onPress={(data) => handleServicePress(data)}
+        onSecondaryAction={(data) => handleSaveService(data)}
+        style={{ marginBottom: isPopular ? 0 : 16 }}
+      />
     );
+  };
+
+  // Handler functions for service card actions
+  const handleServicePress = (cardData: ServiceCardData) => {
+    if (cardData.actions.primary_action === 'browse_cleaners') {
+      navigation.navigate('ServiceDetail', {
+        serviceId: cardData.id,
+        serviceName: cardData.title,
+        category: cardData.category,
+        ...cardData.actions.navigation_params
+      });
+    } else if (cardData.actions.primary_action === 'view_details') {
+      navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
+    } else if (cardData.actions.primary_action === 'book_now') {
+      navigation.navigate('SimpleBookingFlow', {
+        serviceId: cardData.id,
+        serviceName: cardData.title,
+        basePrice: cardData.pricing.base_price ? cardData.pricing.base_price / 100 : 0,
+        duration: cardData.service_details.duration_minutes || 120
+      });
+    }
+  };
+
+  const handleSaveService = (cardData: ServiceCardData) => {
+    // Handle save/bookmark functionality
+    console.log('Saving service:', cardData.title);
+    // TODO: Implement save service functionality
+  };
+
+  const handleVideoPress = (cardData: ServiceCardData) => {
+    console.log('🔍 Discover: Navigating to DEMO CleanerProfile');
+    navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1', highlightVideo: cardData.id });
   };
 
   const renderTrendingCleanerCard = (cleaner: CategoryCleaner) => (
     <TouchableOpacity 
       key={cleaner.id} 
       style={styles.trendingCleanerCard}
-      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleaner.id })}
+      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
       activeOpacity={0.7}
     >
       <View style={styles.trendingCleanerImageContainer}>
@@ -487,73 +569,57 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
-  const renderVideoCard = (video: VideoContent) => (
-    <TouchableOpacity 
-      key={video.id} 
-      style={styles.videoCard}
-      onPress={() => {
-        // Navigate to booking flow for this cleaner
-        console.log('🎯 Booking from Discover video:', video.user?.name);
-        navigation.navigate('SimpleBookingFlow', {
-          cleanerId: video.user?.id || 'demo-cleaner',
-          serviceName: video.title,
-          fromVideoFeed: true
-        });
-      }}
-    >
-      <View style={styles.videoThumbnailContainer}>
-        <Image 
-          source={{ uri: video.thumbnail_url || video.media_url }} 
-          style={styles.videoThumbnail}
-          onLoadStart={() => handleImageLoadStart(video.id)}
-          onLoad={() => handleImageLoad(video.id)}
-        />
-        {imageLoadingStates[video.id] && (
-          <View style={styles.videoImageSkeleton}>
-            <ActivityIndicator size="small" color="#3ad3db" />
-          </View>
-        )}
-        
-        {/* Play icon overlay */}
-        <View style={styles.videoPlayOverlay}>
-          <View style={styles.videoPlayButton}>
-            <Ionicons name="play" size={16} color="#FFFFFF" />
-          </View>
-        </View>
-        
-        {/* Video stats */}
-        <View style={styles.videoStats}>
-          <View style={styles.videoStat}>
-            <Ionicons name="eye" size={12} color="#FFFFFF" />
-            <Text style={styles.videoStatText}>{video.view_count}</Text>
-          </View>
-          <View style={styles.videoStat}>
-            <Ionicons name="heart" size={12} color="#FFFFFF" />
-            <Text style={styles.videoStatText}>{video.like_count}</Text>
-          </View>
-        </View>
-      </View>
-      
-      <View style={styles.videoInfo}>
-        <Text style={styles.videoTitle} numberOfLines={2}>{video.title}</Text>
-        <TouchableOpacity 
-          style={styles.videoCreator}
-          onPress={(e) => {
-            // Stop event propagation to prevent video booking
-            e.stopPropagation();
-            console.log('🔍 Discover: Navigating to CleanerProfile with ID:', video.user.id);
-            navigation.navigate('CleanerProfile', { cleanerId: video.user.id });
-          }}
-        >
-          <Image 
-            source={{ uri: video.user.avatar_url }} 
-            style={styles.videoCreatorAvatar}
-          />
-          <Text style={styles.videoCreatorName}>{video.user.name}</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderVideoCard = (video: VideoContent) => {
+    // Transform video data to standardized service card format
+    const videoCardData = serviceCardService.createVideoServiceCard({
+      id: video.id,
+      title: video.title,
+      description: video.description || 'Professional cleaning demonstration',
+      category: 'general', // Could be enhanced to detect category from video
+      video_url: video.media_url,
+      thumbnail_url: video.thumbnail_url || video.media_url,
+      cleaner_id: video.user.id,
+      cleaner_name: video.user.name,
+      cleaner_avatar: video.user.avatar_url,
+      view_count: video.view_count || 0,
+      like_count: video.like_count || 0
+    });
+
+    return (
+      <ServiceCard
+        key={video.id}
+        data={videoCardData}
+        variant="video"
+        onPress={(data) => handleVideoPress(data)}
+        style={{ marginRight: 16 }}
+      />
+    );
+  };
+
+  const renderServiceCategoryCard = (service: GuestService) => {
+    // Transform guest service to standardized service card format
+    const serviceCategoryCardData = serviceCardService.createServiceCard({
+      id: service.id,
+      title: service.name,
+      description: service.description,
+      category: service.category,
+      price_range: service.price_range,
+      rating: service.rating,
+      custom_image: service.image_url,
+      is_featured: false
+    });
+
+    return (
+      <ServiceCard
+        key={service.id}
+        data={serviceCategoryCardData}
+        variant="compact"
+        onPress={(data) => handleServicePress(data)}
+        onSecondaryAction={(data) => handleSaveService(data)}
+        style={{ marginBottom: 16 }}
+      />
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -585,7 +651,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         
         {/* Header Controls */}
         <View style={styles.headerControls}>
-          {isDemoMode && (
+          {false && ( // Demo mode removed
             <View style={styles.demoToggle}>
               <Text style={styles.demoToggleLabel}>Demo</Text>
               <Switch 
@@ -648,9 +714,24 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           )}
         </View>
 
-        {/* Popular Services */}
+        {/* Service Categories */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Popular Services</Text>
+          {serviceCategories.length > 0 ? (
+            <View style={styles.serviceCategoriesGrid}>
+              {serviceCategories.map(renderServiceCategoryCard)}
+            </View>
+          ) : (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#3ad3db" />
+              <Text style={styles.loadingText}>Loading services...</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Additional Services */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>More Services</Text>
           {popularServices.length > 0 ? (
             <View style={styles.popularServicesGrid}>
               {popularServices.map(service => renderServiceCard(service, true))}
@@ -725,22 +806,41 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         </View>
 
         {/* Special Offers Banner */}
-        <View style={styles.section}>
+        <View style={styles.offerSection}>
           <View style={styles.specialOfferCard}>
             <LinearGradient
               colors={['#3ad3db', '#1ca7b7']}
               style={styles.specialOfferGradient}
             >
               <View style={styles.specialOfferContent}>
+                <View style={styles.offerHeaderContainer}>
+                  <Text style={couponClaimed ? styles.offerBadgeClaimed : styles.offerBadge}>
+                    {couponClaimed ? 'CLAIMED' : 'LIMITED TIME'}
+                  </Text>
                 <Text style={styles.specialOfferTitle}>25% OFF First Booking</Text>
-                <Text style={styles.specialOfferSubtitle}>Use code HERO25 at checkout</Text>
-                <TouchableOpacity 
-                  style={styles.claimOfferButton}
-                  onPress={handleButtonPress}
-                  activeOpacity={0.8}
+                </View>
+                <Text style={styles.specialOfferSubtitle}>
+                  {couponClaimed ? 'Your discount is ready!' : 'Use code'} <Text style={styles.promoCode}>HERO25</Text> {couponClaimed ? 'will auto-apply at checkout' : 'at checkout'}
+                </Text>
+                <Animated.View
+                  style={[
+                    couponClaimed ? styles.claimOfferButtonClaimed : styles.claimOfferButton,
+                    !couponClaimed && { transform: [{ scale: claimButtonScale }] }
+                  ]}
                 >
-                  <Text style={styles.claimOfferButtonText}>Claim Offer</Text>
+                <TouchableOpacity 
+                    style={styles.claimOfferButtonInner}
+                  onPress={handleButtonPress}
+                    activeOpacity={couponClaimed ? 1 : 0.7}
+                  >
+                    <Text style={couponClaimed ? styles.claimOfferButtonTextClaimed : styles.claimOfferButtonText}>
+                      {couponClaimed ? 'Coupon Applied' : 'Claim Offer'}
+                    </Text>
+                    <Text style={couponClaimed ? styles.buttonCheckmark : styles.buttonArrow}>
+                      {couponClaimed ? '✓' : '→'}
+                    </Text>
                 </TouchableOpacity>
+                </Animated.View>
               </View>
             </LinearGradient>
           </View>
@@ -1113,51 +1213,143 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontStyle: 'italic',
   },
+  offerSection: {
+    marginBottom: 20,
+    marginTop: 12,
+  },
   specialOfferCard: {
     marginHorizontal: 20,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
   },
   specialOfferGradient: {
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
   },
   specialOfferContent: {
     alignItems: 'center',
   },
-  specialOfferTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  offerHeaderContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  offerBadge: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#000000',
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
     marginBottom: 8,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  offerBadgeClaimed: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    backgroundColor: '#1ca7b7',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    shadowColor: '#1ca7b7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  specialOfferTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   specialOfferSubtitle: {
     fontSize: 16,
     color: '#FFFFFF',
-    marginBottom: 20,
+    marginBottom: 24,
     textAlign: 'center',
-    opacity: 0.9,
+    opacity: 0.95,
+    fontWeight: '500',
+  },
+  promoCode: {
+    fontWeight: '800',
+    color: '#FFFFFF',
+    backgroundColor: '#1ca7b7',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+    overflow: 'hidden',
+    shadowColor: '#3ad3db',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   claimOfferButton: {
     backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
+    borderRadius: 28,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  claimOfferButtonClaimed: {
+    backgroundColor: '#1ca7b7',
+    borderRadius: 28,
+    shadowColor: '#1ca7b7',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  claimOfferButtonInner: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 160,
   },
   claimOfferButtonText: {
     color: '#3ad3db',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '800',
+    marginRight: 8,
+    letterSpacing: 0.3,
+  },
+  claimOfferButtonTextClaimed: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    marginRight: 8,
+    letterSpacing: 0.3,
+  },
+  buttonArrow: {
+    color: '#3ad3db',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  buttonCheckmark: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
   },
   bottomSpacing: {
     height: 100,
@@ -1285,6 +1477,107 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8E8E93',
     fontWeight: '500',
+  },
+  // Service Category Card Styles
+  serviceCategoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  serviceCategoryCard: {
+    width: (width - 56) / 2, // Account for container padding + gap (16px*2 + 12px gap)
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    marginBottom: 16,
+  },
+  serviceCategoryImageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 100,
+  },
+  serviceCategoryImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  serviceCategoryImageSkeleton: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F2F2F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  serviceCategoryRatingOverlay: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+  },
+  serviceCategoryRatingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 3,
+  },
+  serviceCategoryRatingText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  serviceCategoryContent: {
+    padding: 14,
+    paddingTop: 10,
+    paddingBottom: 16,
+  },
+  serviceCategoryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1C1C1E',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  serviceCategoryDescription: {
+    fontSize: 13,
+    color: '#8E8E93',
+    lineHeight: 18,
+    marginBottom: 16,
+    fontWeight: '500',
+  },
+  serviceCategoryFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  serviceCategoryPrice: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#3ad3db',
+  },
+  serviceCategoryButton: {
+    backgroundColor: '#3ad3db',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+  },
+  serviceCategoryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 

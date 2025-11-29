@@ -20,7 +20,8 @@ import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import FloatingNavigation from '../../components/FloatingNavigation';
-import { USE_MOCK_DATA } from '../../utils/constants';
+
+
 import { routeToMessage } from '../../utils/messageRouting';
 
 type TabParamList = {
@@ -153,8 +154,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   const [animatedValue] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
-  const [useMockData, setUseMockData] = useState(USE_MOCK_DATA);
-  const { isDemoMode } = require('../../hooks/useAuth') as any;
+
 
   const mockBookings: Booking[] = [
     {
@@ -325,7 +325,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
     },
   ];
 
-  const filteredBookings = useMockData ? mockBookings.filter(booking => booking.status === activeTab) : [];
+  const filteredBookings: Booking[] = []; // Real bookings will be loaded from database
 
   useEffect(() => {
     // Animate progress bars
@@ -625,20 +625,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Bookings</Text>
         <View style={styles.headerActions}>
-          {/* Demo Toggle - only show for demo users */}
-          {isDemoMode && (
-            <View style={styles.demoToggle}>
-              <Text style={styles.demoToggleLabel}>Demo</Text>
-              <Switch
-                value={useMockData}
-                onValueChange={setUseMockData}
-                trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
-                thumbColor={useMockData ? '#ffffff' : '#f4f3f4'}
-                ios_backgroundColor="#D1D5DB"
-                style={styles.switch}
-              />
-            </View>
-          )}
+
           <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
             <Ionicons name="refresh" size={20} color="#3ad3db" />
           </TouchableOpacity>
@@ -664,7 +651,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           <View style={styles.badgeContainer}>
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
-                {useMockData ? mockBookings.filter(b => b.status === 'upcoming').length : 0}
+                0
               </Text>
             </View>
           </View>
@@ -679,7 +666,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           <View style={styles.badgeContainer}>
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
-                {useMockData ? mockBookings.filter(b => b.status === 'active').length : 0}
+                0
               </Text>
             </View>
           </View>
@@ -696,7 +683,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
       {/* Content with proper scroll support */}
       {/* Quick Actions - Recent Bookings for One-Tap Rebooking */}
-      {activeTab === 'upcoming' && useMockData && mockBookings.filter(b => b.status === 'completed').length > 0 && (
+      {activeTab === 'upcoming' && false && (
         <View style={styles.quickActionsContainer}>
           <Text style={styles.quickActionsTitle}>Quick Rebook</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickActionsScroll}>
@@ -742,7 +729,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 <Text style={styles.emptyStateSubtitle}>
                   Ready to get your space sparkling clean? Book a service and transform your home today.
                 </Text>
-                {!useMockData && (
+                {true && (
                   <View style={styles.emptyStateFeatures}>
                     <View style={styles.featureItem}>
                       <Ionicons name="flash" size={20} color="#3ad3db" />
@@ -776,7 +763,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 <Text style={styles.emptyStateSubtitle}>
                   Your active cleanings will appear here with real-time updates and live tracking.
                 </Text>
-                {!useMockData && (
+                {true && (
                   <View style={styles.emptyStateFeatures}>
                     <View style={styles.featureItem}>
                       <Ionicons name="location" size={20} color="#0891b2" />
@@ -810,7 +797,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 <Text style={styles.emptyStateSubtitle}>
                   Your cleaning history will appear here once you complete your first service. Build your cleaning journey!
                 </Text>
-                {!useMockData && (
+                {true && (
                   <View style={styles.emptyStateFeatures}>
                     <View style={styles.featureItem}>
                       <Ionicons name="repeat" size={20} color="#10b981" />
