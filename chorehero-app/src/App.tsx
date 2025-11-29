@@ -229,6 +229,16 @@ export default function App() {
     setIsSplashVisible(false);
   };
 
+  // Safety timeout: if onDone never fires, force transition after ~4000ms
+  useEffect(() => {
+    if (isSplashVisible) {
+      const safetyTimeout = setTimeout(() => {
+        setIsSplashVisible(false);
+      }, 4000);
+      return () => clearTimeout(safetyTimeout);
+    }
+  }, [isSplashVisible]);
+
   if (isSplashVisible) {
     return <SplashHero onDone={handleSplashFinish} />;
   }

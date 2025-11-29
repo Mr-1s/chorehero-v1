@@ -18,7 +18,7 @@ type SplashHeroProps = {
   onDone?: () => void;
 };
 
-const LOGO_SOURCE = require('../../assets/chorehero-logo.png');
+const LOGO_SOURCE = require('../../assets/logo/chorehero-logo.png');
 
 const SplashHero: React.FC<SplashHeroProps> = ({ onDone }) => {
   const { width, height } = useWindowDimensions();
