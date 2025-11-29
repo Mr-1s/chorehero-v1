@@ -9,15 +9,16 @@ import CustomerDashboardScreen from '../../screens/customer/DashboardScreen';
 import CustomerProfileScreen from '../../screens/customer/ProfileScreen';
 import TrackingScreen from '../../screens/customer/TrackingScreen';
 
-// Cleaner Screens  
+// Cleaner Screens (Refactored versions with Zustand store)
 import CleanerDashboardScreen from '../../screens/cleaner/DashboardScreen';
-import CleanerProfileScreen from '../../screens/cleaner/ProfileScreen';
+import CleanerProfileScreen from '../../screens/cleaner/ProfileScreenNew';
 import CleanerEarningsScreen from '../../screens/cleaner/EarningsScreen';
-import CleanerJobsScreen from '../../screens/cleaner/JobsScreen';
+import CleanerJobsScreen from '../../screens/cleaner/JobsScreenNew';
 import CleanerScheduleScreen from '../../screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from '../../screens/cleaner/VideoUploadScreen';
 import TipsScreen from '../../screens/cleaner/TipsScreen';
-// CleanerContentScreen removed - Content button now goes directly to ContentCreation
+import CleanerContentScreen from '../../screens/cleaner/ContentScreenNew';
+import CleanerMessagesScreen from '../../screens/cleaner/MessagesScreenNew';
 
 // Shared Screens
 import DiscoverScreen from '../../screens/shared/DiscoverScreen';
@@ -52,12 +53,13 @@ const CustomerDiscoverStack = () => (
   </Stack.Navigator>
 );
 
-// Cleaner Profile Stack
+// Cleaner Profile Stack (using new refactored ProfileScreen)
 const CleanerProfileStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />
     <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
     <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
+    <Stack.Screen name="Content" component={CleanerContentScreen} />
   </Stack.Navigator>
 );
 
@@ -100,10 +102,10 @@ const CleanerNavigator = () => {
       <Stack.Screen name="Dashboard" component={CleanerDashboardScreen as any} />
       <Stack.Screen name="Jobs" component={CleanerJobsScreen as any} />
       <Stack.Screen name="Heroes" component={TipsScreen as any} />
-                  {/* Content screen removed - Content button now goes directly to ContentCreation */}
+      <Stack.Screen name="Content" component={CleanerContentScreen as any} />
       <Stack.Screen name="Schedule" component={CleanerScheduleScreen} />
       <Stack.Screen name="Earnings" component={CleanerEarningsScreen as any} />
-      <Stack.Screen name="Messages" component={MessagesScreen as any} />
+      <Stack.Screen name="Messages" component={CleanerMessagesScreen as any} />
       <Stack.Screen name="Profile" component={CleanerProfileStack as any} />
       <Stack.Screen name="VideoUpload" component={VideoUploadScreen as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
