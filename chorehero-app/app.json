@@ -1,0 +1,100 @@
+{
+  "expo": {
+    "name": "ChoreHero",
+    "slug": "chorehero-app",
+    "version": "1.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/app-icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A1A2A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "scheme": "chorehero",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chorehero.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ChoreHero needs camera access to record cleaner profile videos and share service photos.",
+        "NSMicrophoneUsageDescription": "ChoreHero needs microphone access to record cleaner profile videos.",
+        "NSLocationWhenInUseUsageDescription": "ChoreHero needs location access to show cleaners near you and track service progress.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ChoreHero needs location access to track service progress and ensure cleaner safety.",
+        "NSPhotoLibraryUsageDescription": "ChoreHero needs photo library access to upload service photos and profile images.",
+        "NSContactsUsageDescription": "ChoreHero needs contacts access to help you invite friends and family.",
+        "UIBackgroundModes": [
+          "location",
+          "background-processing",
+          "location",
+          "background-processing"
+        ]
+      },
+      "runtimeVersion": "1.1.0"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/app-icon.png",
+        "backgroundColor": "#00D4AA"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.chorehero.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-av",
+      "expo-location",
+      "expo-notifications",
+      "expo-image-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ChoreHero to access your camera to record profile videos and share service photos."
+        }
+      ],
+      "expo-video",
+      "expo-router"
+    ],
+    "owner": "chorehero-beta",
+    "extra": {
+      "eas": {
+        "projectId": "3b52143e-253a-480c-b516-773a7da3794f"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3b52143e-253a-480c-b516-773a7da3794f"
+    }
+  }
+}
