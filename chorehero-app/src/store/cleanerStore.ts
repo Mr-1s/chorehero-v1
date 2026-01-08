@@ -11,6 +11,9 @@ import type {
   VideoTip, 
   Conversation 
 } from '../types/cleaner';
+import { cleanerBookingService } from '../services/cleanerBookingService';
+import { trackingWorkflowService } from '../services/trackingWorkflowService';
+import { supabase } from '../services/supabase';
 
 // ============================================================================
 // MOCK DATA
@@ -222,23 +225,105 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
     set({ isLoading: true });
     
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 800));
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
       
-      // In production, replace with actual API calls
-      set({
-        currentCleaner: MOCK_CLEANER,
-        availableBookings: MOCK_AVAILABLE_BOOKINGS,
-        activeBookings: MOCK_ACTIVE_BOOKINGS,
-        pastBookings: MOCK_PAST_BOOKINGS,
-        videoStats: MOCK_VIDEO_STATS,
-        videoTips: MOCK_VIDEO_TIPS,
-        conversations: MOCK_CONVERSATIONS,
-        isLoading: false,
-      });
+      if (userId && !userId.startsWith('demo_')) {
+        // Fetch real data from database
+        console.log('📊 Fetching real cleaner dashboard data...');
+        
+        const [available, active, past] = await Promise.all([
+          cleanerBookingService.getAvailableBookings(userId),
+          cleanerBookingService.getActiveBookings(userId),
+          cleanerBookingService.getPastBookings(userId),
+        ]);
+
+        // Fetch cleaner profile
+        const { data: cleanerProfile } = await supabase
+          .from('cleaner_profiles')
+          .select('*, user:users(*)')
+          .eq('user_id', userId)
+          .single();
+
+        // Calculate profile completion based on actual data
+        const calculateProfileCompletion = (profile: any, user: any): number => {
+          const fields = [
+            { filled: !!user?.avatar_url, weight: 1 },           // Profile photo
+            { filled: !!profile?.bio && profile.bio.length > 10, weight: 1 }, // Bio
+            { filled: !!profile?.video_profile_url, weight: 1 }, // Intro video
+            { filled: profile?.verification_status === 'verified', weight: 1 }, // ID verified
+            { filled: !!profile?.background_check_date, weight: 1 }, // Background check
+            { filled: !!profile?.hourly_rate, weight: 1 },       // Hourly rate set
+            { filled: (profile?.specialties?.length || 0) > 0, weight: 1 }, // Specialties
+            { filled: !!profile?.years_experience, weight: 1 },  // Experience
+          ];
+          
+          const totalWeight = fields.reduce((sum, f) => sum + f.weight, 0);
+          const filledWeight = fields.reduce((sum, f) => sum + (f.filled ? f.weight : 0), 0);
+          
+          return filledWeight / totalWeight;
+        };
+
+        const profileCompletion = cleanerProfile 
+          ? calculateProfileCompletion(cleanerProfile, cleanerProfile.user)
+          : 0;
+
+        // Build cleaner from profile or create basic profile from session
+        const realCleaner: Cleaner = {
+          id: userId,
+          name: cleanerProfile?.user?.name || session?.user?.email?.split('@')[0] || 'Cleaner',
+          avatarUrl: cleanerProfile?.user?.avatar_url,
+          rating: cleanerProfile?.rating_average || 0,
+          totalJobs: cleanerProfile?.total_jobs || past.length,
+          hourlyRate: cleanerProfile?.hourly_rate || 25,
+          specialties: cleanerProfile?.specialties || [],
+          isOnline: cleanerProfile?.is_available || false,
+          profileCompletion,
+          weeklyEarnings: cleanerProfile?.total_earnings || 0,
+          todayEarnings: 0,
+        };
+
+        set({
+          currentCleaner: realCleaner,
+          availableBookings: available,
+          activeBookings: active,
+          pastBookings: past,
+          videoStats: null,
+          videoTips: [],
+          conversations: [],
+          isLoading: false,
+        });
+        
+        console.log(`✅ Loaded ${available.length} available, ${active.length} active, ${past.length} past bookings`);
+      } else {
+        // No authenticated user - show empty state
+        console.log('📊 No authenticated cleaner - showing empty state...');
+        
+        set({
+          currentCleaner: null,
+          availableBookings: [],
+          activeBookings: [],
+          pastBookings: [],
+          videoStats: null,
+          videoTips: [],
+          conversations: [],
+          isLoading: false,
+        });
+      }
     } catch (error) {
       console.error('Error fetching dashboard:', error);
-      set({ isLoading: false });
+      // Show empty state on error
+      set({
+        currentCleaner: null,
+        availableBookings: [],
+        activeBookings: [],
+        pastBookings: [],
+        videoStats: null,
+        videoTips: [],
+        conversations: [],
+        isLoading: false,
+      });
     }
   },
 
@@ -257,10 +342,21 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
       activeBookings: [...activeBookings, updatedBooking],
     });
     
-    // In production, call API here
     try {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      // API call would go here
+      // Check if this is a real UUID (not mock data like "booking-1")
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      
+      if (isValidUUID) {
+        // Try real API for real bookings
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id && !session.user.id.startsWith('demo_')) {
+          const success = await cleanerBookingService.acceptBooking(id, session.user.id);
+          if (!success) throw new Error('Failed to accept booking');
+        }
+      } else {
+        // Mock delay for demo/mock bookings
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
     } catch (error) {
       // Rollback on error
       set({
@@ -290,15 +386,39 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
     }
   },
 
-  // Update booking status to on_the_way
+  // Update booking status to on_the_way and start tracking
   startTraveling: async (id: string) => {
-    const { activeBookings } = get();
+    const { activeBookings, currentCleaner } = get();
     
+    // Optimistic update
     set({
       activeBookings: activeBookings.map(b => 
         b.id === id ? { ...b, status: 'on_the_way' as BookingStatus } : b
       ),
     });
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const cleanerId = session?.user?.id;
+      const cleanerName = currentCleaner?.name || 'Your ChoreHero';
+      
+      if (cleanerId && !cleanerId.startsWith('demo_')) {
+        // Start the full tracking workflow (GPS + notifications)
+        const result = await trackingWorkflowService.startCleanerTracking(
+          id,
+          cleanerId,
+          cleanerName
+        );
+        
+        if (!result.success) {
+          console.warn('⚠️ Tracking workflow warning:', result.error);
+          // Still update status even if tracking fails
+          await cleanerBookingService.updateBookingStatus(id, 'cleaner_en_route');
+        }
+      }
+    } catch (error) {
+      console.error('Error starting travel tracking:', error);
+    }
   },
 
   // Update booking status to in_progress

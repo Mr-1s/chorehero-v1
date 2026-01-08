@@ -20,6 +20,23 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import { useAuth } from '../../hooks/useAuth';
+
+// Theme colors
+const THEMES = {
+  customer: {
+    primary: '#0891b2',
+    primaryLight: '#E0F7FA',
+    primaryDark: '#0e7490',
+    accent: '#06b6d4',
+  },
+  cleaner: {
+    primary: '#F59E0B',
+    primaryLight: '#FEF3C7',
+    primaryDark: '#D97706',
+    accent: '#FBBF24',
+  },
+};
 
 type StackParamList = {
   PaymentScreen: {
@@ -65,6 +82,10 @@ interface BillingAddress {
 
 const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const { bookingTotal, cleanerId, fromBooking, paymentIntent } = route.params || {};
+  const { user, isCleaner } = useAuth();
+  
+  // Dynamic theme based on user role
+  const theme = isCleaner ? THEMES.cleaner : THEMES.customer;
   
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -120,53 +141,22 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const loadPaymentData = async () => {
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // TODO: Integrate with Stripe to fetch real payment methods
+      // For now, start with empty state - users will add their own cards
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      const mockMethods: PaymentMethod[] = [
-        {
-          id: '1',
-          type: 'card',
-          provider: 'Visa',
-          brand: 'visa',
-          last4: '4242',
-          expiryMonth: 12,
-          expiryYear: 2025,
-          isDefault: true,
-          nickname: 'Personal Card',
-        },
-        {
-          id: '2',
-          type: 'card',
-          provider: 'Mastercard',
-          brand: 'mastercard',
-          last4: '5555',
-          expiryMonth: 8,
-          expiryYear: 2026,
-          isDefault: false,
-          nickname: 'Business Card',
-        },
-        {
-          id: '3',
-          type: 'digital',
-          provider: 'Apple Pay',
-          last4: '6789',
-          isDefault: false,
-        },
-      ];
+      setPaymentMethods([]);
+      setSelectedMethodId(null);
       
-      setPaymentMethods(mockMethods);
-      setSelectedMethodId(mockMethods.find(m => m.isDefault)?.id || mockMethods[0]?.id || null);
-      
-      // Mock billing address
+      // Empty billing address for user to fill
       setBillingAddress({
-        firstName: 'John',
-        lastName: 'Doe',
-        addressLine1: '123 Main St',
-        addressLine2: 'Apt 4B',
-        city: 'San Francisco',
-        state: 'CA',
-        zipCode: '94102',
+        firstName: '',
+        lastName: '',
+        addressLine1: '',
+        addressLine2: '',
+        city: '',
+        state: '',
+        zipCode: '',
         country: 'US',
       });
     } catch (error) {
@@ -331,21 +321,27 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const renderTabBar = () => (
     <View style={styles.tabBar}>
       {[
-        { id: 'methods', label: 'Payment', icon: 'card' },
-        { id: 'billing', label: 'Billing', icon: 'location' },
-        { id: 'history', label: 'History', icon: 'time' },
+        { id: 'methods', label: 'Payment', icon: 'card-outline' },
+        { id: 'billing', label: 'Billing', icon: 'location-outline' },
+        { id: 'history', label: 'History', icon: 'time-outline' },
       ].map((tab) => (
         <TouchableOpacity
           key={tab.id}
-          style={[styles.tab, activeTab === tab.id && styles.activeTab]}
+          style={[
+            styles.tab, 
+            activeTab === tab.id && [styles.activeTab, { borderBottomColor: theme.primary }]
+          ]}
           onPress={() => setActiveTab(tab.id as any)}
         >
           <Ionicons 
             name={tab.icon as any} 
             size={20} 
-            color={activeTab === tab.id ? '#3ad3db' : '#6B7280'} 
+            color={activeTab === tab.id ? theme.primary : '#6B7280'} 
           />
-          <Text style={[styles.tabText, activeTab === tab.id && styles.activeTabText]}>
+          <Text style={[
+            styles.tabText, 
+            activeTab === tab.id && [styles.activeTabText, { color: theme.primary }]
+          ]}>
             {tab.label}
           </Text>
         </TouchableOpacity>
@@ -360,11 +356,11 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         onPress={() => setSelectedMethodId(method.id)}
       >
         <View style={styles.methodLeft}>
-          <View style={styles.methodIcon}>
+          <View style={[styles.methodIcon, { backgroundColor: theme.primaryLight }]}>
             <Ionicons 
               name={method.type === 'digital' ? getProviderIcon(method.provider) : getCardIcon(method.brand)}
               size={24} 
-              color="#3ad3db" 
+              color={theme.primary} 
             />
           </View>
           <View style={styles.methodInfo}>
@@ -380,16 +376,16 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         
         <View style={styles.methodRight}>
           {method.isDefault && (
-            <View style={styles.defaultBadge}>
+            <View style={[styles.defaultBadge, { backgroundColor: theme.primary }]}>
               <Text style={styles.defaultText}>Default</Text>
             </View>
           )}
           <View style={[
             styles.radioButton,
-            selectedMethodId === method.id && styles.radioButtonSelected
+            selectedMethodId === method.id && [styles.radioButtonSelected, { borderColor: theme.primary }]
           ]}>
             {selectedMethodId === method.id && (
-              <View style={styles.radioButtonInner} />
+              <View style={[styles.radioButtonInner, { backgroundColor: theme.primary }]} />
             )}
           </View>
         </View>
@@ -502,14 +498,14 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
             <Switch
               value={newCard.saveCard}
               onValueChange={(value) => setNewCard(prev => ({ ...prev, saveCard: value }))}
-              trackColor={{ false: '#E5E7EB', true: '#3ad3db' }}
+              trackColor={{ false: '#E5E7EB', true: theme.primary }}
               thumbColor="#FFFFFF"
             />
           </View>
         </View>
         
         <TouchableOpacity 
-          style={styles.addCardButton}
+          style={[styles.addCardButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
           onPress={handleAddCard}
           disabled={isProcessing}
         >
@@ -605,7 +601,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         <Switch
           value={autoSaveCards}
           onValueChange={setAutoSaveCards}
-          trackColor={{ false: '#E5E7EB', true: '#3ad3db' }}
+          trackColor={{ false: '#E5E7EB', true: theme.primary }}
           thumbColor="#FFFFFF"
         />
       </View>
@@ -630,7 +626,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={styles.loadingText}>Loading payment information...</Text>
         </View>
       </SafeAreaView>
@@ -654,7 +650,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       </View>
 
       {bookingTotal && (
-        <View style={styles.totalContainer}>
+        <View style={[styles.totalContainer, { backgroundColor: theme.primary }]}>
           <Text style={styles.totalLabel}>Total Amount</Text>
           <Text style={styles.totalAmount}>${bookingTotal.toFixed(2)}</Text>
         </View>
@@ -668,11 +664,11 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
             <View style={styles.methodsHeader}>
               <Text style={styles.sectionTitle}>Payment Methods</Text>
               <TouchableOpacity 
-                style={styles.addButton}
+                style={[styles.addButton, { backgroundColor: theme.primaryLight }]}
                 onPress={() => setShowAddCard(true)}
               >
-                <Ionicons name="add" size={20} color="#3ad3db" />
-                <Text style={styles.addButtonText}>Add Method</Text>
+                <Ionicons name="add" size={20} color={theme.primary} />
+                <Text style={[styles.addButtonText, { color: theme.primary }]}>Add Method</Text>
               </TouchableOpacity>
             </View>
             
@@ -698,7 +694,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         <View style={styles.bottomContainer}>
           <BlurView intensity={95} style={styles.bottomBlur}>
             <TouchableOpacity 
-              style={styles.processButton}
+              style={[styles.processButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
               onPress={handleProcessPayment}
               disabled={isProcessing}
             >
@@ -771,7 +767,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   totalContainer: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#0891b2', // Will be overridden dynamically
     paddingHorizontal: 20,
     paddingVertical: 16,
     alignItems: 'center',
@@ -802,7 +798,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#3ad3db',
+    borderBottomColor: '#0891b2', // Will be overridden dynamically
   },
   tabText: {
     fontSize: 13,
@@ -813,7 +809,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   activeTabText: {
-    color: '#3ad3db',
+    color: '#0891b2', // Will be overridden dynamically
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'SF Pro Display' : 'Roboto',
     letterSpacing: 0.5,
@@ -838,7 +834,7 @@ const styles = StyleSheet.create({
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDFA',
+    backgroundColor: '#E0F7FA', // Will be overridden dynamically
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -846,7 +842,7 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#0891b2', // Will be overridden dynamically
     marginLeft: 6,
   },
   paymentMethodCard: {
@@ -875,7 +871,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#F0FDFA',
+    backgroundColor: '#E0F7FA', // Will be overridden dynamically
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -902,7 +898,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   defaultBadge: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#0891b2', // Will be overridden dynamically
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -923,13 +919,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   radioButtonSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#0891b2', // Will be overridden dynamically
   },
   radioButtonInner: {
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#0891b2', // Will be overridden dynamically
   },
   methodActions: {
     flexDirection: 'row',
@@ -1039,11 +1035,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#0891b2', // Will be overridden dynamically
     borderRadius: 16,
     paddingVertical: 16,
     gap: 8,
-    shadowColor: '#3ad3db',
+    shadowColor: '#0891b2', // Will be overridden dynamically
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1094,12 +1090,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   addCardButton: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#0891b2', // Will be overridden dynamically
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3ad3db',
+    shadowColor: '#0891b2', // Will be overridden dynamically
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

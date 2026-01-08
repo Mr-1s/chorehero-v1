@@ -1,4 +1,4 @@
--- ChoreHero Database Schema
+-- ChoreHero Database Schema test"
 -- Enable necessary extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
@@ -158,6 +158,10 @@ CREATE TABLE public.bookings (
   stripe_payment_intent_id VARCHAR(100),
   payment_status payment_status DEFAULT 'pending',
   
+  -- Content attribution (track which content led to this booking)
+  -- Foreign key added after content_posts table is created
+  source_content_id UUID,
+  
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -257,6 +261,21 @@ CREATE TABLE public.notifications (
   read_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- User push tokens for notifications
+CREATE TABLE public.user_push_tokens (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
+  push_token TEXT NOT NULL,
+  platform VARCHAR(10) CHECK (platform IN ('ios', 'android', 'web')),
+  device_info JSONB,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_push_tokens_user_id ON public.user_push_tokens(user_id);
+CREATE INDEX idx_user_push_tokens_active ON public.user_push_tokens(is_active);
 
 -- Create indexes for better performance
 CREATE INDEX idx_users_role ON public.users(role);
@@ -388,6 +407,15 @@ CREATE INDEX IF NOT EXISTS idx_user_follows_following_id ON public.user_follows(
 
 CREATE INDEX IF NOT EXISTS idx_content_notifications_user_id ON public.content_notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_content_notifications_is_read ON public.content_notifications(is_read);
+
+-- Add foreign key for booking content attribution (after content_posts exists)
+ALTER TABLE public.bookings 
+  ADD CONSTRAINT fk_bookings_source_content 
+  FOREIGN KEY (source_content_id) 
+  REFERENCES public.content_posts(id) 
+  ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_bookings_source_content_id ON public.bookings(source_content_id);
 
 -- RLS (Row Level Security) Policies
 ALTER TABLE public.content_posts ENABLE ROW LEVEL SECURITY;

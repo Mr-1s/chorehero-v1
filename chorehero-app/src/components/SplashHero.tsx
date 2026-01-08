@@ -174,10 +174,11 @@ const SplashHero: React.FC<SplashHeroProps> = ({ onDone }) => {
       </Animated.View>
 
       {/* Text Container (Positioned absolutely or relatively below logo target) */}
-      <View style={[styles.textContainer, { top: height * 0.32 + logoHeight * 0.6 }]}>
-        <Animated.Text style={[styles.title, titleStyle]}>
-          ChoreHero
-        </Animated.Text>
+      <View style={[styles.textContainer, { top: height * 0.32 + logoHeight * 0.6 + 30 }]}>
+        <Animated.View style={[styles.titleContainer, titleStyle]}>
+          <Text style={styles.choreText}>Chore</Text>
+          <Text style={styles.heroText}>Hero</Text>
+        </Animated.View>
         <Animated.Text style={[styles.tagline, taglineStyle]}>
           Every chore needs a hero.
         </Animated.Text>
@@ -218,13 +219,29 @@ const styles = StyleSheet.create({
     zIndex: 20,
     paddingHorizontal: 20,
   },
-  title: {
-    fontSize: 38,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  titleContainer: {
+    flexDirection: 'row',
     marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'System', // iOS default, Android fallback
+  },
+  choreText: {
+    fontSize: 45,
+    fontWeight: '800',
+    color: '#e6b200',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+    fontFamily: 'System',
+  },
+  heroText: {
+    fontSize: 45,
+    fontWeight: '800',
+    color: '#06b6d4',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+    fontFamily: 'System',
   },
   tagline: {
     fontSize: 16,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import { useCleanerStore } from '../../store/cleanerStore';
 
 type StackParamList = {
   JobDetails: { jobId: string };
@@ -82,55 +83,96 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Get bookings from store to find the actual status
+  const { availableBookings, activeBookings, pastBookings } = useCleanerStore();
+
+  // Find the booking in any of the lists to get its current status
+  const findBookingStatus = useMemo(() => {
+    // Check active bookings first (accepted, on_the_way, in_progress)
+    const activeBooking = activeBookings.find(b => b.id === jobId);
+    if (activeBooking) {
+      // Map booking status to job status
+      switch (activeBooking.status) {
+        case 'accepted': return 'accepted';
+        case 'on_the_way': return 'accepted'; // Treat as accepted for display
+        case 'in_progress': return 'in_progress';
+        default: return 'accepted';
+      }
+    }
+    
+    // Check past bookings (completed)
+    const pastBooking = pastBookings.find(b => b.id === jobId);
+    if (pastBooking) {
+      return 'completed';
+    }
+    
+    // Check available bookings (pending/offered)
+    const availableBooking = availableBookings.find(b => b.id === jobId);
+    if (availableBooking) {
+      return 'pending';
+    }
+    
+    return 'pending'; // Default
+  }, [jobId, availableBookings, activeBookings, pastBookings]);
+
   useEffect(() => {
     loadJobDetails();
-  }, [jobId]);
+  }, [jobId, findBookingStatus]);
 
   const loadJobDetails = async () => {
     try {
-      // In a real app, this would fetch from the database
-      // For now, we'll use mock data
-      const mockJob: JobDetails = {
+      // Find the booking in the store to get actual data
+      const allBookings = [...availableBookings, ...activeBookings, ...pastBookings];
+      const storeBooking = allBookings.find(b => b.id === jobId);
+      
+      // Build job details from store booking using correct Booking field names
+      if (!storeBooking) {
+        // No booking found - show error
+        setLoading(false);
+        return;
+      }
+
+      const jobDetails: JobDetails = {
         id: jobId,
-        status: 'pending',
+        status: findBookingStatus,
         customer: {
           id: 'customer-1',
-          name: 'Sarah Johnson',
-          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
+          name: storeBooking.customerName,
+          avatar: storeBooking.customerAvatarUrl || 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
           phone: '+1 (555) 123-4567',
-          rating: 4.8,
-          totalBookings: 23,
+          rating: storeBooking.customerRating || 4.8,
+          totalBookings: storeBooking.customerTotalBookings || 0,
         },
         service: {
-          type: 'standard',
-          title: 'Standard Clean',
-          addOns: ['Inside Fridge', 'Laundry'],
-          specialInstructions: 'Please focus on the kitchen and bathrooms. The living room just needs light dusting.',
+          type: storeBooking.serviceType,
+          title: storeBooking.serviceType,
+          addOns: storeBooking.addOns || [],
+          specialInstructions: storeBooking.hasSpecialRequests ? storeBooking.specialRequestText : undefined,
         },
         location: {
-          address: '456 Oak Ave, San Francisco, CA 94102',
+          address: storeBooking.addressLine1,
           coordinates: {
             latitude: 37.7749,
             longitude: -122.4194,
           },
-          accessInstructions: 'Apartment 4B. Buzzer code is 1234. Key is under the mat.',
+          accessInstructions: storeBooking.hasSpecialRequests ? storeBooking.specialRequestText : undefined,
         },
         schedule: {
-          date: 'Today',
-          time: '2:00 PM',
-          duration: 120,
-          estimatedCompletion: '4:00 PM',
+          date: new Date(storeBooking.scheduledAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+          time: new Date(storeBooking.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          duration: storeBooking.durationMinutes,
+          estimatedCompletion: new Date(new Date(storeBooking.scheduledAt).getTime() + storeBooking.durationMinutes * 60000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
         },
         payment: {
-          total: 102.00,
-          cleanerEarnings: 71.40,
-          platformFee: 10.20,
-          paymentMethod: 'Credit Card ending in 4242',
+          total: storeBooking.totalPrice,
+          cleanerEarnings: storeBooking.payoutToCleaner,
+          platformFee: storeBooking.totalPrice - storeBooking.payoutToCleaner,
+          paymentMethod: 'Credit Card',
         },
-        createdAt: '2024-01-20T10:30:00Z',
+        createdAt: storeBooking.scheduledAt,
       };
 
-      setJob(mockJob);
+      setJob(jobDetails);
     } catch (error) {
       console.error('Error loading job details:', error);
       Alert.alert('Error', 'Failed to load job details');
@@ -138,6 +180,9 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       setLoading(false);
     }
   };
+
+  // Get store actions
+  const { acceptBooking, declineBooking, startTraveling, markInProgress, markCompleted } = useCleanerStore();
 
   const handleAcceptJob = async () => {
     if (!job) return;
@@ -152,9 +197,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           onPress: async () => {
             setActionLoading(true);
             try {
-              // In a real app, this would call the booking service
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
+              await acceptBooking(job.id);
               setJob(prev => prev ? { ...prev, status: 'accepted', acceptedAt: new Date().toISOString() } : null);
               Alert.alert('Job Accepted', 'You have successfully accepted this job. The customer has been notified.');
             } catch (error) {
@@ -181,9 +224,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           onPress: async () => {
             setActionLoading(true);
             try {
-              // In a real app, this would call the booking service
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              
+              await declineBooking(job!.id);
               navigation.goBack();
               Alert.alert('Job Declined', 'You have declined this job.');
             } catch (error) {
@@ -198,22 +239,41 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     );
   };
 
-  const handleStartJob = () => {
+  const handleStartJob = async () => {
     if (!job) return;
     
-    setJob(prev => prev ? { ...prev, status: 'in_progress' } : null);
-    Alert.alert('Job Started', 'You have marked this job as in progress.');
+    setActionLoading(true);
+    try {
+      await markInProgress(job.id);
+      setJob(prev => prev ? { ...prev, status: 'in_progress' } : null);
+      Alert.alert('Job Started', 'You have marked this job as in progress.');
+    } catch (error) {
+      console.error('Error starting job:', error);
+      Alert.alert('Error', 'Failed to start job');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleCompleteJob = () => {
+  const handleCompleteJob = async () => {
     if (!job) return;
     
-    setJob(prev => prev ? { 
-      ...prev, 
-      status: 'completed', 
-      completedAt: new Date().toISOString() 
-    } : null);
-    Alert.alert('Job Completed', 'You have marked this job as completed!');
+    setActionLoading(true);
+    try {
+      await markCompleted(job.id);
+      setJob(prev => prev ? { 
+        ...prev, 
+        status: 'completed', 
+        completedAt: new Date().toISOString() 
+      } : null);
+      Alert.alert('Job Completed', 'You have marked this job as completed!');
+      navigation.goBack(); // Return to jobs list
+    } catch (error) {
+      console.error('Error completing job:', error);
+      Alert.alert('Error', 'Failed to complete job');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleContactCustomer = () => {
@@ -256,12 +316,13 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   };
 
   const getStatusColor = (status: string) => {
+    // Orange gradient theme
     switch (status) {
-      case 'pending': return '#F59E0B';
-      case 'accepted': return '#3B82F6';
-      case 'in_progress': return '#8B5CF6';
-      case 'completed': return '#10B981';
-      case 'cancelled': return '#EF4444';
+      case 'pending': return '#FBBF24';      // Amber 400 - light yellow-orange
+      case 'accepted': return '#F59E0B';     // Amber 500 - main orange
+      case 'in_progress': return '#D97706';  // Amber 600 - darker orange
+      case 'completed': return '#92400E';    // Amber 800 - deep brown
+      case 'cancelled': return '#DC2626';    // Red 600
       default: return '#6B7280';
     }
   };
@@ -282,7 +343,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#F9F9F9" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#F59E0B" />
           <Text style={styles.loadingText}>Loading job details...</Text>
         </View>
       </SafeAreaView>
@@ -319,7 +380,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         >
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Job #{job.id.slice(-6)}</Text>
+        <Text style={styles.headerTitle}>Job Details</Text>
         <View style={styles.headerRight}>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(job.status) }]}>
             <Text style={styles.statusBadgeText}>{getStatusText(job.status)}</Text>
@@ -350,7 +411,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
               style={styles.contactButton}
               onPress={handleContactCustomer}
             >
-              <Ionicons name="chatbubble-outline" size={20} color="#3ad3db" />
+              <Ionicons name="chatbubble-outline" size={20} color="#F59E0B" />
             </TouchableOpacity>
           </View>
         </View>
@@ -366,7 +427,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
                 <Text style={styles.addOnsTitle}>Add-ons:</Text>
                 {job.service.addOns.map((addOn, index) => (
                   <View key={index} style={styles.addOnItem}>
-                    <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                    <Ionicons name="checkmark-circle" size={16} color="#F59E0B" />
                     <Text style={styles.addOnText}>{addOn}</Text>
                   </View>
                 ))}
@@ -389,7 +450,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           <View style={styles.scheduleLocationCard}>
             <View style={styles.scheduleRow}>
               <View style={styles.scheduleItem}>
-                <Ionicons name="calendar-outline" size={20} color="#3ad3db" />
+                <Ionicons name="calendar-outline" size={20} color="#F59E0B" />
                 <View style={styles.scheduleInfo}>
                   <Text style={styles.scheduleLabel}>Date & Time</Text>
                   <Text style={styles.scheduleValue}>{job.schedule.date} at {job.schedule.time}</Text>
@@ -397,7 +458,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
               </View>
               
               <View style={styles.scheduleItem}>
-                <Ionicons name="time-outline" size={20} color="#3ad3db" />
+                <Ionicons name="time-outline" size={20} color="#F59E0B" />
                 <View style={styles.scheduleInfo}>
                   <Text style={styles.scheduleLabel}>Duration</Text>
                   <Text style={styles.scheduleValue}>{job.schedule.duration} min</Text>
@@ -407,7 +468,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
 
             <View style={styles.locationContainer}>
               <View style={styles.locationHeader}>
-                <Ionicons name="location-outline" size={20} color="#3ad3db" />
+                <Ionicons name="location-outline" size={20} color="#F59E0B" />
                 <Text style={styles.locationTitle}>Location</Text>
                 <TouchableOpacity
                   style={styles.directionsButton}
@@ -515,7 +576,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#F3F4F6',
   },
   headerBackButton: {
     padding: 8,
@@ -551,6 +612,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6B7280',
   },
+  loadingIndicator: {
+    color: '#F59E0B',
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -565,7 +629,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   backButton: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
@@ -580,9 +644,16 @@ const styles = StyleSheet.create({
   },
   section: {
     backgroundColor: '#FFFFFF',
-    marginTop: 16,
+    marginTop: 12,
+    marginHorizontal: 16,
     paddingHorizontal: 20,
     paddingVertical: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 18,
@@ -625,7 +696,7 @@ const styles = StyleSheet.create({
   },
   contactButton: {
     padding: 12,
-    backgroundColor: '#F0F9FF',
+    backgroundColor: '#FEF3C7',
     borderRadius: 12,
   },
   detailsCard: {
@@ -719,7 +790,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   directionsButton: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
@@ -784,7 +855,7 @@ const styles = StyleSheet.create({
   paymentValueTotal: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#10B981',
+    color: '#F59E0B',
   },
   paymentMethod: {
     fontSize: 12,
@@ -818,7 +889,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   acceptButton: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#F59E0B',
     marginLeft: 8,
   },
   acceptButtonText: {
@@ -827,7 +898,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   startButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#F59E0B',
   },
   startButtonText: {
     color: '#FFFFFF',
@@ -835,7 +906,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   completeButton: {
-    backgroundColor: '#10B981',
+    backgroundColor: '#92400E',  // Deep amber brown
   },
   completeButtonText: {
     color: '#FFFFFF',

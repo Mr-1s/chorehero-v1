@@ -1183,7 +1183,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
           <LinearGradient
-            colors={['#14b8a6', '#22d3ee']}
+            colors={['#0891b2', '#06b6d4']}
             style={styles.emptyStateGradient}
           >
             <View style={styles.emptyStateIconContainer}>
@@ -1216,7 +1216,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
               onPress={() => navigation.navigate('Discover')}
             >
               <Text style={styles.exploreButtonText}>Explore Cleaners</Text>
-              <Ionicons name="arrow-forward" size={20} color="#14b8a6" />
+              <Ionicons name="arrow-forward" size={20} color="#0891b2" />
             </TouchableOpacity>
           </LinearGradient>
         </View>

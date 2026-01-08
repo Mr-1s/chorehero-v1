@@ -16,9 +16,11 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { accountDeletionService } from '../../services/accountDeletionService';
+import { supabase } from '../../services/supabase';
 
 type StackParamList = {
   SettingsScreen: undefined;
@@ -66,7 +68,11 @@ interface UserProfile {
 }
 
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
-  const { signOut, user, isAuthenticated, isCleaner } = useAuth();
+  const { signOut, user, isAuthenticated, isCleaner, refreshUser } = useAuth();
+  
+  // Dynamic theme colors based on user role
+  const themeColor = isCleaner ? '#FFA52F' : '#3ad3db';
+  const themeColorLight = isCleaner ? '#FFF3E0' : '#E0F7FA';
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
@@ -398,6 +404,73 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     );
   };
 
+  const handleChangeAvatar = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Please sign in to change your profile photo');
+      return;
+    }
+
+    const persistAvatar = async (uri: string) => {
+      try {
+        const { error } = await supabase
+          .from('users')
+          .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+        
+        if (error) throw error;
+        
+        setUserProfile(prev => prev ? { ...prev, avatarUrl: uri } : null);
+        await refreshUser();
+        Alert.alert('Success', 'Profile photo updated');
+      } catch (error) {
+        console.error('Error updating avatar:', error);
+        Alert.alert('Error', 'Failed to update profile photo');
+      }
+    };
+
+    Alert.alert('Profile Photo', 'Choose a source', [
+      {
+        text: 'Take Photo',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Please allow camera access to take a photo');
+            return;
+          }
+          const result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets?.[0]?.uri) {
+            await persistAvatar(result.assets[0].uri);
+          }
+        },
+      },
+      {
+        text: 'Choose from Library',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Please allow photo library access');
+            return;
+          }
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.8,
+          });
+          if (!result.canceled && result.assets?.[0]?.uri) {
+            await persistAvatar(result.assets[0].uri);
+          }
+        },
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const renderSettingsSection = (title: string, items: React.ReactNode[]) => (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -426,8 +499,8 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
       disabled={!onPress}
     >
       <View style={styles.settingsItemLeft}>
-        <View style={styles.settingsIcon}>
-          <Ionicons name={icon as any} size={20} color="#3ad3db" />
+        <View style={[styles.settingsIcon, { backgroundColor: themeColorLight }]}>
+          <Ionicons name={icon as any} size={20} color={themeColor} />
         </View>
         <View style={styles.settingsItemContent}>
           <Text style={styles.settingsItemTitle}>{title}</Text>
@@ -458,7 +531,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     <Switch
       value={value}
       onValueChange={onValueChange}
-      trackColor={{ false: '#E5E7EB', true: '#3ad3db' }}
+      trackColor={{ false: '#E5E7EB', true: themeColor }}
       thumbColor="#FFFFFF"
       ios_backgroundColor="#E5E7EB"
     />
@@ -469,7 +542,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color={themeColor} />
           <Text style={styles.loadingText}>Loading settings...</Text>
         </View>
       </SafeAreaView>
@@ -497,7 +570,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         {userProfile && (
           <View style={styles.profileSection}>
             <View style={styles.profileInfo}>
-              <View style={styles.profileAvatar}>
+              <TouchableOpacity 
+                style={[styles.profileAvatar, { backgroundColor: themeColor, shadowColor: themeColor }]}
+                onPress={isAuthenticated ? handleChangeAvatar : undefined}
+                disabled={!isAuthenticated}
+                activeOpacity={0.8}
+              >
                 {userProfile.avatarUrl ? (
                   <Image source={{ uri: userProfile.avatarUrl }} style={styles.profileAvatarImage} />
                 ) : (
@@ -505,16 +583,21 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
                     {userProfile.name.split(' ').map(n => n[0]).join('')}
                   </Text>
                 )}
-              </View>
+                {isAuthenticated && (
+                  <View style={[styles.cameraOverlay, { backgroundColor: themeColor }]}>
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                  </View>
+                )}
+              </TouchableOpacity>
               <View style={styles.profileDetails}>
                 <Text style={styles.profileName}>{userProfile.name}</Text>
                 <Text style={styles.profileEmail}>{userProfile.email}</Text>
                 <View style={styles.profileStats}>
-                  <Text style={styles.profileStat}>
+                  <Text style={[styles.profileStat, { color: themeColor }]}>
                     {userProfile.totalBookings} bookings
                   </Text>
                   <Text style={styles.profileStatDot}>•</Text>
-                  <Text style={styles.profileStat}>
+                  <Text style={[styles.profileStat, { color: themeColor }]}>
                     {userProfile.rating}★ rating
                   </Text>
                 </View>
@@ -847,11 +930,9 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#3ad3db',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
-    shadowColor: '#3ad3db',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -866,6 +947,18 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  cameraOverlay: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   profileDetails: {
     flex: 1,
@@ -887,7 +980,6 @@ const styles = StyleSheet.create({
   },
   profileStat: {
     fontSize: 13,
-    color: '#3ad3db',
     fontWeight: '500',
   },
   profileStatDot: {
@@ -934,7 +1026,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#E0F7FA',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,

@@ -172,15 +172,17 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
             : pastBookings.length;
         
         return (
-          <Chip
-            key={tab.key}
-            label={tab.label}
-            variant="outline"
-            color="primary"
-            isActive={isActive}
-            onPress={() => setActiveTab(tab.key)}
-            style={styles.tabChip}
-          />
+          <View key={tab.key} style={styles.tabItemContainer}>
+            <Chip
+              label={tab.label}
+              variant={isActive ? 'filled' : 'outline'}
+              color="primary"
+              isActive={isActive}
+              onPress={() => setActiveTab(tab.key)}
+              style={styles.tabChip}
+            />
+            {isActive && <View style={styles.tabIndicator} />}
+          </View>
         );
       })}
     </View>
@@ -332,11 +334,22 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    gap: spacing.sm,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    gap: spacing.md,
+  },
+  tabItemContainer: {
+    alignItems: 'center',
   },
   tabChip: {
-    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  tabIndicator: {
+    height: 3,
+    width: '80%',
+    backgroundColor: colors.primary,
+    borderRadius: 2,
+    marginTop: spacing.xs,
   },
   filterBar: {
     flexDirection: 'row',

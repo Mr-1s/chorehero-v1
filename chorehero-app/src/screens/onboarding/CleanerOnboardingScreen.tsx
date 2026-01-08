@@ -20,8 +20,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
-
 import { supabase } from '../../services/supabase';
+import { milestoneNotificationService } from '../../services/milestoneNotificationService';
 
 type StackParamList = {
   CleanerOnboarding: undefined;
@@ -326,7 +326,15 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           throw new Error('Failed to create cleaner profile: ' + cleanerError.message);
         }
 
-
+        // Send welcome message and profile completion milestone
+        try {
+          await milestoneNotificationService.sendWelcomeMessage(userId);
+          await milestoneNotificationService.sendProfileCompletedMessage(userId);
+          console.log('✅ Sent welcome and profile completion notifications');
+        } catch (notifError) {
+          console.warn('⚠️ Failed to send milestone notifications:', notifError);
+          // Don't block onboarding if notifications fail
+        }
 
         console.log('Cleaner onboarding completed successfully for real user');
         Alert.alert(

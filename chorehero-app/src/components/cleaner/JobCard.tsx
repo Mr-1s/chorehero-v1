@@ -62,10 +62,22 @@ const formatTime = (isoString: string): string => {
   }) + ` at ${timeStr}`;
 };
 
+// Orange/amber gradient palette for cohesive theme
+const SERVICE_COLORS = {
+  deep: '#B45309',      // Dark amber for deep clean
+  express: '#D97706',   // Medium amber for express
+  standard: '#F59E0B',  // Bright amber for standard
+  moveOut: '#92400E',   // Brown amber for move-out
+  default: colors.primary, // Orange for default
+};
+
 const getServiceColor = (serviceType: string): string => {
-  if (serviceType.toLowerCase().includes('deep')) return '#7C3AED';
-  if (serviceType.toLowerCase().includes('express')) return '#10B981';
-  return colors.primary;
+  const type = serviceType.toLowerCase();
+  if (type.includes('deep')) return SERVICE_COLORS.deep;
+  if (type.includes('express')) return SERVICE_COLORS.express;
+  if (type.includes('move')) return SERVICE_COLORS.moveOut;
+  if (type.includes('standard')) return SERVICE_COLORS.standard;
+  return SERVICE_COLORS.default;
 };
 
 const getStatusChip = (status: string, variant: JobCardVariant) => {
@@ -253,7 +265,7 @@ const JobCard: React.FC<JobCardProps> = ({
 
               {variant === 'history' && (
                 <View style={styles.completedInfo}>
-                  <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                  <Ionicons name="checkmark-circle" size={16} color="#D97706" />
                   <Text style={styles.completedText}>Completed</Text>
                 </View>
               )}
@@ -428,13 +440,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.errorBorder,
-    backgroundColor: colors.errorLight,
+    borderColor: '#FBBF24',
+    backgroundColor: '#FEF3C7',
   },
   declineButtonText: {
     fontSize: typography.label.fontSize,
     fontWeight: typography.label.fontWeight,
-    color: colors.error,
+    color: '#B45309',
   },
   acceptButton: {
     paddingHorizontal: spacing.xl,
@@ -470,12 +482,12 @@ const styles = StyleSheet.create({
     color: colors.textInverse,
   },
 
-  // Arrived button
+  // Arrived button - amber gradient style
   arrivedButton: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radii.pill,
-    backgroundColor: colors.success,
+    backgroundColor: '#D97706',
   },
   arrivedButtonText: {
     fontSize: typography.label.fontSize,
@@ -491,7 +503,7 @@ const styles = StyleSheet.create({
   },
   completedText: {
     fontSize: typography.label.fontSize,
-    color: colors.success,
+    color: '#D97706',
     fontWeight: '500',
   },
 });

@@ -264,24 +264,28 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
   },
   headerTitle: {
-    fontSize: typography.title.fontSize,
-    fontWeight: typography.title.fontWeight,
+    fontSize: 28,
+    fontWeight: '700',
     color: colors.textPrimary,
     marginBottom: spacing.xs,
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
-    fontSize: typography.body.fontSize,
+    fontSize: 15,
+    fontWeight: '400',
     color: colors.textSecondary,
+    lineHeight: 20,
   },
   section: {
     paddingHorizontal: spacing.xl,
     marginBottom: spacing.xxl,
   },
   sectionTitle: {
-    fontSize: typography.sectionHeading.fontSize,
-    fontWeight: typography.sectionHeading.fontWeight,
-    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#374151',
     marginBottom: spacing.lg,
+    letterSpacing: -0.2,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -304,9 +308,10 @@ const styles = StyleSheet.create({
     ...shadows.card,
   },
   uploadDescription: {
-    fontSize: typography.body.fontSize,
+    fontSize: 15,
+    fontWeight: '400',
     color: colors.textSecondary,
-    lineHeight: typography.body.lineHeight,
+    lineHeight: 22,
     marginBottom: spacing.xl,
   },
   uploadButtons: {
@@ -328,9 +333,10 @@ const styles = StyleSheet.create({
     ...shadows.orange,
   },
   primaryButtonText: {
-    fontSize: typography.body.fontSize,
+    fontSize: 16,
     fontWeight: '600',
     color: colors.textInverse,
+    letterSpacing: -0.2,
   },
   outlineButton: {
     backgroundColor: colors.cardBg,
@@ -338,9 +344,10 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   outlineButtonText: {
-    fontSize: typography.body.fontSize,
+    fontSize: 16,
     fontWeight: '600',
     color: colors.primary,
+    letterSpacing: -0.2,
   },
   proTipContainer: {
     flexDirection: 'row',
@@ -364,9 +371,10 @@ const styles = StyleSheet.create({
   },
   proTipText: {
     flex: 1,
-    fontSize: typography.label.fontSize,
+    fontSize: 14,
+    fontWeight: '500',
     color: colors.textPrimary,
-    lineHeight: 18,
+    lineHeight: 20,
   },
 });
 

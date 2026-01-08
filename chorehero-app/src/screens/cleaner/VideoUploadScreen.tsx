@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,6 +21,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { uploadService, type UploadProgress, type UploadResponse } from '../../services/uploadService';
 import { contentService } from '../../services/contentService';
+import { contentAnalyticsService, type VideoWithStats, type ContentPerformanceSummary } from '../../services/contentAnalyticsService';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS } from '../../utils/constants';
 import { useToast } from '../../components/Toast';
@@ -62,14 +64,71 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
-
-  // Calculate analytics metrics
-  const totalViews = videos.reduce((sum, video) => sum + video.views, 0);
-  const totalBookings = videos.reduce((sum, video) => sum + video.bookings, 0);
-  const conversionRate = totalViews > 0 ? ((totalBookings / totalViews) * 100).toFixed(1) : '0.0';
-  const avgViewsPerVideo = videos.length > 0 ? Math.round(totalViews / videos.length) : 0;
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [performanceSummary, setPerformanceSummary] = useState<ContentPerformanceSummary>({
+    totalViews: 0,
+    totalBookings: 0,
+    totalRevenue: 0,
+    conversionRate: 0,
+    avgViewsPerVideo: 0,
+    videoCount: 0,
+  });
 
   const videoRef = useRef<Video>(null);
+
+  // Fetch real data from database
+  const loadContentData = useCallback(async () => {
+    if (!user?.id || user.id.startsWith('demo_')) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      console.log('📊 Loading content analytics for user:', user.id);
+      
+      // Fetch performance summary
+      const summary = await contentAnalyticsService.getPerformanceSummary(user.id);
+      setPerformanceSummary(summary);
+      
+      // Fetch videos with stats
+      const videosWithStats = await contentAnalyticsService.getVideosWithStats(user.id);
+      
+      // Convert to UploadedVideo format
+      const formattedVideos: UploadedVideo[] = videosWithStats.map(v => ({
+        id: v.id,
+        uri: v.uri,
+        title: v.title,
+        duration: v.duration || 45,
+        uploadDate: v.uploadDate,
+        status: v.status as 'uploading' | 'processing' | 'live' | 'failed',
+        views: v.views,
+        bookings: v.bookings,
+      }));
+      
+      setVideos(formattedVideos);
+      console.log(`✅ Loaded ${formattedVideos.length} videos with analytics`);
+    } catch (error) {
+      console.error('❌ Error loading content data:', error);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [user?.id]);
+
+  // Load data on mount
+  useEffect(() => {
+    loadContentData();
+  }, [loadContentData]);
+
+  // Pull to refresh handler
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    loadContentData();
+  }, [loadContentData]);
+
+  // Use real data from performanceSummary
+  const { totalViews, totalBookings, conversionRate, avgViewsPerVideo } = performanceSummary;
 
   const handleCameraUpload = async () => {
     try {
@@ -280,6 +339,9 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         setUploadDetails(null);
         setActiveUploadId(null);
 
+        // Refresh analytics data to include new video
+        setTimeout(() => loadContentData(), 1000);
+
       } else {
         // Handle different error types
         let errorTitle = 'Upload Failed';
@@ -424,31 +486,38 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
     <View style={styles.analyticsSection}>
       <Text style={styles.sectionTitle}>Content Performance</Text>
       
-      <View style={styles.analyticsGrid}>
-        <View style={styles.analyticsCard}>
-          <Ionicons name="eye" size={24} color="#3B82F6" />
-          <Text style={styles.analyticsValue}>{totalViews.toLocaleString()}</Text>
-          <Text style={styles.analyticsLabel}>Total Views</Text>
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color="#F59E0B" />
+          <Text style={styles.loadingText}>Loading analytics...</Text>
         </View>
-        
-        <View style={styles.analyticsCard}>
-          <Ionicons name="calendar" size={24} color="#10B981" />
-          <Text style={styles.analyticsValue}>{totalBookings}</Text>
-          <Text style={styles.analyticsLabel}>Bookings Generated</Text>
+      ) : (
+        <View style={styles.analyticsGrid}>
+          <View style={styles.analyticsCard}>
+            <Ionicons name="eye" size={24} color="#3B82F6" />
+            <Text style={styles.analyticsValue}>{totalViews.toLocaleString()}</Text>
+            <Text style={styles.analyticsLabel}>Total Views</Text>
+          </View>
+          
+          <View style={styles.analyticsCard}>
+            <Ionicons name="calendar" size={24} color="#10B981" />
+            <Text style={styles.analyticsValue}>{totalBookings}</Text>
+            <Text style={styles.analyticsLabel}>Bookings Generated</Text>
+          </View>
+          
+          <View style={styles.analyticsCard}>
+            <Ionicons name="trending-up" size={24} color="#F59E0B" />
+            <Text style={styles.analyticsValue}>{conversionRate}%</Text>
+            <Text style={styles.analyticsLabel}>Conversion Rate</Text>
+          </View>
+          
+          <View style={styles.analyticsCard}>
+            <Ionicons name="stats-chart" size={24} color="#8B5CF6" />
+            <Text style={styles.analyticsValue}>{avgViewsPerVideo}</Text>
+            <Text style={styles.analyticsLabel}>Avg Views/Video</Text>
+          </View>
         </View>
-        
-        <View style={styles.analyticsCard}>
-          <Ionicons name="trending-up" size={24} color="#F59E0B" />
-          <Text style={styles.analyticsValue}>{conversionRate}%</Text>
-          <Text style={styles.analyticsLabel}>Conversion Rate</Text>
-        </View>
-        
-        <View style={styles.analyticsCard}>
-          <Ionicons name="stats-chart" size={24} color="#8B5CF6" />
-          <Text style={styles.analyticsValue}>{avgViewsPerVideo}</Text>
-          <Text style={styles.analyticsLabel}>Avg Views/Video</Text>
-        </View>
-      </View>
+      )}
     </View>
   );
 
@@ -535,6 +604,14 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
           </View>
         )}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor="#F59E0B"
+            colors={['#F59E0B']}
+          />
+        }
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: NAV_CLEARANCE + insets.bottom },
@@ -588,7 +665,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#1F2937',
   },
   listContent: {
@@ -600,11 +677,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   sectionTitle: {
-    fontSize: 22, // Slightly larger for better hierarchy
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '600',
     color: '#1F2937',
     marginBottom: 6,
-    letterSpacing: -0.3, // Tighter spacing for headers
   },
   sectionSubtitle: {
     fontSize: 14,
@@ -634,7 +710,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)', // Subtle white border
   },
   uploadButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#ffffff',
   },
@@ -643,7 +719,7 @@ const styles = StyleSheet.create({
   },
   previewTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1F2937',
     marginBottom: 12,
   },
@@ -718,7 +794,7 @@ const styles = StyleSheet.create({
   },
   videoTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1F2937',
     marginBottom: 4,
   },
@@ -766,7 +842,7 @@ const styles = StyleSheet.create({
   },
   tipsTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#1F2937',
     marginBottom: 4,
   },
@@ -774,6 +850,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     lineHeight: 16,
+  },
+  // Loading styles
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6B7280',
   },
   // Analytics Styles
   analyticsSection: {
@@ -803,18 +891,17 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   analyticsValue: {
-    fontSize: 28, // Larger, more prominent numbers
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '600',
     color: '#1F2937',
     marginTop: 12,
     marginBottom: 6,
-    letterSpacing: -0.5, // Tighter letter spacing for large numbers
   },
   analyticsLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '400',
   },
 });
 

@@ -136,11 +136,11 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#ffffff" />
+          <Ionicons name="arrow-back" size={24} color="#374151" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Schedule</Text>
         <TouchableOpacity style={styles.settingsButton}>
-          <Ionicons name="settings" size={24} color="#ffffff" />
+          <Ionicons name="settings-outline" size={24} color="#374151" />
         </TouchableOpacity>
       </View>
 

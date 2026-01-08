@@ -32,6 +32,16 @@ interface ChipProps {
   textStyle?: TextStyle;
 }
 
+// Amber/orange gradient palette for cohesive theme
+const AMBER_PALETTE = {
+  light: '#FEF3C7',    // Amber 100
+  medium: '#FCD34D',   // Amber 300
+  main: '#F59E0B',     // Amber 500
+  dark: '#D97706',     // Amber 600
+  darker: '#B45309',   // Amber 700
+  text: '#92400E',     // Amber 800
+};
+
 const getColorPalette = (color: ChipColor, isActive: boolean) => {
   switch (color) {
     case 'primary':
@@ -41,16 +51,18 @@ const getColorPalette = (color: ChipColor, isActive: boolean) => {
         text: isActive ? colors.textInverse : colors.primary,
       };
     case 'success':
+      // Use light amber tones instead of green for cohesive theme
       return {
-        bg: isActive ? colors.success : colors.successLight,
-        border: colors.success,
-        text: isActive ? colors.textInverse : colors.success,
+        bg: isActive ? AMBER_PALETTE.main : AMBER_PALETTE.light,
+        border: AMBER_PALETTE.medium,
+        text: isActive ? colors.textInverse : AMBER_PALETTE.darker,
       };
     case 'error':
+      // Use dark amber/brown tones instead of red
       return {
-        bg: isActive ? colors.error : colors.errorLight,
-        border: colors.errorBorder,
-        text: isActive ? colors.textInverse : colors.error,
+        bg: isActive ? AMBER_PALETTE.darker : '#FEF3C7',
+        border: AMBER_PALETTE.dark,
+        text: isActive ? colors.textInverse : AMBER_PALETTE.text,
       };
     case 'teal':
       return {

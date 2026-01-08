@@ -16,7 +16,7 @@ const AboutScreen = ({ navigation }) => (
       <Text style={styles.appName}>ChoreHero</Text>
       <Text style={styles.version}>Version 1.0.0</Text>
       <Text style={styles.company}>© 2024 ChoreHero Inc.</Text>
-      <Text style={styles.madeIn}>Made with ✨ in Georgia</Text>
+      <Text style={styles.madeIn}>Made with ❤️ in San Francisco</Text>
       <TouchableOpacity style={styles.linkButton} onPress={() => Linking.openURL('https://chorehero.app')}>
         <Ionicons name="globe-outline" size={20} color="#00BFA6" />
         <Text style={styles.linkButtonText}>Visit Website</Text>

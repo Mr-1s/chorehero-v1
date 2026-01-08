@@ -20,7 +20,12 @@ import {
   Image,
   Switch,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// spacing.xl = 20px padding each side (40px total), spacing.md = 12px gap
+const CARD_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2;
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeIn } from 'react-native-reanimated';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -304,11 +309,14 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
               label="Schedule"
               onPress={() => handleQuickAction('schedule')}
             />
+          </View>
+          {/* Earnings - Full Width */}
+          <View style={styles.earningsFullRow}>
             <QuickActionTile
               icon="cash-outline"
               label="Earnings"
               onPress={() => handleQuickAction('earnings')}
-              style={{ maxWidth: '48%' }}
+              style={styles.earningsTile}
             />
           </View>
         </Animated.View>
@@ -526,18 +534,25 @@ const styles = StyleSheet.create({
   performanceGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    rowGap: spacing.md,
   },
   performanceCard: {
-    flex: 1,
-    minWidth: '45%',
+    width: CARD_WIDTH,
   },
 
   // Quick Actions Grid
   quickActionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    rowGap: spacing.md,
+  },
+  earningsFullRow: {
+    marginTop: spacing.md,
+  },
+  earningsTile: {
+    width: SCREEN_WIDTH - 40, // Full width minus 20px padding each side
   },
 
   // Specialties

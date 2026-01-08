@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { milestoneNotificationService } from '../../services/milestoneNotificationService';
 
 
 type StackParamList = {
@@ -345,7 +346,15 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           throw new Error('Failed to create customer profile: ' + customerError.message);
         }
 
-
+        // Send welcome message and profile completion milestone
+        try {
+          await milestoneNotificationService.sendWelcomeMessage(userId);
+          await milestoneNotificationService.sendProfileCompletedMessage(userId);
+          console.log('✅ Sent welcome and profile completion notifications');
+        } catch (notifError) {
+          console.warn('⚠️ Failed to send milestone notifications:', notifError);
+          // Don't block onboarding if notifications fail
+        }
 
         Alert.alert(
           'Welcome to ChoreHero!',

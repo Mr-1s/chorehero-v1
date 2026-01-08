@@ -36,6 +36,7 @@ import PrivacyScreen from './screens/shared/PrivacyScreen';
 import NotificationsScreen from './screens/shared/NotificationsScreen';
 import TermsScreen from './screens/shared/TermsScreen';
 import AboutScreen from './screens/shared/AboutScreen';
+import SettingsScreen from './screens/shared/SettingsScreen';
 import AuthScreen from './screens/shared/AuthScreen';
 import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectionScreen';
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
@@ -45,6 +46,8 @@ import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
+import PaymentScreen from './screens/shared/PaymentScreen';
+import EditProfileScreen from './screens/shared/EditProfileScreen';
 // Removed unused/legacy screens not present in current StackParamList
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
@@ -240,9 +243,14 @@ const AppNavigator = () => {
           <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
           <Stack.Screen name="TermsScreen" component={TermsScreen} />
           <Stack.Screen name="AboutScreen" component={AboutScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
           <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
+          <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
+          <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} />
+          <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           
 
         </Stack.Navigator>

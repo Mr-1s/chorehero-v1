@@ -4,8 +4,12 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+// spacing.xl = 20px padding each side (40px total), spacing.md = 12px gap
+const TILE_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2;
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -67,9 +71,7 @@ const QuickActionTile: React.FC<QuickActionTileProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    minWidth: '45%',
-    maxWidth: '50%',
+    width: TILE_WIDTH,
   },
   tile: {
     backgroundColor: colors.cardBg,
