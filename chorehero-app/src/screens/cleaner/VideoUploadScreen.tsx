@@ -29,6 +29,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { getOptimalListProps, memoryManager, performanceMonitor, optimizeImageUri } from '../../utils/performance';
+import MetricCard from '../../components/cleaner/MetricCard';
+import { Dimensions } from 'react-native';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const CARD_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2; // 20px padding each side, 12px gap
 
 type StackParamList = {
   VideoUpload: undefined;
@@ -493,29 +498,42 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         </View>
       ) : (
         <View style={styles.analyticsGrid}>
-          <View style={styles.analyticsCard}>
-            <Ionicons name="eye" size={24} color="#3B82F6" />
-            <Text style={styles.analyticsValue}>{totalViews.toLocaleString()}</Text>
-            <Text style={styles.analyticsLabel}>Total Views</Text>
-          </View>
-          
-          <View style={styles.analyticsCard}>
-            <Ionicons name="calendar" size={24} color="#10B981" />
-            <Text style={styles.analyticsValue}>{totalBookings}</Text>
-            <Text style={styles.analyticsLabel}>Bookings Generated</Text>
-          </View>
-          
-          <View style={styles.analyticsCard}>
-            <Ionicons name="trending-up" size={24} color="#F59E0B" />
-            <Text style={styles.analyticsValue}>{conversionRate}%</Text>
-            <Text style={styles.analyticsLabel}>Conversion Rate</Text>
-          </View>
-          
-          <View style={styles.analyticsCard}>
-            <Ionicons name="stats-chart" size={24} color="#8B5CF6" />
-            <Text style={styles.analyticsValue}>{avgViewsPerVideo}</Text>
-            <Text style={styles.analyticsLabel}>Avg Views/Video</Text>
-          </View>
+          <MetricCard
+            value={totalViews.toLocaleString()}
+            label="Total Views"
+            icon="eye-outline"
+            iconColor="#3B82F6"
+            delay={0}
+            compact
+            style={styles.performanceCard}
+          />
+          <MetricCard
+            value={totalBookings}
+            label="Bookings Generated"
+            icon="calendar-outline"
+            iconColor="#10B981"
+            delay={50}
+            compact
+            style={styles.performanceCard}
+          />
+          <MetricCard
+            value={`${conversionRate}%`}
+            label="Conversion Rate"
+            icon="trending-up-outline"
+            iconColor="#F59E0B"
+            delay={100}
+            compact
+            style={styles.performanceCard}
+          />
+          <MetricCard
+            value={avgViewsPerVideo}
+            label="Avg Views/Video"
+            icon="analytics-outline"
+            iconColor="#8B5CF6"
+            delay={150}
+            compact
+            style={styles.performanceCard}
+          />
         </View>
       )}
     </View>
@@ -872,36 +890,12 @@ const styles = StyleSheet.create({
   analyticsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16, // Increased gap for better breathing room
-    marginTop: 20,
-  },
-  analyticsCard: {
-    flex: 1,
-    minWidth: '47%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20, // Increased padding for better spacing
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-    shadowColor: 'rgba(245, 158, 11, 0.15)', // Orange-tinted shadow
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  analyticsValue: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#1F2937',
+    justifyContent: 'space-between',
+    rowGap: 12,
     marginTop: 12,
-    marginBottom: 6,
   },
-  analyticsLabel: {
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
-    fontWeight: '400',
+  performanceCard: {
+    width: CARD_WIDTH,
   },
 });
 

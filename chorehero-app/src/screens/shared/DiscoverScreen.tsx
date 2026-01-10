@@ -122,6 +122,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(3);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
+  const [videoCategories, setVideoCategories] = useState<string[]>(['Featured']);
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: string]: boolean}>({});
   const [useMockData, setUseMockData] = useState(false); // Always use real data
   // Demo mode removed
@@ -148,10 +149,47 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     triggerTutorial 
   } = useTutorial();
 
+  // Load video categories from uploaded videos
+  const loadVideoCategories = async () => {
+    try {
+      // Fetch videos with tags from content_posts table
+      const { data, error } = await supabase
+        .from('content_posts')
+        .select('tags')
+        .eq('content_type', 'video')
+        .eq('status', 'published')
+        .not('tags', 'is', null);
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        // Flatten all tags from all videos and get unique ones
+        const allTags: string[] = data.flatMap(v => v.tags || []);
+        const uniqueTags = [...new Set(allTags)].filter(Boolean);
+        
+        // Format category names (capitalize, replace underscores)
+        const formattedCategories = uniqueTags.map(tag => 
+          tag.split('_').map((word: string) => 
+            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+          ).join(' ')
+        );
+        
+        // Always include 'Featured' first, then add unique categories
+        if (formattedCategories.length > 0) {
+          setVideoCategories(['Featured', ...formattedCategories]);
+        }
+      }
+    } catch (error) {
+      console.log('Using default categories - no videos uploaded yet');
+      // Keep default categories if no videos exist
+    }
+  };
+
   // Load initial data
   useEffect(() => {
     loadCategoryData('Featured');
     loadServiceCategories();
+    loadVideoCategories();
     // Start subtle claim button animation
     startClaimButtonAnimation();
   }, []);
@@ -194,10 +232,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     }
   }, [location]);
 
-  const loadFeaturedVideos = async () => {
+  const loadFeaturedVideos = async (category?: string) => {
     try {
       setLoadingVideos(true);
-      console.log('🎬 Loading featured videos for Discover tab...');
+      console.log(`🎬 Loading videos for category: ${category || 'Featured'}...`);
 
       // Check if user is a guest - prioritize demo mode for guest users
       const isGuest = await guestModeService.isGuestUser();
@@ -227,10 +265,20 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         return;
       }
 
+      // Build filters for content service
+      const filters: any = { content_type: 'video' };
+      
+      // If a specific category is selected (not "Featured"), filter by that tag
+      if (category && category !== 'Featured') {
+        // Convert display name back to tag format (e.g., "Living Room" -> "living_room")
+        const tagFormat = category.toLowerCase().replace(/\s+/g, '_');
+        filters.tags = [tagFormat];
+      }
+
       // For authenticated users, get videos from the real content service
       const response = await contentService.getFeed({
-        filters: { content_type: 'video' },
-        sort_by: 'recent',
+        filters,
+        sort_by: category === 'Featured' ? 'popular' : 'recent',
         limit: 6 // Show 6 featured videos
       });
 
@@ -247,10 +295,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           created_at: post.created_at
         }));
 
-        console.log(`✅ Loaded ${videos.length} real featured videos`);
+        console.log(`✅ Loaded ${videos.length} real videos for category: ${category || 'Featured'}`);
         setFeaturedVideos(videos);
       } else {
-        console.log('📭 No real videos found for authenticated user');
+        console.log(`📭 No videos found for category: ${category || 'Featured'}`);
         setFeaturedVideos([]);
       }
     } catch (error) {
@@ -312,8 +360,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     try {
       setLoadingServices(true);
 
-      // Load videos regardless of mock data mode
-      await loadFeaturedVideos();
+      // Load videos filtered by the selected category
+      await loadFeaturedVideos(category);
 
       if (useMockData) {
         // Load all three sections in parallel
@@ -451,14 +499,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   };
 
 
-  const categories = [
-    'Featured',
-    'Kitchen',
-    'Bathroom',
-    'Living Room',
-    'Bedroom',
-    'Outdoors',
-  ];
+  // Use dynamic categories from uploaded videos, fallback to Featured only if no videos
+  const categories = videoCategories.length > 1 ? videoCategories : ['Featured'];
 
   const renderCategoryTab = (category: string) => (
     <TouchableOpacity
@@ -687,9 +729,11 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           </ScrollView>
         </View>
 
-        {/* Featured Videos */}
+        {/* Videos Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Featured Videos</Text>
+          <Text style={styles.sectionTitle}>
+            {selectedCategory === 'Featured' ? 'Featured Videos' : `${selectedCategory} Videos`}
+          </Text>
           {loadingVideos ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color="#3ad3db" />
@@ -990,33 +1034,45 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   filterSection: {
-    paddingVertical: 12,
+    paddingVertical: 16,
+    paddingTop: 8,
   },
   filterContainer: {
     paddingHorizontal: 20,
-    gap: 12,
+    paddingVertical: 8,
+    gap: 14,
   },
   categoryTab: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 25,
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowColor: 'rgba(0, 0, 0, 0.15)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.04)',
   },
   categoryTabActive: {
     backgroundColor: '#3ad3db',
+    shadowColor: 'rgba(58, 211, 219, 0.4)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    elevation: 8,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   categoryTabText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#8E8E93',
+    fontWeight: '600',
+    color: '#6B7280',
+    letterSpacing: 0.3,
   },
   categoryTabTextActive: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
   section: {
     marginBottom: 32,

@@ -43,13 +43,19 @@ const RoleBasedUI: React.FC<RoleBasedUIProps> = ({
 // Hook for role-based feature flags
 export const useRoleFeatures = () => {
   // Use actual auth context
-  const { user, isCustomer, isCleaner } = useAuth();
+  const { user, isCustomer, isCleaner, isAuthenticated } = useAuth();
   const [demoRole, setDemoRole] = useState<string | null>(null);
   const userRole = user?.role || 'customer';
   
-  // Check for guest role in AsyncStorage
+  // Check for guest role in AsyncStorage (only relevant for non-authenticated users)
   useEffect(() => {
     const checkDemoRole = async () => {
+      // Skip for authenticated users - their role comes from the database
+      if (isAuthenticated) {
+        setDemoRole(null);
+        return;
+      }
+      
       try {
         const storedRole = await AsyncStorage.getItem('guest_user_role');
         setDemoRole(storedRole);
@@ -59,15 +65,16 @@ export const useRoleFeatures = () => {
     };
     checkDemoRole();
     
-    // Set up a listener for demo role changes
+    // Set up a listener for demo role changes (only for guests)
     const interval = setInterval(checkDemoRole, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
   
-  // Testing override - force cleaner mode if enabled OR if demo role is cleaner
-  const forceCleanerMode = TESTING.FORCE_CLEANER_MODE || demoRole === 'cleaner';
-  const effectiveIsCleaner = forceCleanerMode || isCleaner;
-  const effectiveIsCustomer = !forceCleanerMode && isCustomer;
+  // For authenticated users, use their actual role from the database
+  // For guests, use the demo role from AsyncStorage
+  const forceCleanerMode = !isAuthenticated && (TESTING.FORCE_CLEANER_MODE || demoRole === 'cleaner');
+  const effectiveIsCleaner = isAuthenticated ? isCleaner : forceCleanerMode;
+  const effectiveIsCustomer = isAuthenticated ? isCustomer : !forceCleanerMode;
 
   return {
     // Cleaner features

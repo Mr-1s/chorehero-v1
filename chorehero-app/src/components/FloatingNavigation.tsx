@@ -78,10 +78,8 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({ navigation, cur
             style={getButtonStyle('Messages')} 
             onPress={() => navigation.navigate('Messages')}
           >
-              <View style={styles.iconContainer}>
-              <View style={styles.iconWrapper}>
-                <Ionicons name="chatbubble" size={28} color={getButtonColor('Messages')} />
-              </View>
+            <View style={styles.iconWrapper}>
+              <Ionicons name="chatbubble" size={28} color={getButtonColor('Messages')} />
               {unreadCount > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{unreadCount}</Text>
@@ -175,10 +173,8 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 1,
   },
-  iconContainer: {
-    position: 'relative',
-  },
   iconWrapper: {
+    position: 'relative',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
