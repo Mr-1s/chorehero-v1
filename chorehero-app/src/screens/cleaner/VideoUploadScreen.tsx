@@ -427,13 +427,13 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
       <View style={styles.uploadButtons}>
         <TouchableOpacity style={styles.uploadButton} onPress={handleCameraUpload}>
-          <Ionicons name="camera" size={24} color="#ffffff" />
+          <Ionicons name="videocam" size={24} color="#ffffff" />
           <Text style={styles.uploadButtonText}>Record Video</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.uploadButton} onPress={handleLibraryUpload}>
           <Ionicons name="images" size={24} color="#ffffff" />
-          <Text style={styles.uploadButtonText}>Choose from Library</Text>
+          <Text style={styles.uploadButtonText}>Library</Text>
         </TouchableOpacity>
       </View>
 
@@ -661,7 +661,6 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       <CleanerFloatingNavigation 
         navigation={navigation as any}
         currentScreen="Content"
-        unreadCount={3}
       />
     </SafeAreaView>
   );
@@ -715,17 +714,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F59E0B',
-    height: 48, // Slightly taller for better touch target
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    gap: 8,
-    shadowColor: 'rgba(245, 158, 11, 0.4)', // Orange shadow
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)', // Subtle white border
+    height: 52,
+    paddingHorizontal: 20,
+    borderRadius: 26,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
   },
   uploadButtonText: {
     fontSize: 15,

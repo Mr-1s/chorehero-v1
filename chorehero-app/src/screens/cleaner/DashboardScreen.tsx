@@ -964,7 +964,6 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       <CleanerFloatingNavigation 
         navigation={navigation as any}
         currentScreen="Home"
-        unreadCount={3}
       />
 
       {/* Profile Completion Celebration */}

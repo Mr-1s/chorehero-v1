@@ -153,7 +153,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'completed'>(initialTab);
   const [animatedValue] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
 
   const mockBookings: Booking[] = [

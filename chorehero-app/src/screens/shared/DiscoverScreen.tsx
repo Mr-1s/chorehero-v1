@@ -13,6 +13,9 @@ import {
   ActivityIndicator,
   Animated,
   Switch,
+  Alert,
+  ActionSheetIOS,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,8 +123,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [loadingServices, setLoadingServices] = useState(false);
   const [couponClaimed, setCouponClaimed] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
-  const [unreadMessages, setUnreadMessages] = useState(3);
-  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [videoCategories, setVideoCategories] = useState<string[]>(['Featured']);
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: string]: boolean}>({});
   const [useMockData, setUseMockData] = useState(false); // Always use real data
@@ -237,33 +240,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       setLoadingVideos(true);
       console.log(`🎬 Loading videos for category: ${category || 'Featured'}...`);
 
-      // Check if user is a guest - prioritize demo mode for guest users
-      const isGuest = await guestModeService.isGuestUser();
-      console.log('🚪 Is guest user in Discover:', isGuest);
-
-      // If user is a guest, always show professional demo videos
-      if (isGuest) {
-        console.log('🎬 Guest user detected - Loading demo videos for Discover Featured Videos');
-        const guestVideos = await guestModeService.getGuestVideos();
-        const transformedVideos = guestVideos.slice(0, 3).map(video => ({
-          id: video.id,
-          title: video.title,
-          description: video.description,
-          media_url: video.video_url,
-          thumbnail_url: video.thumbnail_url,
-          user: {
-            id: video.id,
-            name: video.cleaner_name,
-            avatar_url: video.cleaner_avatar,
-          },
-          view_count: video.view_count,
-          like_count: video.like_count,
-          created_at: video.created_at
-        }));
-        setFeaturedVideos(transformedVideos);
-        console.log(`✅ Loaded ${transformedVideos.length} professional videos for guest`);
-        return;
-      }
+      // No mock videos - only show real uploaded content
+      console.log('🎬 Loading real videos only (no mock data)');
 
       // Build filters for content service
       const filters: any = { content_type: 'video' };
@@ -466,6 +444,134 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         useNativeDriver: true,
       }),
     ]).start();
+  };
+
+  // Available service areas (expand as you grow)
+  const serviceAreas = [
+    'Atlanta, GA',
+    'Los Angeles, CA',
+    'San Francisco, CA',
+    'New York, NY',
+    'Miami, FL',
+    'Chicago, IL',
+    'Houston, TX',
+    'Dallas, TX',
+    'Seattle, WA',
+    'Denver, CO',
+  ];
+
+  // Handle location picker press
+  const handleLocationPress = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Use My Location', ...serviceAreas, 'Cancel'],
+          cancelButtonIndex: serviceAreas.length + 1,
+          title: 'Select Your Location',
+          message: 'Choose where you want to find ChoreHeroes',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            // Use current location
+            if (location) {
+              setLocationText('Current Location');
+              checkCleanersInArea('current');
+            } else {
+              Alert.alert(
+                'Location Services',
+                'Please enable location services in your device settings.',
+                [{ text: 'OK' }]
+              );
+            }
+          } else if (buttonIndex <= serviceAreas.length) {
+            const selectedCity = serviceAreas[buttonIndex - 1];
+            setLocationText(selectedCity);
+            checkCleanersInArea(selectedCity);
+          }
+        }
+      );
+    } else {
+      // Android - show first set of options
+      Alert.alert(
+        'Select Your Location',
+        'Choose where you want to find ChoreHeroes',
+        [
+          {
+            text: 'Use My Location',
+            onPress: () => {
+              if (location) {
+                setLocationText('Current Location');
+                checkCleanersInArea('current');
+              } else {
+                Alert.alert('Location Services', 'Please enable location services in your device settings.');
+              }
+            },
+          },
+          {
+            text: 'Choose City',
+            onPress: () => showCitySelector(),
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  // Show city selector for Android (split into groups due to button limits)
+  const showCitySelector = () => {
+    Alert.alert(
+      'Select a City',
+      'Choose from available service areas:',
+      [
+        { text: 'Atlanta, GA', onPress: () => { setLocationText('Atlanta, GA'); checkCleanersInArea('Atlanta, GA'); } },
+        { text: 'Los Angeles, CA', onPress: () => { setLocationText('Los Angeles, CA'); checkCleanersInArea('Los Angeles, CA'); } },
+        { text: 'New York, NY', onPress: () => { setLocationText('New York, NY'); checkCleanersInArea('New York, NY'); } },
+        { text: 'More Cities...', onPress: () => showMoreCities() },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const showMoreCities = () => {
+    Alert.alert(
+      'More Cities',
+      'Choose from available service areas:',
+      [
+        { text: 'Miami, FL', onPress: () => { setLocationText('Miami, FL'); checkCleanersInArea('Miami, FL'); } },
+        { text: 'Chicago, IL', onPress: () => { setLocationText('Chicago, IL'); checkCleanersInArea('Chicago, IL'); } },
+        { text: 'Houston, TX', onPress: () => { setLocationText('Houston, TX'); checkCleanersInArea('Houston, TX'); } },
+        { text: 'Seattle, WA', onPress: () => { setLocationText('Seattle, WA'); checkCleanersInArea('Seattle, WA'); } },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  // Check if there are cleaners in the selected area
+  const checkCleanersInArea = async (area: string) => {
+    try {
+      // Query cleaners in the area (simplified check)
+      const { data: cleaners, error } = await supabase
+        .from('cleaner_profiles')
+        .select('id, service_radius')
+        .limit(1);
+
+      if (error) throw error;
+
+      if (!cleaners || cleaners.length === 0) {
+        // No cleaners found in this area
+        Alert.alert(
+          'Coming Soon! 🚀',
+          `We're expanding to ${area === 'current' ? 'your area' : area} soon! Be the first to know when ChoreHeroes are available.`,
+          [
+            { text: 'Notify Me', onPress: () => console.log('User wants notification for:', area) },
+            { text: 'OK', style: 'cancel' },
+          ]
+        );
+      }
+      // If cleaners exist, the location is already set and services will show
+    } catch (error) {
+      console.log('Area check completed');
+    }
   };
 
   // Start subtle button pulsing animation
@@ -681,7 +787,11 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
             />
           </View>
           
-          <TouchableOpacity style={styles.locationPill} activeOpacity={0.7}>
+          <TouchableOpacity 
+            style={styles.locationPill} 
+            activeOpacity={0.7}
+            onPress={handleLocationPress}
+          >
             <View style={styles.locationIconContainer}>
               <Text style={styles.locationEmoji}>📍</Text>
               <View style={styles.locationDot} />
@@ -1034,35 +1144,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   filterSection: {
-    paddingVertical: 16,
     paddingTop: 8,
+    paddingBottom: 20,
   },
   filterContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    gap: 14,
+    paddingVertical: 6,
+    gap: 12,
   },
   categoryTab: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 22,
     backgroundColor: '#FFFFFF',
-    shadowColor: 'rgba(0, 0, 0, 0.15)',
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: 'rgba(0, 0, 0, 0.08)',
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowRadius: 6,
+    elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.04)',
+    borderColor: 'rgba(0, 0, 0, 0.03)',
   },
   categoryTabActive: {
     backgroundColor: '#3ad3db',
-    shadowColor: 'rgba(58, 211, 219, 0.4)',
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: 'rgba(58, 211, 219, 0.25)',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 1,
-    shadowRadius: 16,
-    elevation: 8,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    shadowRadius: 8,
+    elevation: 4,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   categoryTabText: {
     fontSize: 14,

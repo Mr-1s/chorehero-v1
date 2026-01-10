@@ -531,7 +531,7 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
       
       {/* Show cleaner navigation if user is a cleaner */}
       {user?.role === 'cleaner' && (
-        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Content" unreadCount={3} />
+        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Content" />
       )}
     </SafeAreaView>
   );

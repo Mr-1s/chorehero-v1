@@ -296,8 +296,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       {isCleaner ? (
         <CleanerFloatingNavigation 
           navigation={navigation as any} 
-          currentScreen="Messages" 
-          unreadCount={3}
+          currentScreen="Messages"
         />
       ) : (
         <FloatingNavigation navigation={navigation} currentScreen="Messages" />

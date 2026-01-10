@@ -556,49 +556,8 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       console.log('🔑 User ID:', user?.id);
       console.log('📧 User email:', user?.email);
       
-      // If demo mode is enabled or user is a guest, always show curated cleaning videos
-      if (DEMO_MODE || isGuest) {
-        console.log('🎬 Guest user detected - Loading professional demo videos');
-        const guestVideos = await guestModeService.getGuestVideos();
-        console.log('📹 Guest videos received:', guestVideos.length, 'videos');
-        console.log('📹 First video:', guestVideos[0]?.title);
-        const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
-          id: video.id,
-          cleaner: {
-            user_id: video.id,
-            name: video.cleaner_name,
-            username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
-            rating_average: Math.round((4.6 + Math.random() * 0.4) * 10) / 10, // 4.6-5.0 rounded to 1 decimal
-            total_jobs: Math.floor(video.view_count / 100),
-            hourly_rate: 25 + Math.floor(Math.random() * 20),
-            service_title: `Professional ${video.category} Cleaning`,
-            estimated_duration: `${Math.floor(video.duration / 60)}-${Math.floor(video.duration / 60) + 1} hours`,
-            avatar_url: video.cleaner_avatar,
-            bio: video.description.substring(0, 100) + '...',
-            video_profile_url: video.video_url,
-            specialties: [video.category, 'Professional Cleaning'],
-            verification_status: 'verified',
-            is_available: true,
-            service_radius_km: 25,
-          },
-          video_url: video.video_url,
-          title: video.title,
-          description: video.description,
-          liked: false,
-          saved: false,
-          likes: video.like_count,
-          comments: Math.floor(video.like_count * 0.1),
-          shares: Math.floor(video.like_count * 0.05),
-          views: video.view_count,
-          location: 'Professional Service Area',
-          tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
-          is_featured: true,
-          created_at: video.created_at,
-        }));
-        setVideos(transformedGuestVideos);
-        console.log(`✅ Loaded ${transformedGuestVideos.length} professional videos for guest user`);
-        return;
-      }
+      // No mock videos - show real content only
+      console.log('🎬 Loading real videos only (no mock data)');
       
       // For authenticated users, check if we have any cleaner profiles in the database
       const { data: cleanerProfiles, error: cleanerError } = await supabase
@@ -718,43 +677,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         return;
       }
       
-      // No real content found - show empty state
-      console.log('📭 No real content found in database — falling back to curated cleaning videos');
-      const guestVideos = await guestModeService.getGuestVideos();
-      const transformedGuestVideos: VideoItem[] = guestVideos.map(video => ({
-        id: video.id,
-        cleaner: {
-          user_id: video.id,
-          name: video.cleaner_name,
-          username: `@${video.cleaner_name.toLowerCase().replace(/\s+/g, '')}`,
-          rating_average: Math.round((4.6 + Math.random() * 0.4) * 10) / 10,
-          total_jobs: Math.floor(video.view_count / 100),
-          hourly_rate: 25 + Math.floor(Math.random() * 20),
-          service_title: `Professional ${video.category} Cleaning`,
-          estimated_duration: `${Math.floor(video.duration / 60)}-${Math.floor(video.duration / 60) + 1} hours`,
-          avatar_url: video.cleaner_avatar,
-          bio: video.description.substring(0, 100) + '...',
-          video_profile_url: video.video_url,
-          specialties: [video.category, 'Professional Cleaning'],
-          verification_status: 'verified',
-          is_available: true,
-          service_radius_km: 25,
-        },
-        video_url: video.video_url,
-        title: video.title,
-        description: video.description,
-        liked: false,
-        saved: false,
-        likes: video.like_count,
-        comments: Math.floor(video.like_count * 0.1),
-        shares: Math.floor(video.like_count * 0.05),
-        views: video.view_count,
-        location: 'Professional Service Area',
-        tags: ['professional', video.category.toLowerCase(), 'deep-clean'],
-        is_featured: true,
-        created_at: video.created_at,
-      }));
-      setVideos(transformedGuestVideos);
+      // No real content found - show empty state (no mock videos)
+      console.log('📭 No real content found in database — showing empty state');
+      setVideos([]);
       console.log('✅ Empty state set');
       
     } catch (error) {
@@ -1245,7 +1170,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       
       {/* Floating Navigation - Show appropriate navigation based on effective role */}
       {isCleaner ? (
-        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Heroes" unreadCount={3} />
+        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Heroes" />
       ) : (
         <FloatingNavigation navigation={navigation as any} currentScreen="Content" />
       )}
