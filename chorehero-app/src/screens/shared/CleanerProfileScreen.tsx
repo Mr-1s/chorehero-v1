@@ -710,6 +710,15 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             source={{ uri: video.thumbnail_url }} 
             style={styles.videoThumbnail}
           />
+        ) : video.media_url ? (
+          <Video
+            source={{ uri: video.media_url }}
+            style={styles.videoThumbnail}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={false}
+            isMuted={true}
+            positionMillis={1000}
+          />
         ) : (
           <LinearGradient
             colors={['#0891b2', '#06b6d4', '#22d3ee']}
