@@ -705,19 +705,30 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       }}
     >
       <View style={styles.videoThumbnailContainer}>
-        {video.thumbnail_url || video.media_url ? (
+        {video.thumbnail_url ? (
           <Image 
-            source={{ uri: video.thumbnail_url || video.media_url }} 
+            source={{ uri: video.thumbnail_url }} 
             style={styles.videoThumbnail}
           />
         ) : (
-          <View style={styles.videoPlaceholder}>
-            <Ionicons name="videocam" size={32} color="#3AD3DB" />
-          </View>
+          <LinearGradient
+            colors={['#0891b2', '#06b6d4', '#22d3ee']}
+            style={styles.videoPlaceholder}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.placeholderIconContainer}>
+              <Ionicons name="videocam" size={28} color="rgba(255,255,255,0.9)" />
+            </View>
+            <Text style={styles.placeholderText}>{video.title?.substring(0, 15) || 'Video'}...</Text>
+          </LinearGradient>
         )}
         
         {/* Gradient overlay for depth */}
-        <View style={styles.videoGradientOverlay} />
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.4)']}
+          style={styles.videoGradientOverlay}
+        />
         
         {/* Play icon overlay */}
         <View style={styles.videoPlayOverlay}>
@@ -1907,7 +1918,22 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'linear-gradient(180deg, #E8F7F8 0%, #D1F0F2 100%)',
+  },
+  placeholderIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  placeholderText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    maxWidth: '80%',
   },
   videoGradientOverlay: {
     position: 'absolute',
@@ -1915,7 +1941,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 60,
-    backgroundColor: 'transparent',
   },
   videoPlayOverlay: {
     position: 'absolute',
