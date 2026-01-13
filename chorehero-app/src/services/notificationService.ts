@@ -119,6 +119,28 @@ class NotificationService {
     });
   }
 
+  // Send cancellation notification to cleaner
+  async sendCancellationNotification(
+    bookingId: string,
+    cleanerId: string,
+    customerUserId: string,
+    customerName: string,
+    serviceType: string,
+    scheduledDate: string,
+    customerAvatar?: string
+  ) {
+    return this.sendNotification({
+      type: 'booking',
+      title: 'Booking Cancelled ❌',
+      message: `${customerName} cancelled their ${serviceType} booking for ${scheduledDate}`,
+      fromUserId: customerUserId,
+      fromUserName: customerName,
+      fromUserAvatar: customerAvatar,
+      toUserId: cleanerId,
+      relatedId: bookingId,
+    });
+  }
+
   // Get notifications for a user
   async getNotificationsForUser(userId: string): Promise<Notification[]> {
     try {

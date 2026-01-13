@@ -24,6 +24,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { notificationService } from '../../services/notificationService';
 
 import { routeToMessage } from '../../utils/messageRouting';
 
@@ -435,6 +436,24 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 .eq('id', booking.id);
 
               if (error) throw error;
+
+              // Send cancellation notification to the cleaner
+              if (booking.provider?.id && user) {
+                try {
+                  await notificationService.sendCancellationNotification(
+                    booking.id,
+                    booking.provider.id,
+                    user.id,
+                    user.name || 'A customer',
+                    booking.service || 'Cleaning Service',
+                    `${booking.date} at ${booking.time}`,
+                    user.avatar_url
+                  );
+                  console.log('📬 Cancellation notification sent to cleaner');
+                } catch (notifError) {
+                  console.warn('Could not send cancellation notification:', notifError);
+                }
+              }
 
               Alert.alert(
                 'Booking Cancelled',
