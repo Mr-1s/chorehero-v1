@@ -40,13 +40,14 @@ export interface BookingProgress {
 }
 
 const BOOKING_PROGRESS_KEY = 'booking_progress';
-const PROGRESS_EXPIRY_TIME = 24 * 60 * 60 * 1000; // 24 hours
+const PROGRESS_EXPIRY_TIME = 30 * 60 * 1000; // 30 minutes - shorter to reduce confusion
 
 class BookingStateManager {
   private progressCache: Map<string, BookingProgress> = new Map();
 
   /**
    * Save booking progress for a specific cleaner
+   * Only keeps ONE active booking at a time to prevent confusion
    */
   async saveBookingProgress(cleanerId: string, currentStep: number, bookingData: any): Promise<void> {
     try {
@@ -58,11 +59,12 @@ class BookingStateManager {
         lastUpdated: Date.now(),
       };
 
-      // Update cache
+      // Clear cache for other cleaners - only one active booking at a time
+      this.progressCache.clear();
       this.progressCache.set(cleanerId, progress);
 
-      // Save to AsyncStorage
-      const allProgress = await this.getAllProgress();
+      // Save ONLY this cleaner's progress (replace all)
+      const allProgress: Record<string, BookingProgress> = {};
       allProgress[cleanerId] = progress;
       
       await AsyncStorage.setItem(BOOKING_PROGRESS_KEY, JSON.stringify(allProgress));

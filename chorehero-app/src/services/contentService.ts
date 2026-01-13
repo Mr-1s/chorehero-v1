@@ -19,7 +19,7 @@ import {
   ContentUploadProgress
 } from '../types/content';
 import { ApiResponse } from '../types/api';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 class ContentService {
   
@@ -108,7 +108,7 @@ class ContentService {
         })
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .single();
 
@@ -148,7 +148,7 @@ class ContentService {
         .eq('user_id', userId) // Ensure user owns the post
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .single();
 
@@ -247,7 +247,7 @@ class ContentService {
         .from('content_posts')
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .eq('id', postId)
         .eq('status', 'published')
@@ -342,58 +342,14 @@ class ContentService {
 
   /**
    * Validate that video files still exist in Supabase Storage
+   * Note: Disabled aggressive validation - just return all posts
+   * The video player will handle missing files gracefully
    */
   async validateVideoUrls(posts: any[]): Promise<any[]> {
-    const validPosts = [];
-    
-    for (const post of posts) {
-      try {
-        if (post.content_type === 'video' && post.media_url) {
-          // Extract file path from URL
-          const urlParts = post.media_url.split('/');
-          const fileName = urlParts[urlParts.length - 1];
-          const filePath = `videos/${fileName}`;
-          
-          // Check if file exists in storage
-          const { data, error } = await supabase.storage
-            .from('content')
-            .list('videos', {
-              search: fileName
-            });
-          
-          if (error) {
-            console.warn('⚠️ Error checking file existence:', error);
-            // If we can't check, include the post (better safe than sorry)
-            validPosts.push(post);
-            continue;
-          }
-          
-          // Check if file exists in the list
-          const fileExists = data && data.some(file => file.name === fileName);
-          
-          if (fileExists) {
-            console.log('✅ Video file exists:', fileName);
-            validPosts.push(post);
-          } else {
-            console.log('❌ Video file deleted, removing from feed:', fileName);
-            // Optionally, update the database to mark post as archived
-            await supabase
-              .from('content_posts')
-              .update({ status: 'archived' })
-              .eq('id', post.id);
-          }
-        } else {
-          // Non-video posts or posts without media_url
-          validPosts.push(post);
-        }
-      } catch (error) {
-        console.warn('⚠️ Error validating post:', post.id, error);
-        // Include the post if validation fails
-        validPosts.push(post);
-      }
-    }
-    
-    return validPosts;
+    // Skip validation - just return all posts
+    // The video player will show an error if a file is missing
+    console.log(`✅ Returning all ${posts.length} posts (validation disabled)`);
+    return posts;
   }
 
   /**
@@ -412,7 +368,7 @@ class ContentService {
         .from('content_posts')
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .eq('status', 'published');
 
@@ -527,7 +483,7 @@ class ContentService {
         .from('content_posts')
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .eq('status', 'published')
         .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
@@ -680,7 +636,7 @@ class ContentService {
         .from('content_comments')
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .eq('content_post_id', contentId)
         .is('parent_comment_id', null) // Only top-level comments
@@ -695,7 +651,7 @@ class ContentService {
             .from('content_comments')
             .select(`
               *,
-              user:users(id, name, avatar_url, role)
+              user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
             `)
             .eq('parent_comment_id', comment.id)
             .order('created_at', { ascending: true });
@@ -771,7 +727,7 @@ class ContentService {
         })
         .select(`
           *,
-          user:users(id, name, avatar_url, role)
+          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
         `)
         .single();
 

@@ -14,7 +14,9 @@ import {
   Animated,
   Platform,
   Alert,
+  Modal,
 } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWindowDimensions } from 'react-native';
@@ -26,6 +28,7 @@ import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
 
 import { contentService } from '../../services/contentService';
 import { presenceService } from '../../services/presenceService';
+import { notificationService } from '../../services/notificationService';
 
 import { useAuth } from '../../hooks/useAuth';
 import { availabilityService } from '../../services/availabilityService';
@@ -96,6 +99,8 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const [loading, setLoading] = useState(true);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<CleanerVideo | null>(null);
+  const [videoModalVisible, setVideoModalVisible] = useState(false);
   const [isOnline, setIsOnline] = useState(true); // Mock online status
   const [statsExpanded, setStatsExpanded] = useState(false);
   const [hasRepeatClients, setHasRepeatClients] = useState(true); // Mock data
@@ -137,6 +142,8 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       const raw = await AsyncStorage.getItem('following_cleaners');
       const set: string[] = raw ? JSON.parse(raw) : [];
       let next: string[];
+      const isNowFollowing = !set.includes(cleanerId);
+      
       if (set.includes(cleanerId)) {
         next = set.filter(id => id !== cleanerId);
         setIsFollowing(false);
@@ -145,6 +152,21 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
         setIsFollowing(true);
       }
       await AsyncStorage.setItem('following_cleaners', JSON.stringify(next));
+      
+      // Send follow notification to cleaner (only when following, not unfollowing)
+      if (isNowFollowing && user && cleanerId && user.id !== cleanerId) {
+        try {
+          await notificationService.sendFollowNotification(
+            cleanerId,
+            user.id,
+            user.name || 'A customer',
+            user.avatar_url
+          );
+          console.log('👋 Follow notification sent to cleaner:', cleanerId);
+        } catch (error) {
+          console.log('Could not send follow notification:', error);
+        }
+      }
     } catch {}
   };
 
@@ -322,7 +344,13 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     const fetchCleanerData = async () => {
       try {
         setLoading(true);
-        const idToLoad = cleanerId || 'demo_cleaner_1';
+        if (!cleanerId) {
+          console.error('❌ No cleanerId provided to CleanerProfileScreen');
+          setError('No cleaner specified');
+          setLoading(false);
+          return;
+        }
+        const idToLoad = cleanerId;
         console.log('🔍 CleanerProfileScreen loading with cleanerId:', idToLoad);
         const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(idToLoad);
         
@@ -330,7 +358,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
         console.log(`🔄 Loading cleaner profile for ID: ${idToLoad}`);
 
         let cleanerData: any = null; let cleanerError: any = null;
+        let cleanerProfileData: any = null;
+        
         if (isUuid) {
+          // Fetch user data
           const result = await supabase
             .from('users')
             .select(`
@@ -348,35 +379,23 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             .single();
           cleanerData = result.data;
           cleanerError = result.error;
+
+          // Fetch cleaner profile data
+          if (!cleanerError && cleanerData) {
+            const { data: profileData } = await supabase
+              .from('cleaner_profiles')
+              .select('*')
+              .eq('user_id', idToLoad)
+              .single();
+            cleanerProfileData = profileData;
+            console.log('📋 Loaded cleaner profile:', cleanerProfileData);
+          }
         }
 
-        if (cleanerError) {
-          console.error('❌ Error fetching cleaner data:', cleanerError);
-          // Fallback to demo cleaner if real data not found
-          const demoCleanerData = {
-            id: idToLoad,
-            name: 'Professional Cleaner',
-            phone: '+1-555-0100',
-            email: 'cleaner@chorehero.com',
-            avatar_url: `https://ui-avatars.com/api/?name=Professional+Cleaner&size=120&background=0ea5e9&color=ffffff&bold=true`,
-            role: 'cleaner' as const,
-            is_active: true,
-            profile: {
-              video_profile_url: '',
-              hourly_rate: 85,
-              rating_average: 4.8,
-              total_jobs: 120,
-              bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
-              specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
-              verification_status: 'verified' as const,
-              is_available: true,
-              service_radius_km: 25,
-            },
-          };
-          setCleaner(demoCleanerData);
-        } else {
-          if (!isUuid || !cleanerData) {
-            // Non-UUID demo/pexels id path
+        if (cleanerError || !cleanerData) {
+          if (!isUuid) {
+            // Non-UUID demo/pexels id path - use demo data
+            console.log('📋 Using demo data for non-UUID:', idToLoad);
             const demoCleanerData = {
               id: idToLoad,
               name: 'Professional Cleaner',
@@ -387,35 +406,40 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               is_active: true,
               profile: {
                 video_profile_url: '',
-                hourly_rate: 85,
-                rating_average: 4.8,
-                total_jobs: 120,
-                bio: 'Professional cleaning specialist with years of experience. Dedicated to providing excellent service.',
-                specialties: ['Deep Cleaning', 'Professional Service', 'Reliable'],
-                verification_status: 'verified' as const,
+                hourly_rate: 0,
+                rating_average: 0,
+                total_jobs: 0,
+                bio: 'Professional cleaning specialist with years of experience.',
+                specialties: ['Deep Cleaning', 'Professional Service'],
+                verification_status: 'pending' as const,
                 is_available: true,
                 service_radius_km: 25,
               },
             };
             setCleaner(demoCleanerData);
           } else {
-            console.log('✅ Loaded real cleaner data:', cleanerData.name);
-            // Attach minimal profile fields to align with render expectations
-            setCleaner({
-              ...cleanerData,
-              profile: {
-                video_profile_url: '',
-                hourly_rate: 85,
-                rating_average: 4.8,
-                total_jobs: 120,
-                bio: 'Professional cleaning specialist',
-                specialties: ['Deep Cleaning'],
-                verification_status: 'verified',
-                is_available: true,
-                service_radius_km: 25,
-              },
-            });
+            console.error('❌ Error fetching cleaner data:', cleanerError);
+            setCleaner(null);
           }
+        } else {
+          console.log('✅ Loaded real cleaner data:', cleanerData.name);
+          // Use REAL profile data from database
+          setCleaner({
+            ...cleanerData,
+            profile: {
+              video_profile_url: cleanerProfileData?.video_profile_url || '',
+              hourly_rate: cleanerProfileData?.hourly_rate || 0,
+              rating_average: cleanerProfileData?.rating_average || 0,
+              total_jobs: cleanerProfileData?.total_jobs || 0,
+              bio: cleanerProfileData?.bio || 'Professional cleaning specialist',
+              specialties: cleanerProfileData?.specialties || [],
+              verification_status: cleanerProfileData?.verification_status || 'pending',
+              is_available: cleanerProfileData?.is_available ?? true,
+              service_radius_km: cleanerProfileData?.service_radius_km || 25,
+              coverage_area: cleanerProfileData?.coverage_area || '',
+              years_experience: cleanerProfileData?.years_experience || 0,
+            },
+          });
         }
 
         // Load cleaner's services (skip when not UUID)
@@ -606,7 +630,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           />
         </View>
         <View style={styles.serviceInfo}>
-          <Text style={styles.serviceTitle}>{service.title}</Text>
+          <Text style={styles.serviceTitle}>{service?.title || service?.name || 'Service'}</Text>
           <Text style={styles.serviceDescription}>{service.description}</Text>
           <View style={styles.serviceMeta}>
             <View style={styles.serviceMetaItem}>
@@ -623,9 +647,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           <Text style={styles.servicePrice}>${service.price}</Text>
           <TouchableOpacity 
             style={styles.bookNowButton}
-            onPress={() => navigation.navigate('SimpleBookingFlow', {
+            onPress={() => navigation.navigate('NewBookingFlow', {
               cleanerId: cleaner?.id,
-              serviceType: service.category
+              serviceType: service.category,
+              serviceName: service.name,
+              basePrice: service.price
             })}
           >
             <LinearGradient
@@ -670,31 +696,44 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
       key={video.id} 
       style={[styles.videoCard, { width: videoCardWidth }]}
       onPress={() => {
-        // Navigate back to main feed focused on this video
-        navigation.navigate('Home');
+        // Navigate to full-screen video feed with all cleaner's videos
+        navigation.navigate('VideoFeed' as any, {
+          source: 'cleaner',
+          cleanerId: cleanerId,
+          initialVideoId: video.id,
+        });
       }}
     >
       <View style={styles.videoThumbnailContainer}>
-        <Image 
-          source={{ uri: video.thumbnail_url || video.media_url }} 
-          style={styles.videoThumbnail}
-        />
+        {video.thumbnail_url || video.media_url ? (
+          <Image 
+            source={{ uri: video.thumbnail_url || video.media_url }} 
+            style={styles.videoThumbnail}
+          />
+        ) : (
+          <View style={styles.videoPlaceholder}>
+            <Ionicons name="videocam" size={32} color="#3AD3DB" />
+          </View>
+        )}
+        
+        {/* Gradient overlay for depth */}
+        <View style={styles.videoGradientOverlay} />
         
         {/* Play icon overlay */}
         <View style={styles.videoPlayOverlay}>
           <View style={styles.videoPlayButton}>
-            <Ionicons name="play" size={20} color="#FFFFFF" />
+            <Ionicons name="play" size={22} color="#FFFFFF" />
           </View>
         </View>
         
         {/* Video stats */}
         <View style={styles.videoStats}>
           <View style={styles.videoStat}>
-            <Ionicons name="eye" size={12} color="#FFFFFF" />
+            <Ionicons name="eye" size={12} color="#3AD3DB" />
             <Text style={styles.videoStatText}>{video.view_count}</Text>
           </View>
           <View style={styles.videoStat}>
-            <Ionicons name="heart" size={12} color="#FFFFFF" />
+            <Ionicons name="heart" size={12} color="#EF4444" />
             <Text style={styles.videoStatText}>{video.like_count}</Text>
           </View>
         </View>
@@ -751,27 +790,42 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               </View>
               <View style={styles.profileInfo}>
                 <View style={styles.nameContainer}>
-                  <Text style={styles.profileName}>{cleaner.name}</Text>
+                  <Text style={styles.profileName}>{cleaner?.name || 'Cleaner'}</Text>
                 </View>
-                <Text style={styles.profileUsername}>@{cleaner.name.toLowerCase().replace(' ', '')}</Text>
+                <Text style={styles.profileUsername}>@{(cleaner?.name || 'cleaner').toLowerCase().replace(' ', '')}</Text>
                 <View style={styles.locationContainer}>
                   <Ionicons name="location-outline" size={14} color={COLORS.primary} />
-                  <Text style={styles.locationText}>San Francisco, CA</Text>
-                  <Text style={styles.distanceText}>• 3.2 miles away</Text>
+                  <Text style={styles.locationText}>
+                    {cleaner.profile.coverage_area || 'Location not set'}
+                  </Text>
+                  {cleaner.profile.service_radius_km > 0 && (
+                    <Text style={styles.distanceText}>
+                      • {Math.round(cleaner.profile.service_radius_km * 0.621)} mi radius
+                    </Text>
+                  )}
                 </View>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={16} color="#fbbf24" />
                   <Text style={styles.ratingText}>
-                    {cleaner.profile.rating_average} ({cleaner.profile.total_jobs} reviews)
+                    {cleaner.profile.rating_average > 0 
+                      ? `${cleaner.profile.rating_average} (${cleaner.profile.total_jobs} reviews)`
+                      : 'New cleaner'}
                   </Text>
                 </View>
               </View>
             </View>
             
-            <Text style={styles.profileBio} numberOfLines={showFullBio ? undefined : 2}>{cleaner.profile.bio}</Text>
-            <TouchableOpacity onPress={() => setShowFullBio(!showFullBio)} activeOpacity={0.7}>
-              <Text style={styles.readMoreText}>{showFullBio ? 'Show less' : 'Read more'}</Text>
-            </TouchableOpacity>
+            {/* Bio Card */}
+            <View style={styles.bioCard}>
+              <Text style={styles.profileBio} numberOfLines={showFullBio ? undefined : 3}>
+                {cleaner.profile.bio}
+              </Text>
+              {cleaner.profile.bio && cleaner.profile.bio.length > 100 && (
+                <TouchableOpacity onPress={() => setShowFullBio(!showFullBio)} activeOpacity={0.7}>
+                  <Text style={styles.readMoreText}>{showFullBio ? 'Show less' : 'Read more'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             {/* Trust Badges */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trustBadges}>
@@ -811,7 +865,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={styles.statValue}>${cleaner.profile.hourly_rate}/hr</Text>
+                    <Text style={styles.statValue}>
+                      {cleaner.profile.hourly_rate > 0 ? `$${cleaner.profile.hourly_rate}/hr` : 'Contact'}
+                    </Text>
                     <Text style={styles.statLabel}>Rate</Text>
                   </View>
                 </View>
@@ -827,7 +883,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   </View>
                   <View style={styles.statCollapsedItem}>
                     <Ionicons name="pricetag-outline" size={16} color="#3ad3db" />
-                    <Text style={styles.statCollapsedText}>${cleaner.profile.hourly_rate}/hr</Text>
+                    <Text style={styles.statCollapsedText}>
+                      {cleaner.profile.hourly_rate > 0 ? `$${cleaner.profile.hourly_rate}/hr` : 'Contact'}
+                    </Text>
                   </View>
                 </View>
               )}
@@ -847,26 +905,17 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
 
             {/* Action Buttons */}
             <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={[styles.secondaryActionButton, isFollowing && styles.savedActionButton]}
-                onPress={toggleFollow}
-              >
-                <Ionicons name={isFollowing ? 'checkmark' : 'add'} size={20} color={isFollowing ? 'white' : COLORS.primary} />
-                <Text style={[styles.secondaryActionText, isFollowing && styles.savedActionText]}>
-                  {isFollowing ? 'Following' : 'Follow'}
-                </Text>
-              </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.primaryActionButton}
                 onPress={() => {
-                  // Prefer DynamicBooking if template exists; the screen will fallback if not
-                  navigation.navigate('DynamicBooking', {
-                    cleanerId: cleaner?.id
+                  navigation.navigate('NewBookingFlow', {
+                    cleanerId: cleaner?.id,
+                    serviceName: 'Cleaning Service'
                   });
                 }}
               >
                 <LinearGradient
-                  colors={[COLORS.primary, COLORS.primary]}
+                  colors={['#3AD3DB', '#2BC8D0']}
                   style={styles.primaryActionGradient}
                 >
                   <Ionicons name="calendar" size={20} color="white" />
@@ -931,6 +980,16 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                     </Text>
                   </TouchableOpacity>
                 </Animated.View>
+
+                <TouchableOpacity
+                  style={[styles.followSmallButton, isFollowing && styles.followSmallButtonActive]}
+                  onPress={toggleFollow}
+                >
+                  <Ionicons name={isFollowing ? 'checkmark' : 'add'} size={18} color={isFollowing ? 'white' : '#3ad3db'} />
+                  <Text style={[styles.followSmallText, isFollowing && styles.followSmallTextActive]}>
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -1017,6 +1076,54 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
         {/* Bottom spacing */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
+
+      {/* Video Player Modal */}
+      <Modal
+        visible={videoModalVisible}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={() => setVideoModalVisible(false)}
+      >
+        <View style={styles.videoModalContainer}>
+          <StatusBar barStyle="light-content" />
+          
+          {/* Close Button */}
+          <TouchableOpacity 
+            style={styles.videoModalClose}
+            onPress={() => setVideoModalVisible(false)}
+          >
+            <Ionicons name="close" size={28} color="#FFFFFF" />
+          </TouchableOpacity>
+          
+          {/* Video Player */}
+          {selectedVideo && (
+            <Video
+              source={{ uri: selectedVideo.media_url }}
+              style={styles.videoModalPlayer}
+              useNativeControls
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay
+              isLooping
+            />
+          )}
+          
+          {/* Video Info */}
+          <View style={styles.videoModalInfo}>
+            <Text style={styles.videoModalTitle}>{selectedVideo?.title}</Text>
+            <Text style={styles.videoModalDescription}>{selectedVideo?.description}</Text>
+            <View style={styles.videoModalStats}>
+              <View style={styles.videoModalStat}>
+                <Ionicons name="eye" size={16} color="#FFFFFF" />
+                <Text style={styles.videoModalStatText}>{selectedVideo?.view_count} views</Text>
+              </View>
+              <View style={styles.videoModalStat}>
+                <Ionicons name="heart" size={16} color="#EF4444" />
+                <Text style={styles.videoModalStatText}>{selectedVideo?.like_count} likes</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -1085,16 +1192,16 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   profileCard: {
-    backgroundColor: 'white',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     padding: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.04)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.2)',
   },
   profileHeader: {
     flexDirection: 'row',
@@ -1183,18 +1290,25 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '500',
   },
+  bioCard: {
+    backgroundColor: '#F8FFFE',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.15)',
+  },
   profileBio: {
-    fontSize: 16,
-    color: '#64748B',
+    fontSize: 15,
+    color: '#374151',
     lineHeight: 24,
-    marginBottom: 8,
     fontWeight: '400',
   },
   readMoreText: {
     fontSize: 13,
     color: '#3ad3db',
-    fontWeight: '600',
-    marginBottom: 16,
+    fontWeight: '700',
+    marginTop: 8,
   },
   trustBadges: {
     flexDirection: 'row',
@@ -1205,12 +1319,17 @@ const styles = StyleSheet.create({
   trustBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDFA',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.25)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
   trustBadgeText: {
     fontSize: 12,
@@ -1223,12 +1342,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: 'rgba(58, 211, 219, 0.2)',
+    borderColor: 'rgba(58, 211, 219, 0.25)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   statsCollapsedRow: {
     flexDirection: 'row',
@@ -1288,18 +1412,23 @@ const styles = StyleSheet.create({
   availabilityBubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: 'rgba(58, 211, 219, 0.2)',
+    borderColor: 'rgba(58, 211, 219, 0.25)',
     backgroundColor: '#FFFFFF',
-    marginBottom: 24,
-    gap: 8,
+    marginBottom: 20,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
   availabilityText: {
     fontSize: 14,
-    color: '#A16207',
+    color: '#3AD3DB',
     fontWeight: '600',
     marginLeft: 8,
   },
@@ -1364,58 +1493,97 @@ const styles = StyleSheet.create({
   savedActionText: {
     color: 'white',
   },
+  followSmallButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: 'white',
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  followSmallButtonActive: {
+    backgroundColor: '#3ad3db',
+    borderColor: '#3ad3db',
+  },
+  followSmallText: {
+    color: '#3ad3db',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  followSmallTextActive: {
+    color: 'white',
+  },
   tabsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginTop: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
     marginBottom: 16,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 211, 219, 0.15)',
   },
   tabButton: {
     flex: 1,
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     alignItems: 'center',
     position: 'relative',
     minHeight: 44,
+    borderRadius: 12,
   },
   activeTabButton: {
-    borderBottomWidth: 3,
-    borderBottomColor: COLORS.primary,
+    backgroundColor: 'rgba(58, 211, 219, 0.12)',
   },
   tabButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#64748B',
+    color: '#9CA3AF',
   },
   activeTabButtonText: {
-    color: COLORS.primary,
+    color: '#3AD3DB',
     fontWeight: '700',
   },
   activeTabIndicator: {
     position: 'absolute',
-    bottom: 0,
-    left: '30%',
-    right: '30%',
+    bottom: 4,
+    left: '25%',
+    right: '25%',
     height: 3,
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#3AD3DB',
     borderRadius: 2,
   },
   tabContent: {
     paddingHorizontal: 20,
   },
   serviceCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 6,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(58, 211, 219, 0.12)',
   },
   serviceHeader: {
     flexDirection: 'row',
@@ -1482,15 +1650,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   reviewCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 211, 219, 0.08)',
   },
   reviewHeader: {
     flexDirection: 'row',
@@ -1534,14 +1704,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   aboutCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(58, 211, 219, 0.15)',
   },
   aboutTitle: {
     fontSize: 16,
@@ -1696,34 +1868,54 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   
-  // Video styles
+  // Video styles - Enhanced Depth Theme
   videosGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 14,
     paddingHorizontal: 0,
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 24,
   },
   videoCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 10,
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.25)',
   },
   videoThumbnailContainer: {
     position: 'relative',
-    height: 124,
-    backgroundColor: '#F2F2F7',
+    height: 150,
+    backgroundColor: '#F0FDFA',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
   },
   videoThumbnail: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  videoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'linear-gradient(180deg, #E8F7F8 0%, #D1F0F2 100%)',
+  },
+  videoGradientOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: 'transparent',
   },
   videoPlayOverlay: {
     position: 'absolute',
@@ -1735,48 +1927,62 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   videoPlayButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#3AD3DB',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#3AD3DB',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   videoStats: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
+    bottom: 10,
+    right: 10,
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   videoStat: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    gap: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   videoStatText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '600',
+    color: '#1F2937',
+    fontSize: 11,
+    fontWeight: '700',
   },
   videoInfo: {
-    padding: 12,
+    padding: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(58, 211, 219, 0.1)',
   },
   videoTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginBottom: 4,
-    lineHeight: 18,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 6,
+    lineHeight: 20,
   },
   videoDate: {
     fontSize: 12,
-    color: '#8E8E93',
-    fontWeight: '500',
+    color: '#3AD3DB',
+    fontWeight: '600',
   },
   emptyVideoState: {
     alignItems: 'center',
@@ -1814,6 +2020,60 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#ffffff',
     marginRight: 8,
+  },
+  
+  // Video Modal Styles
+  videoModalContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoModalClose: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 100,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  videoModalPlayer: {
+    width: '100%',
+    height: '60%',
+  },
+  videoModalInfo: {
+    position: 'absolute',
+    bottom: 80,
+    left: 0,
+    right: 0,
+    padding: 20,
+  },
+  videoModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  videoModalDescription: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.8)',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  videoModalStats: {
+    flexDirection: 'row',
+    gap: 20,
+  },
+  videoModalStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  videoModalStatText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '500',
   },
 });
 

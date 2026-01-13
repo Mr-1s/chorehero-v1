@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#00D4AA',
+    backgroundColor: '#3AD3DB',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -124,21 +124,22 @@ const styles = StyleSheet.create({
   },
   followButton: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.3)',
     borderRadius: 18,
-    height: 40, // ensure 44 total with hitSlop
-    paddingHorizontal: 12,
+    height: 36,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 84,
+    minWidth: 80,
   },
   followText: {
-    color: '#00D4AA',
+    color: '#3AD3DB',
     fontWeight: '700',
   },
   followActive: {
-    backgroundColor: '#00D4AA',
+    backgroundColor: '#3AD3DB',
+    borderColor: '#3AD3DB',
   },
   followTextActive: {
     color: '#FFFFFF',

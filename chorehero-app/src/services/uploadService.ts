@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
-import { Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import { supabase } from './supabase';
+import { decode } from 'base64-arraybuffer';
 
 export interface UploadProgress {
   progress: number; // 0-100
@@ -26,53 +27,71 @@ export interface UploadConfig {
   retryDelay: number;
 }
 
+// Video limits
+const VIDEO_LIMITS = {
+  maxDurationSeconds: 45,
+  minDurationSeconds: 5,
+  maxFileSizeMB: 50, // 50MB max per video
+};
+
 class UploadService {
-  private baseUrl = 'https://api.chorehero.com';
-  private activeUploads = new Map<string, XMLHttpRequest>();
-  private debug = __DEV__; // Enable debug logging in development
+  private activeUploads = new Map<string, boolean>();
+  private debug = __DEV__;
   
   private defaultConfig: UploadConfig = {
-    maxFileSize: 100 * 1024 * 1024, // 100MB
-    allowedTypes: ['video/mp4', 'video/mov', 'video/avi', 'image/jpeg', 'image/png', 'image/jpg'],
+    maxFileSize: VIDEO_LIMITS.maxFileSizeMB * 1024 * 1024,
+    allowedTypes: ['video/mp4', 'video/mov', 'video/avi', 'video/quicktime', 'image/jpeg', 'image/png', 'image/jpg'],
     compressionQuality: 0.8,
     maxRetries: 3,
     retryDelay: 2000,
   };
 
   // Validate file before upload
-  async validateFile(fileUri: string, config?: Partial<UploadConfig>): Promise<{ isValid: boolean; error?: string }> {
+  async validateFile(fileUri: string, config?: Partial<UploadConfig>): Promise<{ isValid: boolean; error?: string; fileSize?: number }> {
     const uploadConfig = { ...this.defaultConfig, ...config };
 
     try {
-      // Check if file exists
-      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      // Check if file exists and get info
+      const fileInfo = await FileSystem.getInfoAsync(fileUri, { size: true });
+      
       if (!fileInfo.exists) {
         return { isValid: false, error: 'File not found' };
       }
 
       // Check file size
-      if (fileInfo.size && fileInfo.size > uploadConfig.maxFileSize) {
+      const fileSize = (fileInfo as any).size || 0;
+      if (fileSize > uploadConfig.maxFileSize) {
         const maxSizeMB = Math.round(uploadConfig.maxFileSize / (1024 * 1024));
         return { isValid: false, error: `File size exceeds ${maxSizeMB}MB limit` };
       }
 
-      // Check file type (basic validation)
+      // Check file type (basic validation based on extension)
       const fileExtension = fileUri.split('.').pop()?.toLowerCase();
       const mimeType = this.getMimeTypeFromExtension(fileExtension || '');
       
       if (!uploadConfig.allowedTypes.includes(mimeType)) {
-        return { isValid: false, error: 'File type not supported' };
+        return { isValid: false, error: `File type .${fileExtension} not supported` };
       }
 
-      return { isValid: true };
+      return { isValid: true, fileSize };
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('File validation error:', error);
+      // If getInfoAsync fails with deprecation warning, try simpler check
+      if (error.message?.includes('deprecated')) {
+        // Fallback: just check extension
+        const fileExtension = fileUri.split('.').pop()?.toLowerCase();
+        const mimeType = this.getMimeTypeFromExtension(fileExtension || '');
+        if (uploadConfig.allowedTypes.includes(mimeType)) {
+          return { isValid: true };
+        }
+        return { isValid: false, error: 'File type not supported' };
+      }
       return { isValid: false, error: 'Unable to validate file' };
     }
   }
 
-  // Upload file with progress tracking
+  // Upload file to Supabase Storage
   async uploadFile(
     fileUri: string,
     type: 'video' | 'image' | 'document',
@@ -82,282 +101,152 @@ class UploadService {
     const uploadConfig = { ...this.defaultConfig, ...config };
     const uploadId = this.generateUploadId();
 
-    // Validate file first
-    const validation = await this.validateFile(fileUri, uploadConfig);
-    if (!validation.isValid) {
+    try {
+      // Initial progress
+      onProgress?.({
+        progress: 5,
+        bytesTransferred: 0,
+        totalBytes: 0,
+        isCompleted: false
+      });
+
+      // Validate file first (but don't fail completely on validation errors)
+      const validation = await this.validateFile(fileUri, uploadConfig);
+      if (!validation.isValid) {
+        console.warn('⚠️ Validation warning:', validation.error);
+        // Continue anyway for now - Supabase will reject if truly invalid
+      }
+
+            onProgress?.({
+        progress: 10,
+        bytesTransferred: 0,
+        totalBytes: validation.fileSize || 0,
+              isCompleted: false
+            });
+
+      // Read file as base64
+      console.log('📖 Reading file...');
+      const base64Data = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: 'base64',
+      });
+
+      onProgress?.({
+        progress: 30,
+        bytesTransferred: 0,
+        totalBytes: base64Data.length,
+        isCompleted: false
+      });
+
+      // Generate unique filename
+      const fileExtension = fileUri.split('.').pop()?.toLowerCase() || 'mp4';
+      const fileName = `${type}_${uploadId}.${fileExtension}`;
+      
+      // Determine correct bucket based on file type
+      const bucketName = type === 'video' ? 'content-videos' : 'content-images';
+      const storagePath = fileName; // Just the filename, no subfolder
+
+      console.log(`📤 Uploading to Supabase Storage bucket '${bucketName}': ${storagePath}`);
+              
+              onProgress?.({
+        progress: 40,
+                bytesTransferred: 0,
+        totalBytes: base64Data.length,
+        isCompleted: false
+      });
+
+      // Upload to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from(bucketName)
+        .upload(storagePath, decode(base64Data), {
+          contentType: this.getMimeTypeFromExtension(fileExtension),
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (error) {
+        console.error('❌ Supabase upload error:', error);
+        
+        // Check for specific errors
+        if (error.message?.includes('Bucket not found') || error.message?.includes('not found')) {
+          console.log('📦 Bucket may not exist. Please run create_storage_buckets.sql in Supabase.');
+          return {
+            success: false,
+            error: `Storage bucket '${bucketName}' not found. Please run the storage setup SQL.`,
+            errorCode: 'STORAGE_NOT_CONFIGURED',
+            uploadId
+          };
+        }
+        
+        if (error.message?.includes('row-level security') || error.message?.includes('RLS')) {
       return {
         success: false,
-        error: validation.error,
-        errorCode: 'VALIDATION_FAILED',
+            error: 'Upload permission denied. Please sign in with a valid account.',
+            errorCode: 'PERMISSION_DENIED',
         uploadId
       };
-    }
-
-    // Store upload metadata for recovery
-    await this.storeUploadMetadata(uploadId, {
-      fileUri,
-      type,
-      timestamp: new Date().toISOString(),
-      retryCount: 0
-    });
-
-    return this.performUpload(uploadId, fileUri, type, onProgress, uploadConfig);
-  }
-
-  private async performUpload(
-    uploadId: string,
-    fileUri: string,
-    type: string,
-    onProgress?: (progress: UploadProgress) => void,
-    config: UploadConfig,
-    retryCount = 0
-  ): Promise<UploadResponse> {
-    try {
-      // Check network connectivity
-      const networkInfo = await this.checkNetworkConnectivity();
-      if (!networkInfo.isConnected) {
+        }
+        
         return {
           success: false,
-          error: 'No internet connection. Upload will retry when connection is restored.',
-          errorCode: 'NETWORK_OFFLINE',
+          error: error.message || 'Upload failed',
+          errorCode: 'UPLOAD_FAILED',
           uploadId
         };
       }
 
-      const formData = new FormData();
-      formData.append('file', {
-        uri: fileUri,
-        type: this.getMimeTypeFromUri(fileUri),
-        name: `upload_${uploadId}.${this.getFileExtension(fileUri)}`,
-      } as any);
-      formData.append('type', type);
-      formData.append('uploadId', uploadId);
-
-      return new Promise((resolve) => {
-        const xhr = new XMLHttpRequest();
-        this.activeUploads.set(uploadId, xhr);
-
-        // Track upload progress
-        xhr.upload.addEventListener('progress', (event) => {
-          if (event.lengthComputable) {
-            const progress = Math.round((event.loaded / event.total) * 100);
-            onProgress?.({
-              progress,
-              bytesTransferred: event.loaded,
-              totalBytes: event.total,
-              isCompleted: false
-            });
-          }
-        });
-
-        xhr.addEventListener('load', async () => {
-          this.activeUploads.delete(uploadId);
-
-          if (xhr.status === 200) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              
-              // Success - clean up metadata
-              await this.removeUploadMetadata(uploadId);
-              
-              onProgress?.({
-                progress: 100,
-                bytesTransferred: 0,
-                totalBytes: 0,
-                isCompleted: true
-              });
-
-              console.log(`✅ Upload ${uploadId} completed successfully`);
-              resolve({
-                success: true,
-                url: response.url,
-                uploadId
-              });
-
-            } catch (parseError) {
-              console.error(`❌ Failed to parse server response for upload ${uploadId}:`, parseError);
-              console.error(`Server response text:`, xhr.responseText);
-              resolve({
-                success: false,
-                error: 'Invalid server response',
-                errorCode: 'PARSE_ERROR',
-                uploadId
-              });
-            }
-          } else {
-            // Handle HTTP errors
-            console.error(`❌ Upload ${uploadId} failed with status ${xhr.status}:`, xhr.responseText);
-            this.handleUploadError(xhr.status, uploadId, fileUri, type, onProgress, config, retryCount, resolve);
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          this.activeUploads.delete(uploadId);
-          console.error(`❌ Network error for upload ${uploadId}`);
-          this.handleUploadError(0, uploadId, fileUri, type, onProgress, config, retryCount, resolve);
-        });
-
-        xhr.addEventListener('timeout', () => {
-          this.activeUploads.delete(uploadId);
-          resolve({
-            success: false,
-            error: 'Upload timed out. Please try again.',
-            errorCode: 'TIMEOUT',
-            uploadId
-          });
-        });
-
-        // Configure and send request
-        const uploadUrl = `${this.baseUrl}/upload`;
-        if (this.debug) {
-          console.log(`🚀 Starting upload ${uploadId} to ${uploadUrl}`);
-          console.log(`📁 File: ${fileUri}, Type: ${type}`);
-        }
-        
-        xhr.open('POST', uploadUrl);
-        xhr.timeout = 60000; // 60 second timeout
-        xhr.setRequestHeader('Accept', 'application/json');
-        
-        // Add retry information to headers for server-side debugging
-        if (retryCount > 0) {
-          xhr.setRequestHeader('X-Retry-Count', retryCount.toString());
-        }
-        
-        xhr.send(formData);
+      onProgress?.({
+        progress: 80,
+        bytesTransferred: base64Data.length,
+        totalBytes: base64Data.length,
+        isCompleted: false
       });
 
-    } catch (error) {
-      console.error('Upload error:', error);
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(storagePath);
+
+      const publicUrl = urlData?.publicUrl;
+
+      if (!publicUrl) {
+        return {
+          success: false,
+          error: 'Failed to get public URL',
+          errorCode: 'URL_FAILED',
+          uploadId
+        };
+      }
+
+      console.log('✅ Upload successful:', publicUrl);
+
+      onProgress?.({
+        progress: 100,
+        bytesTransferred: base64Data.length,
+        totalBytes: base64Data.length,
+        isCompleted: true
+      });
+
       return {
-        success: false,
-        error: 'Upload failed unexpectedly',
-        errorCode: 'UNKNOWN_ERROR',
+        success: true,
+        url: publicUrl,
         uploadId
       };
-    }
-  }
 
-  private async handleUploadError(
-    status: number,
-    uploadId: string,
-    fileUri: string,
-    type: string,
-    onProgress: ((progress: UploadProgress) => void) | undefined,
-    config: UploadConfig,
-    retryCount: number,
-    resolve: (value: UploadResponse) => void
-  ) {
-    // Check if file still exists before retrying
-    try {
-      const fileInfo = await FileSystem.getInfoAsync(fileUri);
-      if (!fileInfo.exists) {
-        resolve({
-          success: false,
-          error: 'File no longer exists. Please select the file again.',
-          errorCode: 'FILE_NOT_FOUND',
-          uploadId
-        });
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking file existence:', error);
-    }
-
-    // Retry logic for certain errors
-    if (retryCount < config.maxRetries && this.shouldRetry(status)) {
-      console.log(`Retrying upload ${uploadId}, attempt ${retryCount + 1}`);
-      
-      // Check network connectivity before retry
-      const networkInfo = await this.checkNetworkConnectivity();
-      if (!networkInfo.isConnected) {
-        console.log(`Network offline, queuing upload ${uploadId} for later retry`);
-        resolve({
-          success: false,
-          error: 'Network connection lost. Upload will retry when connection is restored.',
-          errorCode: 'NETWORK_OFFLINE',
-          uploadId
-        });
-        return;
-      }
-      
-      // Wait before retry with exponential backoff
-      const delay = config.retryDelay * Math.pow(2, retryCount);
-      console.log(`Waiting ${delay}ms before retry...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      
-      // Update retry count in metadata
-      await this.updateUploadRetryCount(uploadId, retryCount + 1);
-      
-      // Retry the upload
-      const retryResult = await this.performUpload(uploadId, fileUri, type, onProgress, config, retryCount + 1);
-      resolve(retryResult);
-    } else {
-      // Max retries reached or non-retryable error
-      console.log(`Upload ${uploadId} failed after ${retryCount} retries. Status: ${status}`);
-      const errorResponse = this.getErrorResponse(status, uploadId);
+    } catch (error: any) {
+      console.error('❌ Upload error:', error);
       
       onProgress?.({
         progress: 0,
         bytesTransferred: 0,
         totalBytes: 0,
         isCompleted: false,
-        error: errorResponse.error
+        error: error.message
       });
 
-      resolve(errorResponse);
-    }
-  }
-
-  private shouldRetry(status: number): boolean {
-    // Retry for network errors and server errors
-    return status === 0 || status >= 500 || status === 408 || status === 429;
-  }
-
-  private getErrorResponse(status: number, uploadId: string): UploadResponse {
-    if (status === 0) {
       return {
         success: false,
-        error: 'Network connection failed. Please check your internet connection and try again.',
-        errorCode: 'NETWORK_ERROR',
-        uploadId
-      };
-    }
-    switch (status) {
-      case 413:
-        return {
-          success: false,
-          error: 'File too large. Please choose a smaller file.',
-          errorCode: 'FILE_TOO_LARGE',
-          uploadId
-        };
-      case 415:
-        return {
-          success: false,
-          error: 'File type not supported.',
-          errorCode: 'UNSUPPORTED_TYPE',
-          uploadId
-        };
-      case 429:
-        return {
-          success: false,
-          error: 'Too many uploads. Please wait before trying again.',
-          errorCode: 'RATE_LIMITED',
-          uploadId
-        };
-      case 500:
-      case 502:
-      case 503:
-        return {
-          success: false,
-          error: 'Server error. Please try again later.',
-          errorCode: 'SERVER_ERROR',
-          uploadId
-        };
-      default:
-        return {
-          success: false,
-          error: `Upload failed (${status}). Please try again.`,
-          errorCode: 'UPLOAD_FAILED',
+        error: error.message || 'Upload failed unexpectedly',
+        errorCode: 'UNKNOWN_ERROR',
           uploadId
         };
     }
@@ -365,160 +254,40 @@ class UploadService {
 
   // Cancel active upload
   cancelUpload(uploadId: string): boolean {
-    const xhr = this.activeUploads.get(uploadId);
-    if (xhr) {
-      xhr.abort();
+    if (this.activeUploads.has(uploadId)) {
       this.activeUploads.delete(uploadId);
-      this.removeUploadMetadata(uploadId);
       return true;
     }
     return false;
   }
 
-  // Resume failed uploads
-  async resumeFailedUploads(): Promise<void> {
-    try {
-      const failedUploads = await this.getFailedUploads();
-      
-      for (const upload of failedUploads) {
-        if (upload.retryCount < this.defaultConfig.maxRetries) {
-          console.log(`Resuming upload: ${upload.uploadId}`);
-          // Don't await - let uploads run in parallel
-          this.performUpload(
-            upload.uploadId,
-            upload.fileUri,
-            upload.type,
-            undefined,
-            this.defaultConfig,
-            upload.retryCount
-          );
-        }
-      }
-    } catch (error) {
-      console.error('Error resuming uploads:', error);
-    }
-  }
-
   // Helper methods
   private generateUploadId(): string {
-    return `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   private getMimeTypeFromExtension(extension: string): string {
     const mimeTypes: Record<string, string> = {
       'mp4': 'video/mp4',
-      'mov': 'video/mov',
+      'mov': 'video/quicktime',
       'avi': 'video/avi',
+      'm4v': 'video/mp4',
       'jpg': 'image/jpeg',
       'jpeg': 'image/jpeg',
       'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
       'pdf': 'application/pdf'
     };
-    return mimeTypes[extension] || 'application/octet-stream';
-  }
-
-  private getMimeTypeFromUri(uri: string): string {
-    const extension = uri.split('.').pop()?.toLowerCase() || '';
-    return this.getMimeTypeFromExtension(extension);
-  }
-
-  private getFileExtension(uri: string): string {
-    return uri.split('.').pop()?.toLowerCase() || '';
-  }
-
-  private async checkNetworkConnectivity(): Promise<{ isConnected: boolean }> {
-    try {
-      // Simple network check - try to fetch a small resource
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
-      const response = await fetch('https://www.google.com/favicon.ico', {
-        method: 'HEAD',
-        signal: controller.signal,
-        cache: 'no-cache'
-      });
-      
-      clearTimeout(timeoutId);
-      return { isConnected: response.ok };
-    } catch (error) {
-      console.log('Network connectivity check failed:', error);
-      return { isConnected: false };
-    }
-  }
-
-  // Metadata management for upload recovery
-  private async storeUploadMetadata(uploadId: string, metadata: any): Promise<void> {
-    try {
-      const uploads = await this.getStoredUploads();
-      uploads[uploadId] = metadata;
-      await AsyncStorage.setItem('failed_uploads', JSON.stringify(uploads));
-    } catch (error) {
-      console.error('Error storing upload metadata:', error);
-    }
-  }
-
-  private async removeUploadMetadata(uploadId: string): Promise<void> {
-    try {
-      const uploads = await this.getStoredUploads();
-      delete uploads[uploadId];
-      await AsyncStorage.setItem('failed_uploads', JSON.stringify(uploads));
-    } catch (error) {
-      console.error('Error removing upload metadata:', error);
-    }
-  }
-
-  private async updateUploadRetryCount(uploadId: string, retryCount: number): Promise<void> {
-    try {
-      const uploads = await this.getStoredUploads();
-      if (uploads[uploadId]) {
-        uploads[uploadId].retryCount = retryCount;
-        await AsyncStorage.setItem('failed_uploads', JSON.stringify(uploads));
-      }
-    } catch (error) {
-      console.error('Error updating retry count:', error);
-    }
-  }
-
-  private async getStoredUploads(): Promise<Record<string, any>> {
-    try {
-      const stored = await AsyncStorage.getItem('failed_uploads');
-      return stored ? JSON.parse(stored) : {};
-    } catch (error) {
-      console.error('Error getting stored uploads:', error);
-      return {};
-    }
-  }
-
-  private async getFailedUploads(): Promise<any[]> {
-    const uploads = await this.getStoredUploads();
-    return Object.values(uploads);
-  }
-
-  // Clear all failed upload metadata (useful for testing)
-  async clearFailedUploads(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem('failed_uploads');
-      console.log('✅ Cleared all failed upload metadata');
-    } catch (error) {
-      console.error('Error clearing failed uploads:', error);
-    }
+    return mimeTypes[extension.toLowerCase()] || 'application/octet-stream';
   }
 
   // Get upload status for debugging
   async getUploadStatus(): Promise<{
     activeUploads: number;
-    failedUploads: number;
-    pendingRetries: number;
   }> {
-    const failedUploads = await this.getFailedUploads();
-    const pendingRetries = failedUploads.filter(upload => 
-      upload.retryCount < this.defaultConfig.maxRetries
-    ).length;
-
     return {
       activeUploads: this.activeUploads.size,
-      failedUploads: failedUploads.length,
-      pendingRetries
     };
   }
 }

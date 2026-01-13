@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,15 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { useToast } from '../../components/Toast';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 interface ScheduleScreenProps {
   navigation: StackNavigationProp<any>;
@@ -37,7 +41,12 @@ interface Booking {
 
 const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const [selectedTab, setSelectedTab] = useState<'availability' | 'bookings'>('bookings');
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
+  const [todayStats, setTodayStats] = useState({ bookings: 0, potential: 0 });
   
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([
     { day: 'Monday', available: true, startTime: '08:00', endTime: '18:00' },
@@ -49,38 +58,110 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
     { day: 'Sunday', available: false, startTime: '09:00', endTime: '15:00' },
   ]);
 
-  const upcomingBookings: Booking[] = [
-    {
-      id: '1',
-      customerName: 'Sarah Chen',
-      address: '123 Marina Bay, Singapore',
-      serviceType: 'Deep Clean',
-      time: 'Today, 2:00 PM',
-      duration: '3 hours',
-      amount: 150,
-      status: 'confirmed',
-    },
-    {
-      id: '2',
-      customerName: 'David Lim',
-      address: '456 Orchard Road, Singapore',
-      serviceType: 'Standard Clean',
-      time: 'Tomorrow, 10:00 AM',
-      duration: '1.5 hours',
-      amount: 75,
-      status: 'confirmed',
-    },
-    {
-      id: '3',
-      customerName: 'Maria Santos',
-      address: '789 Sentosa Cove, Singapore',
-      serviceType: 'Express Clean',
-      time: 'Wed, 4:00 PM',
-      duration: '45 minutes',
-      amount: 45,
-      status: 'pending',
-    },
-  ];
+  const formatServiceType = (type: string): string => {
+    const typeMap: Record<string, string> = {
+      'standard': 'Standard Clean',
+      'deep_clean': 'Deep Clean',
+      'move_in_out': 'Move In/Out Clean',
+      'office': 'Office Clean',
+      'post_construction': 'Post Construction',
+    };
+    return typeMap[type] || type?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Cleaning';
+  };
+
+  const formatDateTime = (dateString: string): string => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const isToday = date.toDateString() === now.toDateString();
+    const isTomorrow = date.toDateString() === tomorrow.toDateString();
+
+    const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+    if (isToday) return `Today, ${timeStr}`;
+    if (isTomorrow) return `Tomorrow, ${timeStr}`;
+    return `${date.toLocaleDateString('en-US', { weekday: 'short' })}, ${timeStr}`;
+  };
+
+  const formatDuration = (minutes: number): string => {
+    if (minutes < 60) return `${minutes} minutes`;
+    const hours = minutes / 60;
+    return hours === 1 ? '1 hour' : `${hours} hours`;
+  };
+
+  const loadBookings = useCallback(async () => {
+    if (!user?.id) return;
+
+    try {
+      // Fetch bookings where cleaner is assigned or pending assignment
+      const { data: bookings, error } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          customer_id,
+          service_type,
+          status,
+          scheduled_time,
+          estimated_duration,
+          total_amount,
+          address,
+          special_requests,
+          customer:users!bookings_customer_id_fkey(id, name, avatar_url)
+        `)
+        .or(`cleaner_id.eq.${user.id},cleaner_id.is.null`)
+        .in('status', ['pending', 'confirmed', 'cleaner_assigned', 'cleaner_en_route', 'in_progress'])
+        .order('scheduled_time', { ascending: true });
+
+      if (error) throw error;
+
+      // Transform to Booking interface
+      const transformedBookings: Booking[] = (bookings || []).map((b: any) => ({
+        id: b.id,
+        customerName: b.customer?.name || 'Customer',
+        address: b.address || 'Address not provided',
+        serviceType: formatServiceType(b.service_type),
+        time: formatDateTime(b.scheduled_time),
+        duration: formatDuration(b.estimated_duration || 120),
+        amount: b.total_amount || 0,
+        status: b.status === 'cleaner_assigned' || b.status === 'cleaner_en_route' ? 'confirmed' : b.status,
+      }));
+
+      setUpcomingBookings(transformedBookings);
+
+      // Calculate today's stats
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const todayBookings = (bookings || []).filter((b: any) => {
+        const bookingDate = new Date(b.scheduled_time);
+        return bookingDate >= today && bookingDate < tomorrow;
+      });
+
+      setTodayStats({
+        bookings: todayBookings.length,
+        potential: todayBookings.reduce((sum: number, b: any) => sum + (b.total_amount || 0), 0),
+      });
+
+    } catch (error) {
+      console.error('Error loading schedule:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadBookings();
+  }, [loadBookings]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadBookings();
+  }, [loadBookings]);
 
   const toggleAvailability = (index: number) => {
     const updated = [...availability];
@@ -88,7 +169,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
     setAvailability(updated);
   };
 
-  const handleBookingAction = (bookingId: string, action: 'accept' | 'decline') => {
+  const handleBookingAction = async (bookingId: string, action: 'accept' | 'decline') => {
     Alert.alert(
       action === 'accept' ? 'Accept Booking' : 'Decline Booking',
       `Are you sure you want to ${action} this booking?`,
@@ -96,12 +177,45 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
         { text: 'Cancel', style: 'cancel' },
         { 
           text: action === 'accept' ? 'Accept' : 'Decline',
-          onPress: () => {
-            // Handle booking action
-            console.log(`${action} booking ${bookingId}`);
+          onPress: async () => {
             try {
-              (showToast as any) && showToast({ type: action === 'accept' ? 'success' : 'info', message: action === 'accept' ? 'Booking accepted' : 'Booking declined' });
-            } catch {}
+              if (action === 'accept') {
+                // Update booking status and assign cleaner
+                const { error } = await supabase
+                  .from('bookings')
+                  .update({ 
+                    status: 'confirmed',
+                    cleaner_id: user?.id,
+                  })
+                  .eq('id', bookingId);
+
+                if (error) throw error;
+              } else {
+                // For decline, just remove this cleaner's assignment (if any)
+                // or mark as cancelled if it was directly assigned
+                const { error } = await supabase
+                  .from('bookings')
+                  .update({ 
+                    status: 'cancelled',
+                  })
+                  .eq('id', bookingId);
+
+                if (error) throw error;
+              }
+
+              // Refresh the list
+              loadBookings();
+              
+              try {
+                (showToast as any) && showToast({ 
+                  type: action === 'accept' ? 'success' : 'info', 
+                  message: action === 'accept' ? 'Booking accepted!' : 'Booking declined' 
+                });
+              } catch {}
+            } catch (error) {
+              console.error('Error updating booking:', error);
+              Alert.alert('Error', 'Failed to update booking. Please try again.');
+            }
           }
         },
       ]
@@ -164,7 +278,12 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3AD3DB" />
+        }
+      >
         {selectedTab === 'bookings' ? (
           <View style={styles.bookingsContainer}>
             {/* Today's Summary */}
@@ -177,7 +296,9 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
                   <Text style={styles.summaryTitle}>Today's Schedule</Text>
                   <Ionicons name="calendar" size={24} color="#ffffff" />
                 </View>
-                <Text style={styles.summaryStats}>2 bookings • $225 potential</Text>
+                <Text style={styles.summaryStats}>
+                  {todayStats.bookings} booking{todayStats.bookings !== 1 ? 's' : ''} • ${todayStats.potential} potential
+                </Text>
               </LinearGradient>
             </View>
 
@@ -185,7 +306,20 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
             <View style={styles.bookingsSection}>
               <Text style={styles.sectionTitle}>Upcoming Jobs</Text>
               
-              {upcomingBookings.map((booking) => (
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#3AD3DB" />
+                  <Text style={styles.loadingText}>Loading schedule...</Text>
+                </View>
+              ) : upcomingBookings.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="calendar-outline" size={64} color="#D1D5DB" />
+                  <Text style={styles.emptyTitle}>No upcoming bookings</Text>
+                  <Text style={styles.emptyText}>
+                    New jobs will appear here when customers book your services
+                  </Text>
+                </View>
+              ) : upcomingBookings.map((booking) => (
                 <View key={booking.id} style={styles.bookingCard}>
                   <View style={styles.bookingHeader}>
                     <View style={styles.bookingInfo}>
@@ -632,6 +766,35 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 100,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#718096',
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    marginTop: 16,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  emptyText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#718096',
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
 

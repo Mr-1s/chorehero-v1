@@ -11,10 +11,16 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -24,6 +30,7 @@ import { contentService } from '../../services/contentService';
 import { contentAnalyticsService, type VideoWithStats, type ContentPerformanceSummary } from '../../services/contentAnalyticsService';
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS } from '../../utils/constants';
+import { supabase } from '../../services/supabase';
 import { useToast } from '../../components/Toast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -34,6 +41,14 @@ import { Dimensions } from 'react-native';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2; // 20px padding each side, 12px gap
+
+// Video upload limits
+const VIDEO_LIMITS = {
+  maxDurationSeconds: 45,
+  minDurationSeconds: 5,
+  maxFileSizeMB: 50,
+  allowedFormats: ['video/mp4', 'video/mov', 'video/avi', 'video/quicktime'],
+};
 
 type StackParamList = {
   VideoUpload: undefined;
@@ -50,11 +65,14 @@ interface UploadedVideo {
   id: string;
   uri: string;
   title: string;
+  description?: string;
   duration: number;
   uploadDate: string;
   status: 'uploading' | 'processing' | 'live' | 'failed';
   views: number;
   bookings: number;
+  likes: number;
+  comments: number;
 }
 
 const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
@@ -69,6 +87,35 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const [activeUploadId, setActiveUploadId] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
+
+  // Video details for social-media style posting
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoDescription, setVideoDescription] = useState('');
+  const [videoServiceType, setVideoServiceType] = useState('');
+  const [showVideoDetailsModal, setShowVideoDetailsModal] = useState(false);
+  const [pendingVideoUri, setPendingVideoUri] = useState<string | null>(null);
+  const [videoThumbnailUri, setVideoThumbnailUri] = useState<string | null>(null);
+  const [showServiceTypePicker, setShowServiceTypePicker] = useState(false);
+
+  // Service type options for categorizing videos
+  const SERVICE_TYPE_OPTIONS = [
+    { id: 'standard_clean', label: 'Standard Cleaning', icon: 'home-outline' },
+    { id: 'deep_clean', label: 'Deep Cleaning', icon: 'sparkles-outline' },
+    { id: 'kitchen', label: 'Kitchen Cleaning', icon: 'restaurant-outline' },
+    { id: 'bathroom', label: 'Bathroom Cleaning', icon: 'water-outline' },
+    { id: 'bedroom', label: 'Bedroom Cleaning', icon: 'bed-outline' },
+    { id: 'living_room', label: 'Living Room', icon: 'tv-outline' },
+    { id: 'move_out', label: 'Move Out Clean', icon: 'car-outline' },
+    { id: 'office', label: 'Office Cleaning', icon: 'briefcase-outline' },
+    { id: 'carpet', label: 'Carpet Cleaning', icon: 'layers-outline' },
+    { id: 'window', label: 'Window Cleaning', icon: 'grid-outline' },
+    { id: 'laundry', label: 'Laundry Service', icon: 'shirt-outline' },
+    { id: 'other', label: 'Other Service', icon: 'ellipsis-horizontal-outline' },
+  ];
+  
+  // Video action menu
+  const [showVideoMenu, setShowVideoMenu] = useState(false);
+  const [selectedVideoForMenu, setSelectedVideoForMenu] = useState<UploadedVideo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [performanceSummary, setPerformanceSummary] = useState<ContentPerformanceSummary>({
@@ -81,6 +128,52 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   });
 
   const videoRef = useRef<Video>(null);
+
+  // Check if cleaner profile is complete before allowing uploads
+  const checkProfileComplete = async (): Promise<{ isComplete: boolean; missingFields: string[] }> => {
+    if (!user?.id) {
+      return { isComplete: false, missingFields: ['Account'] };
+    }
+
+    try {
+      const { data: profile, error } = await supabase
+        .from('cleaner_profiles')
+        .select('hourly_rate, bio, coverage_area, specialties')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error checking profile:', error);
+        return { isComplete: false, missingFields: ['Profile data'] };
+      }
+
+      const missingFields: string[] = [];
+
+      if (!profile) {
+        return { isComplete: false, missingFields: ['Complete profile setup'] };
+      }
+
+      if (!profile.hourly_rate || profile.hourly_rate <= 0) {
+        missingFields.push('Hourly rate');
+      }
+
+      if (!profile.bio || profile.bio.trim().length < 10) {
+        missingFields.push('Bio/Description (min 10 characters)');
+      }
+
+      if (!profile.coverage_area || profile.coverage_area.trim().length < 3) {
+        missingFields.push('Service area/Location');
+      }
+
+      return {
+        isComplete: missingFields.length === 0,
+        missingFields
+      };
+    } catch (error) {
+      console.error('Profile check error:', error);
+      return { isComplete: false, missingFields: ['Profile verification'] };
+    }
+  };
 
   // Fetch real data from database
   const loadContentData = useCallback(async () => {
@@ -164,6 +257,23 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         );
         return;
       }
+
+      // Check if profile is complete with mandatory fields
+      const profileCheck = await checkProfileComplete();
+      if (!profileCheck.isComplete) {
+        Alert.alert(
+          '⚠️ Complete Your Profile First',
+          `Before uploading videos, please complete your profile:\n\n• ${profileCheck.missingFields.join('\n• ')}\n\nThis helps customers understand your services and pricing.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Edit Profile', 
+              onPress: () => navigation.navigate('ProfileEdit' as any)
+            }
+          ]
+        );
+        return;
+      }
       
       // Request permissions
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -178,16 +288,60 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         allowsEditing: true,
-        videoMaxDuration: 60,
-        quality: 0.8,
+        videoMaxDuration: VIDEO_LIMITS.maxDurationSeconds,
+        quality: 0.5, // Lower quality = smaller file size (free tier limit)
       });
 
       console.log('📹 Camera result:', result);
 
       if (!result.canceled && result.assets[0]) {
-        console.log('✅ Video selected from camera:', result.assets[0].uri);
-        setSelectedVideo(result.assets[0].uri);
-        handleVideoUpload(result.assets[0].uri);
+        const asset = result.assets[0];
+        console.log('✅ Video selected from camera:', asset.uri);
+        
+        // Check file size FIRST
+        const MAX_FILE_SIZE_MB = 50; // 50MB max per video
+        const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+        
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+          const fileSize = (fileInfo as any).size || 0;
+          const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+          console.log(`📦 File size: ${fileSizeMB}MB`);
+          
+          if (fileSize > MAX_FILE_SIZE_BYTES) {
+            Alert.alert(
+              'Video Too Large',
+              `This video is ${fileSizeMB}MB but the maximum is ${MAX_FILE_SIZE_MB}MB.\n\nTry recording a shorter video or at lower resolution.`,
+              [{ text: 'OK', style: 'default' }]
+            );
+            return;
+          }
+        } catch (sizeError) {
+          console.warn('Could not check file size:', sizeError);
+        }
+        
+        // Check video duration (safety check, camera should enforce limit)
+        const durationSeconds = asset.duration ? asset.duration / 1000 : 0;
+        console.log(`📏 Video duration: ${durationSeconds}s`);
+        
+        if (durationSeconds > VIDEO_LIMITS.maxDurationSeconds) {
+          Alert.alert(
+            'Video Too Long',
+            `Please record a video that's ${VIDEO_LIMITS.maxDurationSeconds} seconds or less.`,
+            [{ text: 'OK', style: 'default' }]
+          );
+          return;
+        }
+        
+        setSelectedVideo(asset.uri);
+        // Generate thumbnail from video
+        const thumbnail = await generateThumbnail(asset.uri);
+        setVideoThumbnailUri(thumbnail);
+        // Show modal to add title/description before uploading
+        setPendingVideoUri(asset.uri);
+        setVideoTitle('');
+        setVideoDescription('');
+        setShowVideoDetailsModal(true);
       } else {
         console.log('❌ Camera upload canceled or no video selected');
       }
@@ -226,20 +380,91 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         );
         return;
       }
+
+      // Check if profile is complete with mandatory fields
+      const profileCheck = await checkProfileComplete();
+      if (!profileCheck.isComplete) {
+        Alert.alert(
+          '⚠️ Complete Your Profile First',
+          `Before uploading videos, please complete your profile:\n\n• ${profileCheck.missingFields.join('\n• ')}\n\nThis helps customers understand your services and pricing.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Edit Profile', 
+              onPress: () => navigation.navigate('ProfileEdit' as any)
+            }
+          ]
+        );
+        return;
+      }
       
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         allowsEditing: true,
-        videoMaxDuration: 60,
-        quality: 0.8,
+        videoMaxDuration: VIDEO_LIMITS.maxDurationSeconds,
+        quality: 0.5, // Lower quality = smaller file size (free tier limit)
       });
 
       console.log('📚 Library result:', result);
 
       if (!result.canceled && result.assets[0]) {
-        console.log('✅ Video selected from library:', result.assets[0].uri);
-        setSelectedVideo(result.assets[0].uri);
-        handleVideoUpload(result.assets[0].uri);
+        const asset = result.assets[0];
+        console.log('✅ Video selected from library:', asset.uri);
+        
+        // Check file size FIRST (before anything else)
+        const MAX_FILE_SIZE_MB = 50; // 50MB max per video
+        const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+        
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+          const fileSize = (fileInfo as any).size || 0;
+          const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(1);
+          console.log(`📦 File size: ${fileSizeMB}MB`);
+          
+          if (fileSize > MAX_FILE_SIZE_BYTES) {
+            Alert.alert(
+              'Video Too Large',
+              `This video is ${fileSizeMB}MB but the maximum is ${MAX_FILE_SIZE_MB}MB.\n\nTips to reduce size:\n• Record a shorter video (30-45 sec)\n• Use the editor to trim\n• Record at lower resolution`,
+              [{ text: 'OK', style: 'default' }]
+            );
+            return;
+          }
+        } catch (sizeError) {
+          console.warn('Could not check file size:', sizeError);
+          // Continue anyway - Supabase will reject if too large
+        }
+        
+        // Check video duration
+        const durationSeconds = asset.duration ? asset.duration / 1000 : 0;
+        console.log(`📏 Video duration: ${durationSeconds}s`);
+        
+        if (durationSeconds > VIDEO_LIMITS.maxDurationSeconds) {
+          Alert.alert(
+            'Video Too Long',
+            `Please select a video that's ${VIDEO_LIMITS.maxDurationSeconds} seconds or less. Your video is ${Math.round(durationSeconds)} seconds.\n\nTip: Use the built-in editor to trim your video!`,
+            [{ text: 'OK', style: 'default' }]
+          );
+          return;
+        }
+        
+        if (durationSeconds < VIDEO_LIMITS.minDurationSeconds) {
+          Alert.alert(
+            'Video Too Short',
+            `Videos should be at least ${VIDEO_LIMITS.minDurationSeconds} seconds long to showcase your work.`,
+            [{ text: 'OK', style: 'default' }]
+          );
+          return;
+        }
+        
+        setSelectedVideo(asset.uri);
+        // Generate thumbnail from video
+        const thumbnail = await generateThumbnail(asset.uri);
+        setVideoThumbnailUri(thumbnail);
+        // Show modal to add title/description before uploading
+        setPendingVideoUri(asset.uri);
+        setVideoTitle('');
+        setVideoDescription('');
+        setShowVideoDetailsModal(true);
       } else {
         console.log('❌ Library upload canceled or no video selected');
       }
@@ -247,6 +472,42 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
       console.error('🚨 Library upload error:', error);
       try { (showToast as any) && showToast({ type: 'error', message: 'Failed to select video' }); } catch {}
     }
+  };
+
+  // Called when user confirms title/description in modal
+  const handleConfirmVideoDetails = () => {
+    setShowVideoDetailsModal(false);
+    if (pendingVideoUri) {
+      handleVideoUpload(pendingVideoUri);
+      setPendingVideoUri(null);
+    }
+  };
+
+  // Generate video thumbnail
+  const generateThumbnail = async (videoUri: string): Promise<string | null> => {
+    try {
+      console.log('📸 Generating video thumbnail...');
+      const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+        time: 1000, // Get thumbnail at 1 second mark
+        quality: 0.7,
+      });
+      console.log('✅ Thumbnail generated:', uri);
+      return uri;
+    } catch (error) {
+      console.warn('⚠️ Failed to generate thumbnail:', error);
+      return null;
+    }
+  };
+
+  // Cancel video upload
+  const handleCancelVideoDetails = () => {
+    setShowVideoDetailsModal(false);
+    setPendingVideoUri(null);
+    setSelectedVideo(null);
+    setVideoTitle('');
+    setVideoDescription('');
+    setVideoServiceType('');
+    setVideoThumbnailUri(null);
   };
 
   const handleVideoUpload = async (videoUri: string) => {
@@ -258,20 +519,24 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
     try {
       console.log('🎬 Starting video upload process for:', videoUri);
       
-      // First validate the video
+      // Validate the video (soft validation - don't block on errors)
+      try {
       const validation = await uploadService.validateFile(videoUri, {
-        maxFileSize: 50 * 1024 * 1024, // 50MB for videos
-        allowedTypes: ['video/mp4', 'video/mov', 'video/avi']
+          maxFileSize: 50 * 1024 * 1024, // 50MB max
+          allowedTypes: ['video/mp4', 'video/mov', 'video/avi', 'video/quicktime']
       });
 
       if (!validation.isValid) {
-        console.error('❌ Video validation failed:', validation.error);
-        setUploadError(validation.error || 'Invalid video file');
-        try { (showToast as any) && showToast({ type: 'error', message: validation.error || 'Invalid video file' }); } catch {}
-        return;
+          console.warn('⚠️ Video validation warning:', validation.error);
+          // Continue anyway - Supabase will do final validation
+        } else {
+          console.log('✅ Video validation passed');
+        }
+      } catch (validationError) {
+        console.warn('⚠️ Validation check failed, proceeding anyway:', validationError);
       }
 
-      console.log('✅ Video validation passed, starting upload...');
+      console.log('📤 Starting upload to Supabase...');
 
       // Start the robust upload
       const response = await uploadService.uploadFile(
@@ -288,8 +553,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
           }
         },
         {
-          maxFileSize: 50 * 1024 * 1024, // 50MB
-          allowedTypes: ['video/mp4', 'video/mov', 'video/avi'],
+          maxFileSize: 50 * 1024 * 1024, // 50MB max
+          allowedTypes: ['video/mp4', 'video/mov', 'video/avi', 'video/quicktime'],
           maxRetries: 3,
           retryDelay: 2000
         }
@@ -304,13 +569,40 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         if (user?.id && response.url) {
           try {
             console.log('📝 Creating content post for uploaded video...');
+            // Build tags array with service type
+            const tags = ['cleaning', 'professional'];
+            if (videoServiceType) {
+              tags.unshift(videoServiceType); // Add service type as first tag
+            }
+            
+            // Upload thumbnail if we have one
+            let thumbnailUrl: string | undefined;
+            if (videoThumbnailUri) {
+              try {
+                console.log('📤 Uploading thumbnail...');
+                const thumbnailResponse = await uploadService.uploadFile(
+                  videoThumbnailUri,
+                  'image',
+                  undefined,
+                  { maxFileSize: 5 * 1024 * 1024 } // 5MB max for thumbnails
+                );
+                if (thumbnailResponse.success && thumbnailResponse.url) {
+                  thumbnailUrl = thumbnailResponse.url;
+                  console.log('✅ Thumbnail uploaded:', thumbnailUrl);
+                }
+              } catch (thumbError) {
+                console.warn('⚠️ Thumbnail upload failed:', thumbError);
+              }
+            }
+            
             const contentResponse = await contentService.createPost(user.id, {
-              title: 'New Cleaning Video',
-              description: 'Check out my latest cleaning work!',
+              title: videoTitle || 'New Cleaning Video',
+              description: videoDescription || 'Check out my latest cleaning work!',
               content_type: 'video' as const,
               media_url: response.url,
+              thumbnail_url: thumbnailUrl, // Include the thumbnail
               status: 'published' as const,
-              tags: ['cleaning', 'professional']
+              tags: tags
             });
 
             if (contentResponse.success) {
@@ -327,17 +619,20 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         const newVideo: UploadedVideo = {
           id: response.uploadId || Date.now().toString(),
           uri: response.url || videoUri,
-          title: 'New Cleaning Video',
+          title: videoTitle || 'New Cleaning Video',
+          description: videoDescription || '',
           duration: 45,
           uploadDate: new Date().toISOString().split('T')[0],
           status: 'live', // Set to live since we've published it
           views: 0,
           bookings: 0,
+          likes: 0,
+          comments: 0,
         };
 
         setVideos(prev => [newVideo, ...prev]);
         
-        try { (showToast as any) && showToast({ type: 'success', message: 'Video uploaded' }); } catch {}
+        try { (showToast as any) && showToast({ type: 'success', message: '🎬 Video is now live! Customers can discover your work.' }); } catch {}
         setSelectedVideo(null);
 
         // Clear upload state
@@ -422,7 +717,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
     <View style={styles.uploadSection}>
       <Text style={styles.sectionTitle}>Upload New Video</Text>
       <Text style={styles.sectionSubtitle}>
-        Show your cleaning skills with a 30-60 second video
+        Show your cleaning skills with a 30-45 second video
       </Text>
 
       <View style={styles.uploadButtons}>
@@ -497,7 +792,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
           <Text style={styles.loadingText}>Loading analytics...</Text>
         </View>
       ) : (
-        <View style={styles.analyticsGrid}>
+      <View style={styles.analyticsGrid}>
           <MetricCard
             value={totalViews.toLocaleString()}
             label="Total Views"
@@ -539,42 +834,134 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
     </View>
   );
 
-  const renderVideoItem = ({ item }: { item: UploadedVideo }) => (
-    <View style={styles.videoItem}>
+  const renderVideoItem = ({ item, index }: { item: UploadedVideo; index: number }) => (
+    <View style={styles.videoCard}>
+      {/* Video Thumbnail with Gradient Overlay */}
+      <View style={styles.thumbnailContainer}>
       <Video
         source={{ uri: item.uri }}
         style={styles.videoThumbnail}
         resizeMode={ResizeMode.COVER}
         shouldPlay={false}
       />
-      
-      <View style={styles.videoInfo}>
-        <Text style={styles.videoTitle}>{item.title}</Text>
-        <Text style={styles.videoDate}>Uploaded {item.uploadDate}</Text>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.6)']}
+          style={styles.thumbnailGradient}
+        />
         
-        <View style={styles.videoStats}>
-          <View style={styles.statItem}>
-            <Ionicons name="eye" size={14} color="#6B7280" />
-            <Text style={styles.statText}>{item.views} views</Text>
+        {/* Play Button Overlay */}
+        <View style={styles.playButtonOverlay}>
+          <View style={styles.playButton}>
+            <Ionicons name="play" size={20} color="#FFFFFF" />
           </View>
-          <View style={styles.statItem}>
-            <Ionicons name="calendar" size={14} color="#6B7280" />
-            <Text style={styles.statText}>{item.bookings} bookings</Text>
           </View>
-        </View>
+        
+        {/* Duration Badge */}
+        <View style={styles.durationBadge}>
+          <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+          <Text style={styles.durationText}>{item.duration || 30}s</Text>
       </View>
 
-      <View style={styles.videoActions}>
+        {/* Status Badge */}
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <Text style={styles.statusText}>{item.status.toUpperCase()}</Text>
+          <View style={styles.statusDot} />
+          <Text style={styles.statusText}>{item.status === 'live' ? 'LIVE' : item.status.toUpperCase()}</Text>
+        </View>
         </View>
         
-        <TouchableOpacity style={styles.actionButton}>
-          <Ionicons name="ellipsis-vertical" size={16} color="#6B7280" />
+{/* Video Info */}
+      <View style={styles.videoInfo}>
+        <View style={styles.videoHeader}>
+          <Text style={styles.videoTitle} numberOfLines={1}>{item.title}</Text>
+          <TouchableOpacity 
+            style={styles.moreButton} 
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            onPress={() => handleOpenVideoMenu(item)}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color="#6B7280" />
         </TouchableOpacity>
+        </View>
+        
+        <Text style={styles.videoDate}>
+          <Ionicons name="calendar-outline" size={11} color="#9CA3AF" /> {item.uploadDate}
+        </Text>
+        
+        {/* Engagement Stats Row */}
+        <View style={styles.engagementRow}>
+          <View style={styles.engagementItem}>
+            <Ionicons name="heart" size={16} color="#EF4444" />
+            <Text style={styles.engagementText}>{item.likes || 0}</Text>
+          </View>
+          <View style={styles.engagementItem}>
+            <Ionicons name="chatbubble" size={15} color="#3B82F6" />
+            <Text style={styles.engagementText}>{item.comments || 0}</Text>
+          </View>
+          <View style={styles.engagementItem}>
+            <Ionicons name="eye" size={16} color="#F59E0B" />
+            <Text style={styles.engagementText}>{item.views}</Text>
+          </View>
+        </View>
+        
+        {/* Bookings Badge */}
+        <View style={styles.bookingsBadge}>
+          <Ionicons name="calendar-outline" size={14} color="#10B981" />
+          <Text style={styles.bookingsText}>{item.bookings} bookings from this video</Text>
+        </View>
       </View>
     </View>
   );
+
+  // Video menu actions
+  const handleOpenVideoMenu = (video: UploadedVideo) => {
+    setSelectedVideoForMenu(video);
+    setShowVideoMenu(true);
+  };
+
+  const handleDeleteVideo = async () => {
+    if (!selectedVideoForMenu) return;
+    
+    Alert.alert(
+      'Delete Video',
+      'Are you sure you want to delete this video? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Remove from local state
+              setVideos(prev => prev.filter(v => v.id !== selectedVideoForMenu.id));
+              showToast({ type: 'success', message: 'Video deleted' });
+              setShowVideoMenu(false);
+              setSelectedVideoForMenu(null);
+            } catch (error) {
+              showToast({ type: 'error', message: 'Failed to delete video' });
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleViewVideoAnalytics = () => {
+    if (!selectedVideoForMenu) return;
+    Alert.alert(
+      'Video Analytics',
+      `📊 ${selectedVideoForMenu.title}\n\n👁️ Views: ${selectedVideoForMenu.views}\n❤️ Likes: ${selectedVideoForMenu.likes}\n💬 Comments: ${selectedVideoForMenu.comments}\n📅 Bookings: ${selectedVideoForMenu.bookings}`,
+      [{ text: 'OK' }]
+    );
+    setShowVideoMenu(false);
+  };
+
+  const handleEditVideo = () => {
+    if (!selectedVideoForMenu) return;
+    setVideoTitle(selectedVideoForMenu.title);
+    setVideoDescription(selectedVideoForMenu.description || '');
+    setShowVideoMenu(false);
+    // Could open an edit modal here
+    Alert.alert('Edit Video', 'Video editing coming soon!');
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -615,7 +1002,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
           <View style={styles.tipsFooter}>
             <Text style={styles.tipsTitle}>Video Tips</Text>
             <Text style={styles.tipsText}>
-              • Keep videos 30-60 seconds • Show before/after • Good lighting • Clear audio
+              • Keep videos 30-45 seconds max • Show before/after • Good lighting • Clear audio
             </Text>
             {/* Spacer to ensure content clears the floating nav */}
             <View style={{ height: NAV_CLEARANCE + insets.bottom }} />
@@ -662,6 +1049,252 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         navigation={navigation as any}
         currentScreen="Content"
       />
+
+      {/* Video Actions Menu */}
+      <Modal
+        visible={showVideoMenu}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowVideoMenu(false)}
+      >
+        <TouchableOpacity 
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowVideoMenu(false)}
+        >
+          <View style={styles.menuContainer}>
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle} numberOfLines={1}>
+                {selectedVideoForMenu?.title || 'Video'}
+              </Text>
+            </View>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={handleViewVideoAnalytics}>
+              <Ionicons name="stats-chart" size={22} color="#3B82F6" />
+              <Text style={styles.menuItemText}>View Analytics</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={handleEditVideo}>
+              <Ionicons name="create-outline" size={22} color="#F59E0B" />
+              <Text style={styles.menuItemText}>Edit Details</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              setShowVideoMenu(false);
+              if (selectedVideoForMenu) {
+                // Share functionality
+                Alert.alert('Share', 'Share video coming soon!');
+              }
+            }}>
+              <Ionicons name="share-social-outline" size={22} color="#10B981" />
+              <Text style={styles.menuItemText}>Share Video</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
+            </TouchableOpacity>
+            
+            <View style={styles.menuDivider} />
+            
+            <TouchableOpacity style={styles.menuItemDanger} onPress={handleDeleteVideo}>
+              <Ionicons name="trash-outline" size={22} color="#EF4444" />
+              <Text style={styles.menuItemTextDanger}>Delete Video</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.menuCancel}
+              onPress={() => setShowVideoMenu(false)}
+            >
+              <Text style={styles.menuCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Service Type Picker Modal */}
+      <Modal
+        visible={showServiceTypePicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowServiceTypePicker(false)}
+      >
+        <TouchableOpacity 
+          style={styles.serviceTypePickerOverlay}
+          activeOpacity={1}
+          onPress={() => setShowServiceTypePicker(false)}
+        >
+          <View style={styles.serviceTypePickerContainer}>
+            <View style={styles.serviceTypePickerHeader}>
+              <Text style={styles.serviceTypePickerTitle}>Select Service Type</Text>
+              <TouchableOpacity onPress={() => setShowServiceTypePicker(false)}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.serviceTypeList} showsVerticalScrollIndicator={false}>
+              {SERVICE_TYPE_OPTIONS.map((option) => (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[
+                    styles.serviceTypeOption,
+                    videoServiceType === option.id && styles.serviceTypeOptionSelected
+                  ]}
+                  onPress={() => {
+                    setVideoServiceType(option.id);
+                    setShowServiceTypePicker(false);
+                  }}
+                >
+                  <View style={[
+                    styles.serviceTypeIconContainer,
+                    videoServiceType === option.id && styles.serviceTypeIconContainerSelected
+                  ]}>
+                    <Ionicons 
+                      name={option.icon as any} 
+                      size={22} 
+                      color={videoServiceType === option.id ? '#FFFFFF' : '#F59E0B'} 
+                    />
+                  </View>
+                  <Text style={[
+                    styles.serviceTypeOptionText,
+                    videoServiceType === option.id && styles.serviceTypeOptionTextSelected
+                  ]}>
+                    {option.label}
+                  </Text>
+                  {videoServiceType === option.id && (
+                    <Ionicons name="checkmark-circle" size={22} color="#F59E0B" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Video Details Modal - Social Media Style */}
+      <Modal
+        visible={showVideoDetailsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={handleCancelVideoDetails}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={handleCancelVideoDetails}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Post Your Video</Text>
+              <TouchableOpacity 
+                onPress={handleConfirmVideoDetails}
+                style={[styles.postButton, (!videoTitle.trim() || !videoServiceType) && styles.postButtonDisabled]}
+                disabled={!videoTitle.trim() || !videoServiceType}
+              >
+                <Text style={[styles.postButtonText, (!videoTitle.trim() || !videoServiceType) && styles.postButtonTextDisabled]}>
+                  Post
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {/* Video Preview with Thumbnail */}
+              {pendingVideoUri && (
+                <View style={styles.modalVideoPreviewContainer}>
+                  <View style={styles.modalVideoPreview}>
+                    <Video
+                      source={{ uri: pendingVideoUri }}
+                      style={styles.modalVideoPlayer}
+                      resizeMode={ResizeMode.COVER}
+                      shouldPlay={false}
+                      useNativeControls
+                    />
+                  </View>
+                  {/* Thumbnail Preview */}
+                  {videoThumbnailUri && (
+                    <View style={styles.thumbnailPreviewContainer}>
+                      <Text style={styles.thumbnailPreviewLabel}>Thumbnail Preview</Text>
+                      <Image 
+                        source={{ uri: videoThumbnailUri }} 
+                        style={styles.thumbnailPreviewImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* Title Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Title *</Text>
+                <TextInput
+                  style={styles.titleInput}
+                  placeholder="Give your video a catchy title..."
+                  placeholderTextColor="#9CA3AF"
+                  value={videoTitle}
+                  onChangeText={setVideoTitle}
+                  maxLength={100}
+                />
+                <Text style={styles.charCount}>{videoTitle.length}/100</Text>
+              </View>
+
+              {/* Service Type Selector */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Service Type *</Text>
+                <TouchableOpacity 
+                  style={styles.serviceTypeSelector}
+                  onPress={() => setShowServiceTypePicker(true)}
+                >
+                  {videoServiceType ? (
+                    <View style={styles.selectedServiceType}>
+                      <Ionicons 
+                        name={(SERVICE_TYPE_OPTIONS.find(o => o.id === videoServiceType)?.icon || 'home-outline') as any} 
+                        size={20} 
+                        color="#F59E0B" 
+                      />
+                      <Text style={styles.selectedServiceTypeText}>
+                        {SERVICE_TYPE_OPTIONS.find(o => o.id === videoServiceType)?.label || 'Select service type'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.serviceTypePlaceholder}>Select what type of cleaning this is...</Text>
+                  )}
+                  <Ionicons name="chevron-down" size={20} color="#9CA3AF" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Description Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Description</Text>
+                <TextInput
+                  style={styles.descriptionInput}
+                  placeholder="Tell customers about this cleaning job... What makes it special?"
+                  placeholderTextColor="#9CA3AF"
+                  value={videoDescription}
+                  onChangeText={setVideoDescription}
+                  multiline
+                  numberOfLines={4}
+                  maxLength={500}
+                  textAlignVertical="top"
+                />
+                <Text style={styles.charCount}>{videoDescription.length}/500</Text>
+              </View>
+
+              {/* Tips */}
+              <View style={styles.tipsCard}>
+                <Ionicons name="bulb-outline" size={20} color="#F59E0B" />
+                <View style={styles.tipsContent}>
+                  <Text style={styles.tipsCardTitle}>Pro Tips</Text>
+                  <Text style={styles.tipsCardText}>
+                    • Describe the service type{'\n'}
+                    • Mention before/after results{'\n'}
+                    • Add your service area
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -794,61 +1427,246 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     textAlign: 'center',
   },
-  videoItem: {
-    flexDirection: 'row',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+  // Modern Video Card Styles
+  videoCard: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  thumbnailContainer: {
+    position: 'relative',
+    height: 200,
+    backgroundColor: '#1F2937',
   },
   videoThumbnail: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: 12,
+    width: '100%',
+    height: '100%',
   },
-  videoInfo: {
-    flex: 1,
+  thumbnailGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
   },
-  videoTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1F2937',
-    marginBottom: 4,
+  playButtonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  videoDate: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 8,
+  playButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(245, 158, 11, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 3, // Optical centering for play icon
   },
-  videoStats: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  statItem: {
+  durationBadge: {
+    position: 'absolute',
+    bottom: 10,
+    left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  statText: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  videoActions: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  statusBadge: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 6,
+    gap: 4,
+  },
+  durationText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  statusBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 5,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
   },
   statusText: {
     fontSize: 10,
-    fontWeight: '600',
-    color: '#ffffff',
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
-  actionButton: {
+  videoInfo: {
+    padding: 14,
+  },
+  videoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  videoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    flex: 1,
+    marginRight: 8,
+  },
+  moreButton: {
     padding: 4,
+  },
+  videoDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 12,
+  },
+  videoStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    padding: 10,
+  },
+  statItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  statDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#E5E7EB',
+  },
+  // Engagement styles
+  engagementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  engagementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  engagementText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  bookingsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 6,
+    marginTop: 4,
+  },
+  bookingsText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#059669',
+  },
+  // Video action menu styles
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingBottom: 34,
+  },
+  menuHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    textAlign: 'center',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 14,
+  },
+  menuItemText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#374151',
+  },
+  menuDivider: {
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    marginVertical: 8,
+  },
+  menuItemDanger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 14,
+  },
+  menuItemTextDanger: {
+    flex: 1,
+    fontSize: 16,
+    color: '#EF4444',
+  },
+  menuCancel: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  menuCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   tipsFooter: {
     backgroundColor: '#F9FAFB',
@@ -895,6 +1713,228 @@ const styles = StyleSheet.create({
   },
   performanceCard: {
     width: CARD_WIDTH,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  postButton: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  postButtonDisabled: {
+    backgroundColor: '#E5E7EB',
+  },
+  postButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  postButtonTextDisabled: {
+    color: '#9CA3AF',
+  },
+  modalBody: {
+    padding: 16,
+  },
+  modalVideoPreviewContainer: {
+    marginBottom: 20,
+  },
+  modalVideoPreview: {
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#1F2937',
+  },
+  modalVideoPlayer: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailPreviewContainer: {
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  thumbnailPreviewLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  thumbnailPreviewImage: {
+    width: 80,
+    height: 120,
+    borderRadius: 8,
+    backgroundColor: '#E5E7EB',
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  titleInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: '#1F2937',
+  },
+  descriptionInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#1F2937',
+    minHeight: 100,
+  },
+  charCount: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  tipsCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFBEB',
+    padding: 14,
+    borderRadius: 12,
+    gap: 12,
+    marginTop: 8,
+  },
+  tipsContent: {
+    flex: 1,
+  },
+  tipsCardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+    marginBottom: 4,
+  },
+  tipsCardText: {
+    fontSize: 13,
+    color: '#B45309',
+    lineHeight: 20,
+  },
+  // Service Type Selector Styles
+  serviceTypeSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+  },
+  selectedServiceType: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  selectedServiceTypeText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  serviceTypePlaceholder: {
+    fontSize: 15,
+    color: '#9CA3AF',
+  },
+  // Service Type Picker Modal Styles
+  serviceTypePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  serviceTypePickerContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+    paddingBottom: 40,
+  },
+  serviceTypePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  serviceTypePickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  serviceTypeList: {
+    padding: 16,
+  },
+  serviceTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  serviceTypeOptionSelected: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#F59E0B',
+  },
+  serviceTypeIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  serviceTypeIconContainerSelected: {
+    backgroundColor: '#F59E0B',
+  },
+  serviceTypeOptionText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  serviceTypeOptionTextSelected: {
+    color: '#92400E',
+    fontWeight: '600',
   },
 });
 

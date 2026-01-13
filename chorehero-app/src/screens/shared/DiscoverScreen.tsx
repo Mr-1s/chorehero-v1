@@ -43,11 +43,11 @@ type TabParamList = {
   Messages: undefined;
   Profile: undefined;
   CleanerProfile: { cleanerId: string };
-  SimpleBookingFlow: {
-    serviceId: string;
-    serviceName: string;
-    basePrice: number;
-    duration: number;
+  NewBookingFlow: {
+    cleanerId?: string;
+    serviceType?: string;
+    serviceName?: string;
+    basePrice?: number;
   };
   ServiceDetail: {
     serviceId: string;
@@ -665,9 +665,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         ...cardData.actions.navigation_params
       });
     } else if (cardData.actions.primary_action === 'view_details') {
-      navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
+      const cleanerId = cardData.provider?.cleaner_id || cardData.actions?.navigation_params?.cleanerId || cardData.id;
+      navigation.navigate('CleanerProfile', { cleanerId });
     } else if (cardData.actions.primary_action === 'book_now') {
-      navigation.navigate('SimpleBookingFlow', {
+      navigation.navigate('NewBookingFlow', {
         serviceId: cardData.id,
         serviceName: cardData.title,
         basePrice: cardData.pricing.base_price ? cardData.pricing.base_price / 100 : 0,
@@ -683,15 +684,22 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   };
 
   const handleVideoPress = (cardData: ServiceCardData) => {
-    console.log('🔍 Discover: Navigating to DEMO CleanerProfile');
-    navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1', highlightVideo: cardData.id });
+    console.log('🎬 Discover: Opening video in feed mode:', cardData.id);
+    
+    // Navigate to VideoFeed with featured videos
+    // Pass the featured videos array and the initial video to start on
+    navigation.navigate('VideoFeed' as any, {
+      source: 'featured',
+      initialVideoId: cardData.id,
+      videos: featuredVideos.map(v => ({ id: v.id })), // Pass video IDs for ordering
+    });
   };
 
   const renderTrendingCleanerCard = (cleaner: CategoryCleaner) => (
     <TouchableOpacity 
       key={cleaner.id} 
       style={styles.trendingCleanerCard}
-      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
+      onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleaner.id })}
       activeOpacity={0.7}
     >
       <View style={styles.trendingCleanerImageContainer}>

@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 import { ApiResponse } from '../types/api';
 
+// Supabase URL for Edge Functions
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://kluwipcdwaaeqxjmbcti.supabase.co';
+
 // Stripe configuration - uses environment variables
 const STRIPE_CONFIG = {
   // Publishable key is safe on client - loaded from env
@@ -8,9 +11,9 @@ const STRIPE_CONFIG = {
   // Secret key should NEVER be on client - handled by Supabase Edge Functions
   // webhookSecret is handled server-side in Supabase Edge Functions
   
-  // Platform fee configuration (30% platform, 70% cleaner)
-  platformFeePercentage: 0.30,
-  cleanerRetentionPercentage: 0.70,
+  // Platform fee configuration (19% platform fee + 9% customer fee)
+  platformFeeBps: 1900, // 19%
+  customerFeeBps: 900,  // 9%
   
   // Minimum amounts
   minimumAmount: 1000, // $10.00 in cents
@@ -348,7 +351,7 @@ class StripeService {
     }
   }
 
-  // Create payment intent for booking
+  // Create payment intent for booking via Supabase Edge Function
   async createPaymentIntent(
     bookingId: string,
     amount: number,
@@ -357,63 +360,67 @@ class StripeService {
     tip: number = 0
   ): Promise<ApiResponse<PaymentIntent>> {
     try {
-      const breakdown = this.calculatePaymentBreakdown(amount, tip);
-
-      if (breakdown.total < STRIPE_CONFIG.minimumAmount) {
+      if (amount < STRIPE_CONFIG.minimumAmount) {
         throw new Error(`Minimum payment amount is $${STRIPE_CONFIG.minimumAmount / 100}`);
       }
 
-      // Create payment intent via backend
-      const response = await fetch('/api/stripe/create-payment-intent', {
+      // Call Supabase Edge Function to create payment intent
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/create-payment-intent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${await this.getAuthToken()}`,
         },
         body: JSON.stringify({
-          booking_id: bookingId,
-          amount: breakdown.total,
-          application_fee_amount: breakdown.platform_fee,
-          transfer_destination: cleanerAccountId,
-          payment_method_id: paymentMethodId,
-          currency: 'usd',
+          bookingId: bookingId,
+          cleanerAccountId: cleanerAccountId,
+          subtotal_cents: amount,
+          tip_cents: tip,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create payment intent');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to create payment intent');
       }
 
       const data = await response.json();
 
-      // Save payment record to database
-      const { error: dbError } = await supabase
-        .from('payments')
-        .insert({
-          booking_id: bookingId,
-          stripe_payment_intent_id: data.id,
-          amount: breakdown.total,
-          platform_fee: breakdown.platform_fee,
-          tip: breakdown.tip,
-          cleaner_amount: breakdown.cleaner_amount,
-          status: 'pending',
-          created_at: new Date().toISOString(),
-        });
-
-      if (dbError) {
-        throw dbError;
-      }
-
       return {
         success: true,
-        data: data as PaymentIntent,
+        data: {
+          id: bookingId,
+          amount: data.amount_cents,
+          currency: 'usd',
+          status: 'requires_payment_method',
+          client_secret: data.clientSecret,
+          application_fee_amount: data.platform_fee_cents,
+        } as PaymentIntent,
       };
     } catch (error) {
+      console.error('Payment intent error:', error);
       return {
         success: false,
         data: null as any,
         error: error instanceof Error ? error.message : 'Failed to create payment intent',
       };
+    }
+  }
+
+  // Get cleaner's Stripe Connect account ID
+  async getCleanerStripeAccountId(cleanerId: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase
+        .from('stripe_connect_accounts')
+        .select('stripe_account_id')
+        .eq('user_id', cleanerId)
+        .eq('charges_enabled', true)
+        .single();
+      
+      if (error || !data) return null;
+      return data.stripe_account_id;
+    } catch {
+      return null;
     }
   }
 

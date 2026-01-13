@@ -80,6 +80,24 @@ class NotificationService {
     });
   }
 
+  // Send follow notification
+  async sendFollowNotification(
+    cleanerId: string,
+    followerUserId: string,
+    followerName: string,
+    followerAvatar?: string
+  ) {
+    return this.sendNotification({
+      type: 'system',
+      title: 'New Follower! 👋',
+      message: `${followerName} started following you`,
+      fromUserId: followerUserId,
+      fromUserName: followerName,
+      fromUserAvatar: followerAvatar,
+      toUserId: cleanerId,
+    });
+  }
+
   // Send booking notification
   async sendBookingNotification(
     bookingId: string,

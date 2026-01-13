@@ -133,16 +133,21 @@ class BookingTemplateService {
         .eq('cleaner_id', cleanerId)
         .eq('is_active', true)
         .eq('is_default', true)
-        .single();
+        .maybeSingle(); // Use maybeSingle to return null instead of error when no rows
 
       if (error) throw error;
+
+      // No template found is not an error - just return success with null data
+      if (!data) {
+        return { success: true, data: null as any };
+      }
 
       return { success: true, data };
     } catch (error) {
       console.error('Error fetching active template:', error);
       return { 
         success: false, 
-        error: error instanceof Error ? error.message : 'No active template found' 
+        error: error instanceof Error ? error.message : 'Failed to fetch template' 
       };
     }
   }

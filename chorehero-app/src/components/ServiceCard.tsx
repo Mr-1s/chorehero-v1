@@ -64,7 +64,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
       case 'list':
         return { width: SCREEN_WIDTH - 40, height: 120 };
       case 'video':
-        return { width: 200, height: 300 };
+        return { width: 180, height: 260 };
       case 'minimal':
         return { width: (SCREEN_WIDTH - 56) / 2, height: 160 };
       default:
@@ -287,7 +287,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         style,
       ]}
       onPress={handlePress}
-      activeOpacity={0.9}
+      activeOpacity={0.95}
     >
       <View style={styles.videoImageContainer}>
         <Image
@@ -295,27 +295,40 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
             uri: imageError ? data.media.fallback_image_url || data.media.primary_image_url : data.media.primary_image_url 
           }}
           style={styles.videoImage}
-          onError={() => setImageError(true)}
+          onLoadStart={() => setImageLoading(true)}
+          onLoad={() => setImageLoading(false)}
+          onError={() => {
+            setImageError(true);
+            setImageLoading(false);
+          }}
+        />
+        
+        {imageLoading && (
+          <View style={styles.videoImageSkeleton}>
+            <ActivityIndicator size="small" color="#3ad3db" />
+          </View>
+        )}
+        
+        {/* Gradient overlay for better text visibility */}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.6)']}
+          style={styles.videoGradientOverlay}
         />
         
         {/* Play button overlay */}
         <View style={styles.playButtonOverlay}>
-          <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
+          <View style={styles.playButtonCircle}>
+            <Ionicons name="play" size={24} color="#ffffff" style={{ marginLeft: 3 }} />
+          </View>
         </View>
         
         {/* Engagement stats positioned at bottom left of image */}
         {data.engagement && (
           <View style={styles.videoEngagementOverlay}>
-            <View style={styles.engagementStat}>
-              <Ionicons name="eye" size={12} color="#ffffff" />
-              <Text style={styles.engagementText}>{data.engagement.view_display}</Text>
+            <View style={styles.videoEngagementStat}>
+              <Ionicons name="eye-outline" size={14} color="#ffffff" />
+              <Text style={styles.videoEngagementText}>{data.engagement.view_display}</Text>
             </View>
-            {data.engagement.like_count > 0 && (
-              <View style={styles.engagementStat}>
-                <Ionicons name="heart" size={12} color="#ffffff" />
-                <Text style={styles.engagementText}>{data.engagement.like_count}</Text>
-              </View>
-            )}
           </View>
         )}
       </View>
@@ -324,7 +337,32 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
         <Text style={styles.videoTitle} numberOfLines={2}>
           {data.title}
         </Text>
-        {renderProviderInfo()}
+        
+        {data.provider && (
+          <View style={styles.videoProviderContainer}>
+            <Image 
+              source={{ 
+                uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
+              }}
+              style={styles.videoProviderAvatar}
+            />
+            <View style={styles.videoProviderInfo}>
+              <Text style={styles.videoProviderName} numberOfLines={1}>
+                {data.provider.cleaner_name}
+              </Text>
+              {data.provider.specialties && data.provider.specialties.length > 0 && (
+                <Text style={styles.videoProviderSpecialty} numberOfLines={1}>
+                  {data.provider.specialties[0]}
+                </Text>
+              )}
+            </View>
+            {data.provider.is_verified && (
+              <View style={styles.videoVerifiedBadge}>
+                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
+              </View>
+            )}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -590,18 +628,39 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
   },
   videoImageContainer: {
     flex: 1,
     position: 'relative',
+    backgroundColor: '#E5E7EB',
   },
   videoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
+  },
+  videoImageSkeleton: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoGradientOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 80,
   },
   playButtonOverlay: {
     position: 'absolute',
@@ -611,30 +670,78 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  playButtonCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   videoContent: {
-    padding: 12,
-    height: 110,
-    justifyContent: 'flex-start',
+    padding: 14,
+    paddingTop: 12,
     backgroundColor: '#FFFFFF',
   },
   videoTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#000000',
+    color: '#1C1C1E',
     lineHeight: 20,
-    marginBottom: 8,
+    marginBottom: 10,
+    letterSpacing: -0.2,
   },
   videoEngagementOverlay: {
     position: 'absolute',
-    bottom: 8,
-    left: 8,
+    bottom: 10,
+    left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  videoEngagementStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  videoEngagementText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  videoProviderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  videoProviderAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 10,
+    borderWidth: 2,
+    borderColor: '#F3F4F6',
+  },
+  videoProviderInfo: {
+    flex: 1,
+  },
+  videoProviderName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 1,
+  },
+  videoProviderSpecialty: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  videoVerifiedBadge: {
+    marginLeft: 4,
   },
 });

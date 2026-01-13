@@ -85,7 +85,7 @@ const ContentScreenNew: React.FC<ContentScreenProps> = ({ navigation }) => {
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         allowsEditing: true,
         quality: 0.8,
-        videoMaxDuration: 60,
+        videoMaxDuration: 45, // 30-45 seconds max
       });
 
       if (!result.canceled && result.assets[0]) {

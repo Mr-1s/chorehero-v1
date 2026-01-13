@@ -9,6 +9,8 @@ import {
   Image,
   Animated,
   Dimensions,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +18,7 @@ import { BlurView } from 'expo-blur';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
+import { supabase } from '../../services/supabase';
 
 type TabParamList = {
   Home: undefined;
@@ -42,30 +45,112 @@ const { width, height } = Dimensions.get('window');
 const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) => {
   const { bookingId } = route.params;
   
+  const [loading, setLoading] = useState(true);
+  const [booking, setBooking] = useState<any>(null);
+  const [cleaner, setCleaner] = useState<any>(null);
   const [eta, setETA] = useState(18); // minutes
   const [cleanerLocation, setCleanerLocation] = useState({
     latitude: 37.7849,
     longitude: -122.4094,
   });
-  const [customerLocation] = useState({
+  const [customerLocation, setCustomerLocation] = useState({
     latitude: 37.7949,
     longitude: -122.4194,
   });
+  const [bookingStatus, setBookingStatus] = useState<string>('confirmed');
 
   const cardSlideAnim = useRef(new Animated.Value(300)).current;
   const etaUpdateAnim = useRef(new Animated.Value(1)).current;
 
-  // Mock cleaner data
-  const cleaner = {
-    id: '1',
-    name: 'Sarah Martinez',
-    avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-    rating: 4.9,
-    status: 'On the way',
-    vehicle: 'Honda Civic - ABC 123',
+  // Fetch real booking and cleaner data
+  useEffect(() => {
+    const loadBookingData = async () => {
+      try {
+        setLoading(true);
+        console.log('📍 Loading booking data for:', bookingId);
+
+        // Fetch booking with cleaner data
+        const { data: bookingData, error: bookingError } = await supabase
+          .from('bookings')
+          .select(`
+            *,
+            cleaner:users!bookings_cleaner_id_fkey(
+              id,
+              name,
+              avatar_url,
+              phone
+            )
+          `)
+          .eq('id', bookingId)
+          .single();
+
+        if (bookingError) {
+          console.error('❌ Error fetching booking:', bookingError);
+          setBooking(null);
+          setCleaner(null);
+        } else if (bookingData) {
+          setBooking(bookingData);
+          setBookingStatus(bookingData.status);
+          
+          // Fetch cleaner profile separately
+          const { data: profileData } = await supabase
+            .from('cleaner_profiles')
+            .select('rating_average')
+            .eq('user_id', bookingData.cleaner_id)
+            .maybeSingle();
+          
+          setCleaner({
+            id: bookingData.cleaner?.id,
+            name: bookingData.cleaner?.name || 'Your Cleaner',
+            avatar: bookingData.cleaner?.avatar_url,
+            rating: profileData?.rating_average || 0,
+            status: getStatusLabel(bookingData.status),
+            phone: bookingData.cleaner?.phone,
+          });
+        }
+      } catch (error) {
+        console.error('❌ Error loading booking:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadBookingData();
+
+    // Subscribe to booking status updates
+    const subscription = supabase
+      .channel(`booking-${bookingId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `id=eq.${bookingId}`,
+      }, (payload) => {
+        console.log('📍 Booking updated:', payload.new);
+        setBookingStatus(payload.new.status);
+        setCleaner(prev => prev ? { ...prev, status: getStatusLabel(payload.new.status) } : null);
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [bookingId]);
+
+  const getStatusLabel = (status: string): string => {
+    switch (status) {
+      case 'confirmed': return 'Confirmed';
+      case 'cleaner_en_route': return 'On the way';
+      case 'cleaner_arrived': return 'Arrived';
+      case 'in_progress': return 'Cleaning';
+      case 'completed': return 'Completed';
+      default: return 'Pending';
+    }
   };
 
   useEffect(() => {
+    if (loading) return;
+
     // Slide in the floating card
     Animated.timing(cardSlideAnim, {
       toValue: 0,
@@ -73,11 +158,10 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
       useNativeDriver: true,
     }).start();
 
-    // Simulate real-time ETA updates
+    // ETA updates (in production, this would come from real location data)
     const etaInterval = setInterval(() => {
       setETA(prev => {
-        if (prev > 1) {
-          // Animate ETA update
+        if (prev > 1 && bookingStatus === 'cleaner_en_route') {
           Animated.sequence([
             Animated.timing(etaUpdateAnim, {
               toValue: 1.1,
@@ -94,36 +178,44 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         }
         return prev;
       });
-    }, 60000); // Update every minute
+    }, 60000);
 
-    // Simulate cleaner movement
+    // Note: In production, cleaner location would come from real-time GPS tracking
+    // For now, simulate movement when en route
     const locationInterval = setInterval(() => {
-      setCleanerLocation(prev => ({
-        latitude: prev.latitude + (Math.random() - 0.5) * 0.001,
-        longitude: prev.longitude + (Math.random() - 0.5) * 0.001,
-      }));
+      if (bookingStatus === 'cleaner_en_route') {
+        setCleanerLocation(prev => ({
+          latitude: prev.latitude + (customerLocation.latitude - prev.latitude) * 0.02,
+          longitude: prev.longitude + (customerLocation.longitude - prev.longitude) * 0.02,
+        }));
+      }
     }, 5000);
 
     return () => {
       clearInterval(etaInterval);
       clearInterval(locationInterval);
     };
-  }, []);
+  }, [loading, bookingStatus]);
 
   const handleBackPress = () => {
     navigation.goBack();
   };
 
   const handleMessageCleaner = () => {
-    navigation.navigate('IndividualChat', { 
-      cleanerId: cleaner.id, 
-      bookingId 
-    });
+    if (cleaner?.id) {
+      navigation.navigate('IndividualChat', { 
+        cleanerId: cleaner.id, 
+        bookingId 
+      });
+    }
   };
 
   const handleCallCleaner = () => {
-    // Handle phone call
-    console.log('Calling cleaner...');
+    if (cleaner?.phone) {
+      Linking.openURL(`tel:${cleaner.phone}`);
+    } else {
+      console.log('No phone number available');
+    }
   };
 
   const mapRegion = {
@@ -132,6 +224,31 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     latitudeDelta: 0.02,
     longitudeDelta: 0.02,
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={{ marginTop: 16, color: COLORS.textGray }}>Loading tracking info...</Text>
+      </View>
+    );
+  }
+
+  // Show error if no cleaner data
+  if (!cleaner) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', padding: 20 }]}>
+        <Ionicons name="alert-circle-outline" size={64} color={COLORS.textGray} />
+        <Text style={{ marginTop: 16, color: COLORS.textGray, fontSize: 18, textAlign: 'center' }}>
+          Unable to load booking details
+        </Text>
+        <TouchableOpacity onPress={handleBackPress} style={{ marginTop: 20, padding: 16, backgroundColor: COLORS.primary, borderRadius: 12 }}>
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

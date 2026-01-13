@@ -138,59 +138,10 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           setUnreadCount(0);
         }
       } else {
-        // Demo user or USE_MOCK_DATA is true - show mock data
-        console.log('📱 Loading mock conversations');
-        
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        const mockConversations = [
-          {
-            id: '1',
-            participant: {
-              id: 'cleaner1',
-              name: 'Maria Garcia',
-              avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-              role: 'cleaner' as const,
-            },
-            lastMessage: 'See you at 2pm! 😊',
-            lastTimestamp: '10:12 AM',
-            unreadCount: 2,
-            bookingId: 'booking1',
-          },
-          {
-            id: '2',
-            participant: {
-              id: 'cleaner2',
-              name: 'Sarah Johnson',
-              avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-              role: 'cleaner' as const,
-            },
-            lastMessage: 'Thank you for the tip!',
-            lastTimestamp: 'Yesterday',
-            unreadCount: 0,
-            bookingId: 'booking2',
-          },
-          {
-            id: '3',
-            participant: {
-              id: 'customer1',
-              name: 'John Doe',
-              avatar: 'https://randomuser.me/api/portraits/men/45.jpg',
-              role: 'customer' as const,
-            },
-            lastMessage: 'Can you come earlier?',
-            lastTimestamp: 'Mon',
-            unreadCount: 1,
-            bookingId: 'booking3',
-          },
-        ];
-        
-        setConversations(mockConversations);
-        
-        // Calculate total unread count
-        const totalUnread = mockConversations.reduce((sum, conv) => sum + conv.unreadCount, 0);
-        setUnreadCount(totalUnread);
+        // No authenticated user - show empty state
+        console.log('📱 No authenticated user - showing empty state');
+        setConversations([]);
+        setUnreadCount(0);
       }
     } catch (error) {
       console.error('❌ Error loading conversations:', error);
@@ -210,7 +161,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
       style={styles.conversationCard}
-      onPress={() => navigation.navigate('ChatScreen', {
+      onPress={() => navigation.navigate('IndividualChat', {
         bookingId: item.bookingId,
         otherParticipant: {
           id: item.participant.id,

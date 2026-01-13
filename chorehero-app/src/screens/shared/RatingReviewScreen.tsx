@@ -19,6 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 type TabParamList = {
   Home: undefined;
@@ -53,6 +55,7 @@ const { width } = Dimensions.get('window');
 
 const RatingReviewScreen: React.FC<RatingReviewProps> = ({ navigation, route }) => {
   const { bookingId, cleaner, service } = route.params;
+  const { user } = useAuth();
   
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
@@ -117,6 +120,11 @@ const RatingReviewScreen: React.FC<RatingReviewProps> = ({ navigation, route }) 
       return;
     }
 
+    if (!user?.id) {
+      Alert.alert('Error', 'Please log in to submit a review.');
+      return;
+    }
+
     setIsSubmitting(true);
     
     // Animate submit button
@@ -133,15 +141,76 @@ const RatingReviewScreen: React.FC<RatingReviewProps> = ({ navigation, route }) 
       }),
     ]).start();
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      console.log('📝 Submitting review for booking:', bookingId);
+
+      // Save review to database
+      const { data: reviewData, error: reviewError } = await supabase
+        .from('reviews')
+        .insert({
+          booking_id: bookingId,
+          reviewer_id: user.id,
+          reviewee_id: cleaner?.id,
+          rating: rating,
+          comment: review.trim() || null,
+          review_type: 'customer_to_cleaner',
+        })
+        .select()
+        .single();
+
+      if (reviewError) {
+        console.error('❌ Error saving review:', reviewError);
+        // If reviews table doesn't exist, try updating booking directly
+        if (reviewError.code === 'PGRST204' || reviewError.code === '42P01') {
+          console.log('📝 Reviews table not found, updating booking with rating...');
+          await supabase
+            .from('bookings')
+            .update({ 
+              customer_rating: rating,
+              customer_review: review.trim() || null 
+            })
+            .eq('id', bookingId);
+        } else {
+          throw reviewError;
+        }
+      }
+
+      // Update cleaner's average rating
+      if (cleaner?.id) {
+        // Get all reviews for this cleaner
+        const { data: allReviews } = await supabase
+          .from('reviews')
+          .select('rating')
+          .eq('reviewee_id', cleaner.id);
+
+        if (allReviews && allReviews.length > 0) {
+          const avgRating = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length;
+          
+          await supabase
+            .from('cleaner_profiles')
+            .update({ 
+              rating_average: Math.round(avgRating * 10) / 10,
+              total_reviews: allReviews.length 
+            })
+            .eq('user_id', cleaner.id);
+        }
+      }
+
+      console.log('✅ Review submitted successfully');
+      
       setIsSubmitting(false);
-      navigation.navigate('ServiceComplete', {
-        bookingId,
-        rating,
-        review: review.trim(),
-      });
-    }, 2000);
+      
+      Alert.alert(
+        'Thank You! 🎉',
+        'Your review has been submitted successfully.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+
+    } catch (error) {
+      console.error('❌ Error submitting review:', error);
+      setIsSubmitting(false);
+      Alert.alert('Error', 'Failed to submit review. Please try again.');
+    }
   };
 
   const handleSkip = () => {
@@ -188,7 +257,7 @@ const RatingReviewScreen: React.FC<RatingReviewProps> = ({ navigation, route }) 
                 </View>
                 <View style={styles.completedInfo}>
                   <Text style={styles.completedTitle}>Service Completed!</Text>
-                  <Text style={styles.completedSubtitle}>{service.title}</Text>
+                  <Text style={styles.completedSubtitle}>{service?.title || service?.name || 'Service'}</Text>
                   <Text style={styles.completedTime}>{service.completedAt}</Text>
                 </View>
               </View>

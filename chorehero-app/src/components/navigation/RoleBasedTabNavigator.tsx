@@ -24,8 +24,7 @@ import CleanerMessagesScreen from '../../screens/cleaner/MessagesScreenNew';
 import DiscoverScreen from '../../screens/shared/DiscoverScreen';
 import MessagesScreen from '../../screens/shared/MessagesScreen';
 import BookingScreen from '../../screens/shared/BookingScreen';
-import BookingFlowScreen from '../../screens/shared/BookingFlowScreen';
-import DynamicBookingScreen from '../../screens/booking/DynamicBookingScreen';
+import NewBookingFlowScreen from '../../screens/booking/NewBookingFlowScreen';
 import VideoFeedScreen from '../../screens/shared/VideoFeedScreen';
 import ContentCreationScreen from '../../screens/shared/ContentCreationScreen';
 import UserProfileScreen from '../../screens/shared/UserProfileScreen';
@@ -47,8 +46,7 @@ const Stack = createStackNavigator<any>();
 const CustomerDiscoverStack = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Discover" component={DiscoverScreen as any} />
-      <Stack.Screen name="BookingFlow" component={BookingFlowScreen as any} />
-      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen as any} />
+      <Stack.Screen name="BookingFlow" component={NewBookingFlowScreen as any} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
   </Stack.Navigator>
 );
@@ -75,8 +73,7 @@ const CustomerNavigator = () => {
       <Stack.Screen name="Dashboard" component={CustomerDashboardScreen as any} />
       <Stack.Screen name="Bookings" component={BookingScreen as any} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
-      <Stack.Screen name="BookingFlow" component={BookingFlowScreen as any} />
-      <Stack.Screen name="DynamicBooking" component={DynamicBookingScreen as any} />
+      <Stack.Screen name="BookingFlow" component={NewBookingFlowScreen as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />

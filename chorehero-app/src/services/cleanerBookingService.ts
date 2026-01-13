@@ -22,12 +22,7 @@ interface RawBooking {
   total_amount: number;
   cleaner_earnings: number | null;
   created_at: string;
-  address: {
-    street: string;
-    city: string;
-    state: string;
-    zip_code: string;
-  } | null;
+  address: string | null; // Text field with full address
   customer: {
     id: string;
     name: string;
@@ -53,9 +48,7 @@ class CleanerBookingService {
       scheduledAt: raw.scheduled_time,
       durationMinutes: raw.estimated_duration,
       distanceMiles: 2.5, // TODO: Calculate from cleaner location
-      addressLine1: raw.address 
-        ? `${raw.address.street}, ${raw.address.city}` 
-        : 'Address not provided',
+      addressLine1: raw.address || 'Address not provided',
       hasSpecialRequests: !!raw.special_instructions,
       specialRequestText: raw.special_instructions || undefined,
       totalPrice: parseFloat(String(raw.total_amount)) || 0,
@@ -107,8 +100,9 @@ class CleanerBookingService {
         .eq('user_id', cleanerId)
         .single();
 
-      // Fetch pending bookings that don't have a cleaner assigned yet
-      // In production, filter by distance from cleaner's location
+      // Fetch pending bookings:
+      // 1. Bookings directly assigned to this cleaner with 'pending' status
+      // 2. OR open bookings with no cleaner assigned (marketplace mode)
       const { data, error } = await supabase
         .from('bookings')
         .select(`
@@ -123,19 +117,14 @@ class CleanerBookingService {
           total_amount,
           cleaner_earnings,
           created_at,
-          address:addresses!address_id(
-            street,
-            city,
-            state,
-            zip_code
-          ),
+          address,
           customer:users!customer_id(
             id,
             name,
             avatar_url
           )
         `)
-        .is('cleaner_id', null)
+        .or(`cleaner_id.eq.${cleanerId},cleaner_id.is.null`)
         .eq('status', 'pending')
         .gte('scheduled_time', new Date().toISOString())
         .order('scheduled_time', { ascending: true })
@@ -154,7 +143,8 @@ class CleanerBookingService {
   }
 
   /**
-   * Get active bookings for a cleaner (jobs they've accepted)
+   * Get active bookings for a cleaner (confirmed + in-progress jobs)
+   * Note: 'pending' status bookings appear in Available Jobs, not here
    */
   async getActiveBookings(cleanerId: string): Promise<Booking[]> {
     try {
@@ -172,12 +162,7 @@ class CleanerBookingService {
           total_amount,
           cleaner_earnings,
           created_at,
-          address:addresses!address_id(
-            street,
-            city,
-            state,
-            zip_code
-          ),
+          address,
           customer:users!customer_id(
             id,
             name,
@@ -185,7 +170,7 @@ class CleanerBookingService {
           )
         `)
         .eq('cleaner_id', cleanerId)
-        .in('status', ['confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
+        .in('status', ['confirmed', 'cleaner_assigned', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
         .order('scheduled_time', { ascending: true });
 
       if (error) {
@@ -219,12 +204,7 @@ class CleanerBookingService {
           total_amount,
           cleaner_earnings,
           created_at,
-          address:addresses!address_id(
-            street,
-            city,
-            state,
-            zip_code
-          ),
+          address,
           customer:users!customer_id(
             id,
             name,

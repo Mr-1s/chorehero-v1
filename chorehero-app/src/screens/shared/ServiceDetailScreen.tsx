@@ -25,9 +25,12 @@ type RootStackParamList = {
     category: string;
   };
   CleanerProfile: { cleanerId: string };
-  SimpleBookingFlow: {
-    cleanerId: string;
-    serviceName: string;
+  NewBookingFlow: {
+    cleanerId?: string;
+    serviceName?: string;
+    serviceType?: string;
+    basePrice?: number;
+    duration?: number;
     fromServiceDetail?: boolean;
   };
 };
@@ -185,7 +188,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
     return (
       <TouchableOpacity 
         style={styles.cleanerCard}
-        onPress={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
+        onPress={() => navigation.navigate('CleanerProfile', { cleanerId: cleaner.id })}
         activeOpacity={0.9}
       >
         {/* Media Section */}
@@ -275,7 +278,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
               style={styles.viewProfileButton}
               onPress={(e) => {
                 e.stopPropagation();
-                navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
+                navigation.navigate('CleanerProfile', { cleanerId: cleaner.id });
               }}
             >
               <Text style={styles.viewProfileButtonText}>View Profile</Text>
@@ -286,10 +289,10 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
               onPress={(e) => {
                 e.stopPropagation();
                 console.log('🎯 Booking from service detail:', cleaner.name);
-                navigation.navigate('SimpleBookingFlow', {
+                navigation.navigate('NewBookingFlow', {
                   cleanerId: cleaner.id,
                   serviceName: serviceName,
-                  fromServiceDetail: true
+                  serviceType: category
                 });
               }}
             >

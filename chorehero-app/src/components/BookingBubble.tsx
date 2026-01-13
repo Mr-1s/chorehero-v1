@@ -23,21 +23,19 @@ function BookingBubbleBase(props: BookingBubbleProps) {
       {/* Price */}
       <View style={styles.priceBlock}>
         <StabilizedText fontSize={compact ? 10 : 12} style={styles.priceLabel} numberOfLines={1}>Starting</StabilizedText>
-        <StabilizedText fontSize={compact ? 16 : 20} style={styles.priceValue} numberOfLines={1}>${hourlyRate}/{compact ? 'h' : 'hr'}</StabilizedText>
+        <StabilizedText fontSize={compact ? 16 : 20} style={styles.priceValue} numberOfLines={1}>
+          {hourlyRate > 0 ? `$${hourlyRate}/${compact ? 'h' : 'hr'}` : 'Contact'}
+        </StabilizedText>
       </View>
 
-      {/* Stats (rating + optional duration) */}
+      {/* Rating Only */}
       <View style={styles.statsBlock}>
         <View style={styles.statItem}>
-          <Ionicons name="star" size={compact ? 12 : 14} color="#FFA500"/>
-          <StabilizedText fontSize={compact ? 10 : 12} style={styles.statText} numberOfLines={1}>{rating}</StabilizedText>
+          <Ionicons name="star" size={compact ? 16 : 18} color="#FFA500"/>
+          <StabilizedText fontSize={compact ? 15 : 17} style={styles.statText} numberOfLines={1}>
+            {rating > 0 ? rating : 'New'}
+          </StabilizedText>
         </View>
-        {!compact && (
-          <View style={styles.statItem}>
-            <Ionicons name="time-outline" size={14} color="#6B7280"/>
-            <StabilizedText fontSize={12} style={styles.statText} numberOfLines={1}>{duration}</StabilizedText>
-          </View>
-        )}
       </View>
 
       <View style={styles.ctaBlock}>
@@ -82,48 +80,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.98)',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.3)',
     width: '100%',
+    // Enhanced depth
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
   },
   priceBlock: {
-    flexBasis: '30%',
-    maxWidth: '36%',
-    flexShrink: 1,
-    minWidth: 0,
-    marginRight: 6,
+    flexShrink: 0,
   },
   priceLabel: {
     color: '#6B7280',
     fontWeight: '600',
   },
   priceValue: {
-    color: '#0A1A2A',
-    fontWeight: '900',
+    color: '#1F2937',
+    fontWeight: '800',
   },
   statsBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    flexShrink: 1,
-    flex: 1,
-    minWidth: 0,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    minWidth: 0,
+    gap: 5,
   },
   statText: {
-    color: '#6B7280',
+    color: '#374151',
     fontWeight: '700',
-    maxWidth: 80,
   },
   ctaBlock: {
     flexDirection: 'row',
@@ -132,19 +127,28 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   infoButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1.5,
     borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   bookButton: {
-    backgroundColor: '#00D4AA',
+    backgroundColor: '#3AD3DB',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
-    minWidth: 120,
+    gap: 6,
+    shadowColor: '#3AD3DB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   bookText: {
     color: '#FFFFFF',

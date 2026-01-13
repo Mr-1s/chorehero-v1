@@ -19,6 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 const { width } = Dimensions.get('window');
 
@@ -98,133 +100,197 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [savedServices, setSavedServices] = useState<SavedService[]>([]);
-  const [userName, setUserName] = useState('John');
+  const [userName, setUserName] = useState('');
+  const { user } = useAuth();
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
+  }, [user?.id]);
 
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
-      if (true) { // Show mock data for demo purposes
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const mockUpcomingBookings: Booking[] = [
-          {
-            id: '1',
-            status: 'upcoming',
-            cleaner: {
-              id: 'cleaner1',
-              name: 'Maria Garcia',
-              avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-              rating: 4.9,
-            },
-            service: {
-              type: 'standard',
-              title: 'Standard Clean',
-              duration: 120,
-            },
-            schedule: {
-              date: 'Today',
-              time: '2:00 PM',
-            },
-            location: {
-              address: '456 Oak Ave, San Francisco, CA',
-            },
-            payment: {
-              total: 85.00,
-            },
-          },
-          {
-            id: '2',
-            status: 'upcoming',
-            cleaner: {
-              id: 'cleaner2',
-              name: 'Sarah Johnson',
-              avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-              rating: 4.8,
-            },
-            service: {
-              type: 'deep',
-              title: 'Deep Clean',
-              duration: 210,
-            },
-            schedule: {
-              date: 'Tomorrow',
-              time: '10:00 AM',
-            },
-            location: {
-              address: '456 Oak Ave, San Francisco, CA',
-            },
-            payment: {
-              total: 165.00,
-            },
-          },
-        ];
+      // Set user name
+      if (user?.name) {
+        setUserName(user.name.split(' ')[0]);
+      }
 
-        const mockRecentBookings: Booking[] = [
-          {
-            id: '3',
-            status: 'completed',
-            cleaner: {
-              id: 'cleaner1',
-              name: 'Maria Garcia',
-              avatar: 'https://randomuser.me/api/portraits/women/32.jpg',
-              rating: 4.9,
-            },
-            service: {
-              type: 'standard',
-              title: 'Standard Clean',
-              duration: 120,
-            },
-            schedule: {
-              date: 'Dec 15',
-              time: '2:00 PM',
-            },
-            location: {
-              address: '456 Oak Ave, San Francisco, CA',
-            },
-            payment: {
-              total: 85.00,
-            },
-          },
-        ];
-
-        const mockSavedServices: SavedService[] = [
-          {
-            id: '1',
-            title: 'Weekly Standard Clean',
-            lastUsed: '3 days ago',
-            frequency: 'Weekly',
-            price: 85.00,
-            cleanerId: 'cleaner1',
-            cleanerName: 'Maria Garcia',
-          },
-          {
-            id: '2',
-            title: 'Monthly Deep Clean',
-            lastUsed: '2 weeks ago',
-            frequency: 'Monthly',
-            price: 165.00,
-            cleanerId: 'cleaner2',
-            cleanerName: 'Sarah Johnson',
-          },
-        ];
-
-        setUpcomingBookings(mockUpcomingBookings);
-        setRecentBookings(mockRecentBookings);
-        setSavedServices(mockSavedServices);
-        setUserName('John');
-      } else {
-        // Real mode: show empty states (or fetch from backend if available)
+      if (!user?.id) {
+        // No user - show empty state
         setUpcomingBookings([]);
         setRecentBookings([]);
         setSavedServices([]);
-        setUserName('');
+        setIsLoading(false);
+        return;
       }
+
+      console.log('📊 Loading dashboard for user:', user.id);
+
+      // Fetch upcoming bookings (pending, confirmed)
+      const { data: upcomingData, error: upcomingError } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          service_type,
+          status,
+          scheduled_time,
+          estimated_duration,
+          total_amount,
+          address,
+          special_requests,
+          cleaner_id,
+          cleaner:users!bookings_cleaner_id_fkey(
+            id,
+            name,
+            avatar_url
+          )
+        `)
+        .eq('customer_id', user.id)
+        .in('status', ['pending', 'confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
+        .order('scheduled_time', { ascending: true })
+        .limit(5);
+
+      if (upcomingError) {
+        console.error('❌ Error fetching upcoming bookings:', upcomingError);
+      }
+
+      // Fetch cleaner profiles for ratings
+      const cleanerIds = [...new Set((upcomingData || []).map((b: any) => b.cleaner_id).filter(Boolean))];
+      const { data: profiles } = cleanerIds.length > 0 
+        ? await supabase.from('cleaner_profiles').select('user_id, rating_average').in('user_id', cleanerIds)
+        : { data: [] };
+      const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+
+      // Transform upcoming bookings
+      const transformedUpcoming: Booking[] = (upcomingData || []).map((booking: any) => {
+        const scheduledDate = new Date(booking.scheduled_time);
+        const now = new Date();
+        const isToday = scheduledDate.toDateString() === now.toDateString();
+        const isTomorrow = scheduledDate.toDateString() === new Date(now.getTime() + 86400000).toDateString();
+        
+        let dateLabel = scheduledDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (isToday) dateLabel = 'Today';
+        else if (isTomorrow) dateLabel = 'Tomorrow';
+
+        const cleanerProfile = profileMap.get(booking.cleaner_id);
+
+        return {
+          id: booking.id,
+          status: 'upcoming' as const,
+          cleaner: {
+            id: booking.cleaner?.id || '',
+            name: booking.cleaner?.name || 'Pending',
+            avatar: booking.cleaner?.avatar_url || '',
+            rating: cleanerProfile?.rating_average || 0,
+          },
+          service: {
+            type: booking.service_type || 'standard',
+            title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
+            duration: booking.estimated_duration || 120,
+          },
+          schedule: {
+            date: dateLabel,
+            time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+          location: {
+            address: booking.address || 'Address pending',
+          },
+          payment: {
+            total: booking.total_amount || 0,
+          },
+        };
+      });
+
+      setUpcomingBookings(transformedUpcoming);
+
+      // Fetch recent completed bookings
+      const { data: recentData } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          service_type,
+          scheduled_time,
+          estimated_duration,
+          total_amount,
+          address,
+          special_requests,
+          cleaner_id,
+          cleaner:users!bookings_cleaner_id_fkey(
+            id,
+            name,
+            avatar_url
+          )
+        `)
+        .eq('customer_id', user.id)
+        .eq('status', 'completed')
+        .order('scheduled_time', { ascending: false })
+        .limit(3);
+
+      // Get profiles for recent bookings too
+      const recentCleanerIds = [...new Set((recentData || []).map((b: any) => b.cleaner_id).filter(Boolean))];
+      const { data: recentProfiles } = recentCleanerIds.length > 0 
+        ? await supabase.from('cleaner_profiles').select('user_id, rating_average').in('user_id', recentCleanerIds)
+        : { data: [] };
+      const recentProfileMap = new Map((recentProfiles || []).map((p: any) => [p.user_id, p]));
+
+      const transformedRecent: Booking[] = (recentData || []).map((booking: any) => {
+        const scheduledDate = new Date(booking.scheduled_time);
+        const cleanerProfile = recentProfileMap.get(booking.cleaner_id);
+
+        return {
+          id: booking.id,
+          status: 'completed' as const,
+          cleaner: {
+            id: booking.cleaner?.id || '',
+            name: booking.cleaner?.name || 'Cleaner',
+            avatar: booking.cleaner?.avatar_url || '',
+            rating: cleanerProfile?.rating_average || 0,
+          },
+          service: {
+            type: booking.service_type || 'standard',
+            title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
+            duration: booking.estimated_duration || 120,
+          },
+          schedule: {
+            date: scheduledDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+          location: {
+            address: booking.address || '',
+          },
+          payment: {
+            total: booking.total_amount || 0,
+          },
+        };
+      });
+
+      setRecentBookings(transformedRecent);
+
+      // Set saved services from recent bookings for quick rebook
+      if (transformedRecent.length > 0) {
+        setSavedServices(transformedRecent.slice(0, 2).map(b => ({
+          id: b.id,
+          title: b.service.title,
+          lastUsed: b.schedule.date,
+          frequency: 'One-time',
+          price: b.payment.total,
+          cleanerId: b.cleaner.id,
+          cleanerName: b.cleaner.name,
+        })));
+      } else {
+        setSavedServices([]);
+      }
+
+      console.log('✅ Dashboard loaded:', {
+        upcoming: transformedUpcoming.length,
+        recent: transformedRecent.length,
+      });
     } catch (error) {
+      console.error('❌ Dashboard load error:', error);
       Alert.alert('Error', 'Failed to load dashboard data');
+      setUpcomingBookings([]);
+      setRecentBookings([]);
+      setSavedServices([]);
     } finally {
       setIsLoading(false);
     }
@@ -357,7 +423,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
                 styles.serviceTypeBadge,
                 { backgroundColor: getServiceTypeColor(booking.service.type) }
               ]}>
-                <Text style={styles.serviceTypeText}>{booking.service.title}</Text>
+                <Text style={styles.serviceTypeText}>{booking?.service?.title || booking?.service?.name || 'Service'}</Text>
               </View>
               <View style={styles.cleanerRating}>
                 <Ionicons name="star" size={12} color="#F59E0B" />
@@ -472,7 +538,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
               onPress={() => navigation.navigate('BookingFlow', { cleanerId: service.cleanerId })}
             >
               <View style={styles.savedServiceHeader}>
-                <Text style={styles.savedServiceTitle}>{service.title}</Text>
+                <Text style={styles.savedServiceTitle}>{service?.title || service?.name || 'Service'}</Text>
                 <View style={styles.frequencyBadge}>
                   <Text style={styles.frequencyText}>{service.frequency}</Text>
                 </View>

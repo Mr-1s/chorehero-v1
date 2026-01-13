@@ -20,6 +20,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { useAuth } from '../../hooks/useAuth';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
+import { supabase } from '../../services/supabase';
 
 // Design System - Match VideoFeedScreen tokens
 const DESIGN_TOKENS = {
@@ -86,6 +87,43 @@ const BookingConfirmationScreen = (props: any) => {
   
   // State
   const [estimatedArrival, setEstimatedArrival] = useState('');
+  const [cleanerProfile, setCleanerProfile] = useState<any>(null);
+  const [cleanerUser, setCleanerUser] = useState<any>(null);
+
+  // Fetch real cleaner profile data
+  useEffect(() => {
+    const fetchCleanerProfile = async () => {
+      if (!cleaner?.id) return;
+      
+      try {
+        // Fetch cleaner user data
+        const { data: userData } = await supabase
+          .from('users')
+          .select('id, name, avatar_url')
+          .eq('id', cleaner.id)
+          .single();
+        
+        if (userData) {
+          setCleanerUser(userData);
+        }
+
+        // Fetch cleaner profile data
+        const { data: profileData } = await supabase
+          .from('cleaner_profiles')
+          .select('*')
+          .eq('user_id', cleaner.id)
+          .single();
+        
+        if (profileData) {
+          setCleanerProfile(profileData);
+        }
+      } catch (error) {
+        console.error('Error fetching cleaner profile:', error);
+      }
+    };
+
+    fetchCleanerProfile();
+  }, [cleaner?.id]);
 
   useEffect(() => {
     // Calculate estimated arrival time
@@ -166,7 +204,7 @@ const BookingConfirmationScreen = (props: any) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await Share.share({
-        message: `I just booked a ${service.title} with ChoreHero! My cleaner ${cleaner.name} will arrive at ${estimatedArrival}. 🧹✨`,
+        message: `I just booked a ${service?.name || service?.title || 'cleaning'} with ChoreHero! My cleaner ${cleaner?.name || 'your cleaner'} will arrive at ${estimatedArrival}. 🧹✨`,
         title: 'ChoreHero Booking Confirmed',
       });
     } catch (error) {
@@ -210,22 +248,18 @@ const BookingConfirmationScreen = (props: any) => {
           <Animated.View style={[styles.compactContentContainer, { opacity: contentOpacity, transform: [{ translateY: slideUp }] }]}>
             <Text style={styles.compactSuccessTitle}>Booking Confirmed! 🎉</Text>
             <Text style={styles.compactSuccessSubtitle}>
-              {cleaner.name} will take excellent care of your space.
+              Your cleaner will take excellent care of your space.
             </Text>
             
             {/* Inline Quick Stats */}
             <View style={styles.compactQuickStats}>
               <View style={styles.compactStatItem}>
-                <Ionicons name="time-outline" size={14} color="#059669" />
-                <Text style={styles.compactStatText}>ETA: {estimatedArrival}</Text>
+                <Ionicons name="calendar-outline" size={14} color="#059669" />
+                <Text style={styles.compactStatText}>{scheduledTime || 'Scheduled'}</Text>
               </View>
               <View style={styles.compactStatItem}>
-                <Ionicons name="star" size={14} color="#FFC93C" />
-                <Text style={styles.compactStatText}>{cleaner.rating}</Text>
-              </View>
-              <View style={styles.compactStatItem}>
-                <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
-                <Text style={styles.compactStatText}>Verified</Text>
+                <Ionicons name="location-outline" size={14} color="#3ad3db" />
+                <Text style={styles.compactStatText}>{address ? 'Address Set' : 'TBD'}</Text>
               </View>
             </View>
           </Animated.View>
@@ -240,7 +274,7 @@ const BookingConfirmationScreen = (props: any) => {
               <Ionicons name="home" size={24} color="#3ad3db" />
             </View>
             <View style={styles.serviceInfo}>
-              <Text style={styles.serviceTitle}>{service.title}</Text>
+              <Text style={styles.serviceTitle}>{service?.name || service?.title || 'Cleaning Service'}</Text>
               <Text style={styles.bookingId}>ID: {bookingId.slice(-6).toUpperCase()}</Text>
             </View>
             <View style={styles.statusBadge}>
@@ -250,23 +284,25 @@ const BookingConfirmationScreen = (props: any) => {
 
           {/* Quick actions */}
           <View style={styles.quickActionsContainer}>
-            <TouchableOpacity style={styles.quickActionButton} onPress={handleTrackService} activeOpacity={0.9}>
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleViewBooking} activeOpacity={0.9}>
               <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="navigate-outline" size={20} color="#FFFFFF" />
+                <Ionicons name="calendar-outline" size={20} color="#FFFFFF" />
               </LinearGradient>
-              <Text style={styles.quickActionText}>Track</Text>
+              <Text style={styles.quickActionText}>View</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={() => navigation.navigate('IndividualChat', { cleanerId: cleaner.id, bookingId })} activeOpacity={0.9}>
+            {cleaner?.id && (
+              <TouchableOpacity style={styles.quickActionButton} onPress={() => navigation.navigate('IndividualChat', { cleanerId: cleaner.id, bookingId })} activeOpacity={0.9}>
+                <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFFFFF" />
+                </LinearGradient>
+                <Text style={styles.quickActionText}>Message</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.quickActionButton} onPress={handleGoHome} activeOpacity={0.9}>
               <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFFFFF" />
+                <Ionicons name="home-outline" size={20} color="#FFFFFF" />
               </LinearGradient>
-              <Text style={styles.quickActionText}>Message</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionButton} onPress={handleShareBooking} activeOpacity={0.9}>
-              <LinearGradient colors={["#3ad3db", "#2BC8D4"]} style={styles.quickActionGradient}>
-                <Ionicons name="share-social-outline" size={20} color="#FFFFFF" />
-              </LinearGradient>
-              <Text style={styles.quickActionText}>Share</Text>
+              <Text style={styles.quickActionText}>Home</Text>
             </TouchableOpacity>
           </View>
 
@@ -306,20 +342,37 @@ const BookingConfirmationScreen = (props: any) => {
           {/* Modern Cleaner Card */}
           <View style={styles.uniformBubble}>
             <View style={styles.cleanerHeader}>
-              <Image source={{ uri: cleaner.avatar }} style={styles.modernCleanerAvatar} />
+              {(cleanerUser?.avatar_url || cleaner?.avatar) ? (
+                <Image source={{ uri: cleanerUser?.avatar_url || cleaner?.avatar }} style={styles.modernCleanerAvatar} />
+              ) : (
+                <View style={[styles.modernCleanerAvatar, { backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }]}>
+                  <Ionicons name="person" size={32} color="#9CA3AF" />
+                </View>
+              )}
               <View style={styles.cleanerDetails}>
-                <Text style={styles.modernCleanerName}>{cleaner.name}</Text>
+                <Text style={styles.modernCleanerName}>{cleanerUser?.name || cleaner?.name || 'Your Cleaner'}</Text>
                 <View style={styles.cleanerBadges}>
                   <View style={styles.ratingBadge}>
                         <Ionicons name="star" size={14} color="#FFC93C" />
-                    <Text style={styles.ratingText}>{cleaner.rating}</Text>
+                    <Text style={styles.ratingText}>
+                      {cleanerProfile?.rating_average?.toFixed(1) || cleaner?.rating || 'New'}
+                    </Text>
                       </View>
-                  <View style={styles.verifiedBadge}>
-                    <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
-                    <Text style={styles.verifiedText}>Verified</Text>
-                      </View>
+                  {cleanerProfile?.verification_status === 'verified' && (
+                    <View style={styles.verifiedBadge}>
+                      <Ionicons name="checkmark-circle" size={14} color="#3ad3db" />
+                      <Text style={styles.verifiedText}>Verified</Text>
                     </View>
-                    <Text style={styles.cleanerExperience}>3+ years experience • 500+ happy customers</Text>
+                  )}
+                    </View>
+                    <Text style={styles.cleanerExperience}>
+                      {cleanerProfile?.years_experience 
+                        ? `${cleanerProfile.years_experience}+ years experience` 
+                        : 'Professional cleaner'}
+                      {cleanerProfile?.total_jobs 
+                        ? ` • ${cleanerProfile.total_jobs}+ jobs completed` 
+                        : ''}
+                    </Text>
                    </View>
                 </View>
               </View>

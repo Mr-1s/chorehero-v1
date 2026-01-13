@@ -30,6 +30,8 @@ import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigatio
 import { notificationService } from '../../services/notificationService';
 import { jobService, type JobServiceResponse, type Job } from '../../services/jobService';
 import NetworkStatusIndicator from '../../components/NetworkStatusIndicator';
+import { supabase } from '../../services/supabase';
+import { cleanerBookingService } from '../../services/cleanerBookingService';
 
 const { width } = Dimensions.get('window');
 
@@ -41,7 +43,7 @@ type StackParamList = {
   ScheduleScreen: undefined;
   ActiveJob: { jobId: string };
   ChatScreen: { bookingId: string; otherParticipant: any };
-  SimpleBookingFlow: { serviceId: string; serviceName: string; basePrice: number; duration: number };
+  NewBookingFlow: { serviceId?: string; serviceName?: string; basePrice?: number; duration?: number };
   Profile: undefined;
   Content: undefined;
   CleanerProfileEdit: undefined;
@@ -174,65 +176,125 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
-      // Simulate API calls
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (useDemoData) {
-        // Mock data
-        setTodayEarnings(127.50);
-        setWeeklyEarnings(892.75);
-        setCompletedJobs(23);
-        setRating(4.8);
-        
-        setJobOpportunities([
-        {
-          id: '1',
-          customer_name: 'Sarah Johnson',
-          customer_avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-          service_type: 'Standard Clean',
-          address: '456 Oak Ave, San Francisco',
-          distance: 1.2,
-          estimated_duration: 90,
-          payment: 75.00,
-          scheduled_time: 'Today 2:00 PM',
-          priority: 'high',
-        },
-        {
-          id: '2',
-          customer_name: 'Mike Chen',
-          customer_avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-          service_type: 'Express Clean',
-          address: '789 Pine St, San Francisco',
-          distance: 2.1,
-          estimated_duration: 45,
-          payment: 45.00,
-          scheduled_time: 'Today 4:30 PM',
-          priority: 'medium',
-        },
-      ]);
-
-      // Mock active job
-      setActiveJob({
-        id: 'active-1',
-        customer_name: 'Emma Davis',
-        customer_avatar: 'https://randomuser.me/api/portraits/women/28.jpg',
-        service_type: 'Deep Clean',
-        address: '123 Main St, San Francisco',
-        status: 'in_progress',
-        scheduled_time: 'Today 12:00 PM',
-        payment: 150.00,
-      });
-      } else {
-        // Empty state - no earnings, no jobs
+      if (!user?.id) {
         setTodayEarnings(0);
         setWeeklyEarnings(0);
         setCompletedJobs(0);
         setRating(0);
         setJobOpportunities([]);
         setActiveJob(null);
+        return;
       }
 
+      console.log('📊 Loading cleaner dashboard for:', user.id);
+
+      // Get date ranges
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      // Fetch completed bookings for earnings
+      const { data: completedBookings, error: earningsError } = await supabase
+        .from('bookings')
+        .select('id, total_amount, cleaner_earnings, scheduled_time, completed_at')
+        .eq('cleaner_id', user.id)
+        .eq('status', 'completed');
+
+      if (earningsError) {
+        console.error('❌ Error fetching earnings:', earningsError);
+      }
+
+      // Calculate earnings
+      let todayTotal = 0;
+      let weekTotal = 0;
+      let totalJobs = completedBookings?.length || 0;
+
+      (completedBookings || []).forEach(booking => {
+        const earnings = booking.cleaner_earnings || (booking.total_amount * 0.81) || 0;
+        const completedDate = new Date(booking.completed_at || booking.scheduled_time);
+        
+        if (completedDate >= startOfToday) {
+          todayTotal += earnings;
+        }
+        if (completedDate >= startOfWeek) {
+          weekTotal += earnings;
+        }
+      });
+
+      setTodayEarnings(todayTotal);
+      setWeeklyEarnings(weekTotal);
+      setCompletedJobs(totalJobs);
+
+      // Fetch cleaner profile for rating
+      const { data: profile } = await supabase
+        .from('cleaner_profiles')
+        .select('rating_average')
+        .eq('user_id', user.id)
+        .single();
+
+      setRating(profile?.rating_average || 0);
+
+      // Fetch available jobs using the service
+      const availableJobs = await cleanerBookingService.getAvailableBookings(user.id);
+      
+      // Transform to job opportunities format
+      const opportunities = availableJobs.map(job => ({
+        id: job.id,
+        customer_name: job.customerName,
+        customer_avatar: job.customerAvatarUrl || '',
+        service_type: job.serviceType,
+        address: job.addressLine1,
+        distance: job.distanceMiles,
+        estimated_duration: job.durationMinutes,
+        payment: job.payoutToCleaner,
+        scheduled_time: new Date(job.scheduledAt).toLocaleString([], { 
+          weekday: 'short', 
+          month: 'short', 
+          day: 'numeric',
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        priority: job.isInstant ? 'high' : 'medium' as 'high' | 'medium' | 'low',
+      }));
+
+      setJobOpportunities(opportunities);
+
+      // Fetch active job (in progress)
+      const activeJobs = await cleanerBookingService.getActiveBookings(user.id);
+      const inProgressJob = activeJobs.find(j => 
+        ['in_progress', 'cleaner_arrived', 'cleaner_en_route'].includes(j.status)
+      );
+
+      if (inProgressJob) {
+        setActiveJob({
+          id: inProgressJob.id,
+          customer_name: inProgressJob.customerName,
+          customer_avatar: inProgressJob.customerAvatarUrl || '',
+          service_type: inProgressJob.serviceType,
+          address: inProgressJob.addressLine1,
+          status: inProgressJob.status,
+          scheduled_time: new Date(inProgressJob.scheduledAt).toLocaleString([], {
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          payment: inProgressJob.payoutToCleaner,
+        });
+      } else {
+        setActiveJob(null);
+      }
+
+      console.log('✅ Dashboard loaded:', {
+        todayEarnings: todayTotal,
+        weeklyEarnings: weekTotal,
+        completedJobs: totalJobs,
+        availableJobs: opportunities.length,
+      });
+
     } catch (error) {
+      console.error('❌ Dashboard load error:', error);
       try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load dashboard data' }); } catch {}
     } finally {
       setIsLoading(false);
@@ -658,7 +720,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           <View style={styles.activeJobActions}>
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => navigation.navigate('ChatScreen', { 
+              onPress={() => navigation.navigate('IndividualChat', { 
                 bookingId: activeJob.id,
                 otherParticipant: {
                   id: 'customer-1',
@@ -759,7 +821,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           actions={[
             {
               label: 'Complete Profile',
-              onPress: () => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' }),
+              onPress: () => navigation.navigate('ProfileEdit'),
               icon: 'person'
             },
             {

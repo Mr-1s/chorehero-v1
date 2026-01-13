@@ -290,7 +290,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         },
         {
           text: 'Message',
-          onPress: () => navigation.navigate('ChatScreen', {
+          onPress: () => navigation.navigate('IndividualChat', {
             bookingId: job.id,
             otherParticipant: {
               id: job.customer.id,
@@ -420,7 +420,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Service Details</Text>
           <View style={styles.detailsCard}>
-            <Text style={styles.serviceTitle}>{job.service.title}</Text>
+            <Text style={styles.serviceTitle}>{job?.service?.title || job?.service?.name || 'Service'}</Text>
             
             {job.service.addOns.length > 0 && (
               <View style={styles.addOnsContainer}>

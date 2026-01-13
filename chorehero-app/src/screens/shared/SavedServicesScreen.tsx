@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../services/supabase';
 
 type StackParamList = {
   Home: undefined;
@@ -57,67 +58,115 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
 
   const loadSavedServices = async () => {
     try {
-      // In a real app, this would fetch from the database
-      // For now, we'll use mock data
-      const mockSavedServices: SavedService[] = [
-        {
-          id: '1',
-          title: 'Kitchen Deep Clean',
-          type: 'kitchen',
-          price: 89.25,
-          duration: 120,
-          image: 'https://images.unsplash.com/photo-1563453392212-326d32d2d3b8?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80',
-          cleaner: {
-            id: 'cleaner-1',
-            name: 'Sarah Martinez',
-            avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-            rating: 4.9,
-          },
-          lastBooked: '2 weeks ago',
-          notes: 'Includes appliance cleaning and deep scrub',
-        },
-        {
-          id: '2',
-          title: 'Bathroom Sanitization',
-          type: 'bathroom',
-          price: 65.00,
-          duration: 90,
-          image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80',
-          cleaner: {
-            id: 'cleaner-2',
-            name: 'Maria Lopez',
-            avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-            rating: 4.8,
-          },
-          lastBooked: '1 month ago',
-          notes: 'Anti-bacterial cleaning with premium products',
-        },
-        {
-          id: '3',
-          title: 'Living Room Refresh',
-          type: 'living_room',
-          price: 55.00,
-          duration: 75,
-          image: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?ixlib=rb-4.0.3&auto=format&fit=crop&w=500&q=80',
-          cleaner: {
-            id: 'cleaner-3',
-            name: 'David Chen',
-            avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-            rating: 4.7,
-          },
-          lastBooked: '3 weeks ago',
-          notes: 'Furniture dusting and carpet refresh',
-        },
-      ];
+      if (!user?.id) {
+        setSavedServices([]);
+        return;
+      }
 
-      setSavedServices(mockSavedServices);
+      console.log('📚 Loading saved services for user:', user.id);
+
+      // Fetch saved/favorited services from past bookings
+      const { data: pastBookings, error } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          service_type,
+          total_amount,
+          estimated_duration,
+          special_requests,
+          scheduled_time,
+          cleaner_id,
+          cleaner:users!bookings_cleaner_id_fkey(
+            id,
+            name,
+            avatar_url
+          )
+        `)
+        .eq('customer_id', user.id)
+        .eq('status', 'completed')
+        .order('scheduled_time', { ascending: false })
+        .limit(10);
+
+      if (error) {
+        console.error('❌ Error fetching saved services:', error);
+        setSavedServices([]);
+        return;
+      }
+
+      // Fetch cleaner profiles separately for ratings
+      const cleanerIds = [...new Set((pastBookings || []).map((b: any) => b.cleaner_id).filter(Boolean))];
+      const { data: profiles } = cleanerIds.length > 0 
+        ? await supabase
+            .from('cleaner_profiles')
+            .select('user_id, rating_average')
+            .in('user_id', cleanerIds)
+        : { data: [] };
+      
+      const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+
+      // Transform bookings into saved services format
+      const services: SavedService[] = (pastBookings || []).map((booking: any) => {
+        const cleanerProfile = profileMap.get(booking.cleaner_id);
+        const scheduledDate = new Date(booking.scheduled_time);
+        const now = new Date();
+        const daysDiff = Math.floor((now.getTime() - scheduledDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        let lastBooked = 'Recently';
+        if (daysDiff === 0) lastBooked = 'Today';
+        else if (daysDiff === 1) lastBooked = 'Yesterday';
+        else if (daysDiff < 7) lastBooked = `${daysDiff} days ago`;
+        else if (daysDiff < 30) lastBooked = `${Math.floor(daysDiff / 7)} weeks ago`;
+        else lastBooked = `${Math.floor(daysDiff / 30)} months ago`;
+
+        return {
+          id: booking.id,
+          title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 
+                 formatServiceType(booking.service_type),
+          type: booking.service_type || 'standard',
+          price: booking.total_amount || 0,
+          duration: booking.estimated_duration || 120,
+          image: getServiceImage(booking.service_type),
+          cleaner: {
+            id: booking.cleaner?.id || '',
+            name: booking.cleaner?.name || 'Cleaner',
+            avatar: booking.cleaner?.avatar_url || '',
+            rating: cleanerProfile?.rating_average || 0,
+          },
+          lastBooked,
+          notes: booking.special_requests || '',
+        };
+      });
+
+      setSavedServices(services);
+      console.log('✅ Loaded saved services:', services.length);
     } catch (error) {
       console.error('Error loading saved services:', error);
-      Alert.alert('Error', 'Failed to load saved services');
+      setSavedServices([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  const formatServiceType = (type: string): string => {
+    const types: Record<string, string> = {
+      standard: 'Standard Cleaning',
+      deep_clean: 'Deep Clean',
+      move_out: 'Move Out Clean',
+      kitchen: 'Kitchen Deep Clean',
+      bathroom: 'Bathroom Clean',
+    };
+    return types[type] || 'Cleaning Service';
+  };
+
+  const getServiceImage = (type: string): string => {
+    const images: Record<string, string> = {
+      standard: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500',
+      deep_clean: 'https://images.unsplash.com/photo-1563453392212-326d32d2d3b8?w=500',
+      kitchen: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=500',
+      bathroom: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=500',
+    };
+    return images[type] || 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500';
   };
 
   const onRefresh = () => {
@@ -133,7 +182,9 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
   };
 
   const handleViewCleaner = (cleanerId: string) => {
-    navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' });
+    if (cleanerId) {
+      navigation.navigate('CleanerProfile', { cleanerId });
+    }
   };
 
   const handleRemoveService = (serviceId: string) => {
@@ -159,7 +210,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
       
       <View style={styles.serviceContent}>
         <View style={styles.serviceHeader}>
-          <Text style={styles.serviceTitle}>{service.title}</Text>
+          <Text style={styles.serviceTitle}>{service?.title || service?.name || 'Service'}</Text>
           <TouchableOpacity
             style={styles.removeButton}
             onPress={() => handleRemoveService(service.id)}

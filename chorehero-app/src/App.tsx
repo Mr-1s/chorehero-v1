@@ -41,13 +41,15 @@ import AuthScreen from './screens/shared/AuthScreen';
 import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectionScreen';
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
-import SimpleBookingFlowScreen from './screens/booking/SimpleBookingFlowScreen';
+import NewBookingFlowScreen from './screens/booking/NewBookingFlowScreen';
 import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
+import BookingCustomizationScreen from './screens/cleaner/BookingCustomizationScreen';
 import PaymentScreen from './screens/shared/PaymentScreen';
 import EditProfileScreen from './screens/shared/EditProfileScreen';
+import VideoFeedScreen from './screens/shared/VideoFeedScreen';
 // Removed unused/legacy screens not present in current StackParamList
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
@@ -74,9 +76,11 @@ type StackParamList = {
   AccountTypeSelection: undefined;
   CustomerOnboarding: undefined;
   CleanerOnboarding: undefined;
-  SimpleBookingFlow: {
+  NewBookingFlow: {
     cleanerId?: string;
     serviceType?: string;
+    serviceName?: string;
+    basePrice?: number;
   };
   ServiceDetail: {
     serviceId: string;
@@ -132,6 +136,13 @@ type StackParamList = {
   EarningsScreen: undefined;
   ScheduleScreen: undefined;
   VideoUpload: undefined;
+  BookingCustomization: undefined;
+  VideoFeed: {
+    source?: 'main' | 'featured' | 'cleaner';
+    cleanerId?: string;
+    initialVideoId?: string;
+    videos?: any[];
+  };
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -228,7 +239,7 @@ const AppNavigator = () => {
           <Stack.Screen name="MainTabs" component={TabNavigator} />
           
           {/* Booking Flow */}
-          <Stack.Screen name="SimpleBookingFlow" component={SimpleBookingFlowScreen} />
+          <Stack.Screen name="NewBookingFlow" component={NewBookingFlowScreen} />
           <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
           
           {/* Other Screens */}
@@ -248,9 +259,11 @@ const AppNavigator = () => {
           <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
+          <Stack.Screen name="BookingCustomization" component={BookingCustomizationScreen} />
           <Stack.Screen name="PaymentScreen" component={PaymentScreen} />
           <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="VideoFeed" component={VideoFeedScreen} />
           
 
         </Stack.Navigator>

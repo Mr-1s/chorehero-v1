@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,16 +11,19 @@ import {
   Animated,
   Dimensions,
   Switch,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import { useNavigation, CommonActions } from '@react-navigation/native';
+import { useNavigation, CommonActions, useFocusEffect } from '@react-navigation/native';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import FloatingNavigation from '../../components/FloatingNavigation';
-
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 import { routeToMessage } from '../../utils/messageRouting';
 
@@ -150,182 +153,192 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   console.log('Navigation canGoBack:', navigation.canGoBack());
   console.log('Route params:', params);
   
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'completed'>(initialTab);
   const [animatedValue] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
+  // Load real bookings from database
+  const loadBookings = useCallback(async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
-  const mockBookings: Booking[] = [
-    {
-      id: '1',
-      service: 'Kitchen Deep Clean',
-      provider: {
-        id: '1',
-        name: 'Sarah Martinez',
-        avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
-        rating: 4.9,
-        phone: '+1 (555) 123-4567',
-      },
-      date: 'Today',
-      time: '2:00 PM',
-      duration: '2-3 hours',
-      status: 'active',
-      progress: 65,
-      eta: '45 minutes',
-      address: '123 Main St, San Francisco, CA',
-      price: 89.25,
-      location: {
-        latitude: 37.7749,
-        longitude: -122.4194,
-      },
-      providerLocation: {
-        latitude: 37.7849,
-        longitude: -122.4094,
-      },
-      milestones: [
-        {
-          id: '1',
-          title: 'Booking Confirmed',
-          description: 'Your service has been confirmed',
-          completed: true,
-          timestamp: '1:30 PM',
-          icon: 'checkmark-circle',
-        },
-        {
-          id: '2',
-          title: 'Provider En Route',
-          description: 'Sarah is on the way to your location',
-          completed: true,
-          timestamp: '1:45 PM',
-          icon: 'car',
-        },
-        {
-          id: '3',
-          title: 'Service Started',
-          description: 'Kitchen cleaning has begun',
-          completed: true,
-          timestamp: '2:00 PM',
-          icon: 'play',
-        },
-        {
-          id: '4',
-          title: 'In Progress',
-          description: 'Cleaning appliances and countertops',
-          completed: false,
-          icon: 'time',
-        },
-        {
-          id: '5',
-          title: 'Service Complete',
-          description: 'All tasks completed successfully',
-          completed: false,
-          icon: 'checkmark-circle',
-        },
-      ],
-      currentMilestone: 3,
-    },
-    {
-      id: '2',
-      service: 'Bathroom Deep Clean',
-      provider: {
-        id: '2',
-        name: 'Mike Wilson',
-        avatar: 'https://randomuser.me/api/portraits/men/32.jpg',
-        rating: 4.8,
-        phone: '+1 (555) 987-6543',
-      },
-      date: 'Tomorrow',
-      time: '10:00 AM',
-      duration: '1-2 hours',
-      status: 'upcoming',
-      progress: 0,
-      eta: '18 hours',
-      address: '456 Oak Ave, San Francisco, CA',
-      price: 65.00,
-      location: {
-        latitude: 37.7849,
-        longitude: -122.4094,
-      },
-      milestones: [
-        {
-          id: '1',
-          title: 'Booking Confirmed',
-          description: 'Your service has been confirmed',
-          completed: true,
-          timestamp: 'Yesterday 3:45 PM',
-          icon: 'checkmark-circle',
-        },
-        {
-          id: '2',
-          title: 'Provider Assigned',
-          description: 'Mike Wilson will handle your service',
-          completed: true,
-          timestamp: 'Yesterday 3:50 PM',
-          icon: 'person',
-        },
-        {
-          id: '3',
-          title: 'Service Reminder',
-          description: 'We\'ll send a reminder 1 hour before',
-          completed: false,
-          icon: 'notifications',
-        },
-      ],
-      currentMilestone: 1,
-    },
-    {
-      id: '3',
-      service: 'Living Room Cleaning',
-      provider: {
-        id: '3',
-        name: 'Lisa Chen',
-        avatar: 'https://randomuser.me/api/portraits/women/68.jpg',
-        rating: 4.9,
-        phone: '+1 (555) 456-7890',
-      },
-      date: 'Yesterday',
-      time: '3:00 PM',
-      duration: '2 hours',
-      status: 'completed',
-      progress: 100,
-      eta: 'Completed',
-      address: '789 Pine St, San Francisco, CA',
-      price: 75.50,
-      location: {
-        latitude: 37.7649,
-        longitude: -122.4394,
-      },
-      milestones: [
-        {
-          id: '1',
-          title: 'Service Complete',
-          description: 'All tasks completed successfully',
-          completed: true,
-          timestamp: '5:00 PM',
-          icon: 'checkmark-circle',
-        },
-        {
-          id: '2',
-          title: 'Payment Processed',
-          description: '$75.50 charged to your card',
-          completed: true,
-          timestamp: '5:05 PM',
-          icon: 'card',
-        },
-        {
-          id: '3',
-          title: 'Review Request',
-          description: 'Please rate your experience',
-          completed: false,
-          icon: 'star',
-        },
-      ],
-      currentMilestone: 2,
-    },
-  ];
+    try {
+      console.log('📅 Loading bookings for user:', user.id);
+      
+      const { data: rawBookings, error } = await supabase
+        .from('bookings')
+        .select(`
+          id,
+          service_type,
+          status,
+          scheduled_time,
+          estimated_duration,
+          total_amount,
+          address,
+          special_requests,
+          created_at,
+          cleaner_id,
+          cleaner:users!bookings_cleaner_id_fkey(
+            id,
+            name,
+            avatar_url,
+            phone
+          )
+        `)
+        .eq('customer_id', user.id)
+        .order('scheduled_time', { ascending: false });
 
-  const filteredBookings: Booking[] = []; // Real bookings will be loaded from database
+      // Fetch cleaner profiles separately for ratings
+      const cleanerIds = [...new Set((rawBookings || []).map((b: any) => b.cleaner_id).filter(Boolean))];
+      const { data: profiles } = cleanerIds.length > 0 
+        ? await supabase
+            .from('cleaner_profiles')
+            .select('user_id, rating_average')
+            .in('user_id', cleanerIds)
+        : { data: [] };
+      
+      const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+
+      if (error) {
+        console.error('❌ Error fetching bookings:', error);
+        setBookings([]);
+        return;
+      }
+
+      // Transform raw bookings to Booking interface
+      const transformedBookings: Booking[] = (rawBookings || []).map((booking: any) => {
+        const scheduledDate = new Date(booking.scheduled_time);
+        const now = new Date();
+        const isToday = scheduledDate.toDateString() === now.toDateString();
+        const isTomorrow = scheduledDate.toDateString() === new Date(now.getTime() + 86400000).toDateString();
+        const isYesterday = scheduledDate.toDateString() === new Date(now.getTime() - 86400000).toDateString();
+        
+        let dateLabel = scheduledDate.toLocaleDateString();
+        if (isToday) dateLabel = 'Today';
+        else if (isTomorrow) dateLabel = 'Tomorrow';
+        else if (isYesterday) dateLabel = 'Yesterday';
+
+        // Map database status to UI status
+        let uiStatus: 'upcoming' | 'active' | 'completed' = 'upcoming';
+        let progress = 0;
+        if (['pending', 'confirmed'].includes(booking.status)) {
+          uiStatus = 'upcoming';
+          progress = 0;
+        } else if (['cleaner_en_route', 'cleaner_arrived', 'in_progress'].includes(booking.status)) {
+          uiStatus = 'active';
+          progress = booking.status === 'cleaner_en_route' ? 25 : 
+                     booking.status === 'cleaner_arrived' ? 50 : 75;
+        } else if (['completed', 'cancelled'].includes(booking.status)) {
+          uiStatus = 'completed';
+          progress = 100;
+        }
+
+        // Get cleaner profile from map
+        const cleanerProfile = profileMap.get(booking.cleaner_id);
+
+        // Generate milestones based on status
+        const milestones: Milestone[] = [
+          {
+            id: '1',
+            title: 'Booking Confirmed',
+            description: 'Your service has been confirmed',
+            completed: true,
+            timestamp: new Date(booking.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            icon: 'checkmark-circle',
+          },
+          {
+            id: '2',
+            title: 'Cleaner En Route',
+            description: `${booking.cleaner?.name || 'Cleaner'} is on the way`,
+            completed: ['cleaner_en_route', 'cleaner_arrived', 'in_progress', 'completed'].includes(booking.status),
+            icon: 'car',
+          },
+          {
+            id: '3',
+            title: 'Service Started',
+            description: 'Cleaning has begun',
+            completed: ['in_progress', 'completed'].includes(booking.status),
+            icon: 'play',
+          },
+          {
+            id: '4',
+            title: 'Service Complete',
+            description: 'All tasks completed',
+            completed: booking.status === 'completed',
+            icon: 'checkmark-circle',
+          },
+        ];
+
+        return {
+          id: booking.id,
+          service: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 
+                   formatServiceType(booking.service_type),
+          provider: {
+            id: booking.cleaner?.id || '',
+            name: booking.cleaner?.name || 'Pending Assignment',
+            avatar: booking.cleaner?.avatar_url || '',
+            rating: cleanerProfile?.rating_average || 0,
+            phone: booking.cleaner?.phone || '',
+          },
+          date: dateLabel,
+          time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          duration: `${Math.floor((booking.estimated_duration || 120) / 60)} hours`,
+          status: uiStatus,
+          progress,
+          eta: uiStatus === 'active' ? 'In Progress' : uiStatus === 'completed' ? 'Completed' : 'Scheduled',
+          address: booking.address || 'Address pending',
+          price: booking.total_amount || 0,
+          location: {
+            latitude: 37.7749,
+            longitude: -122.4194,
+          },
+          milestones,
+          currentMilestone: milestones.filter(m => m.completed).length - 1,
+        };
+      });
+
+      setBookings(transformedBookings);
+      console.log('✅ Loaded bookings:', transformedBookings.length);
+    } catch (error) {
+      console.error('❌ Error loading bookings:', error);
+      setBookings([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
+
+  const formatServiceType = (type: string): string => {
+    const types: Record<string, string> = {
+      standard: 'Standard Cleaning',
+      deep_clean: 'Deep Clean',
+      move_out: 'Move Out Clean',
+      kitchen: 'Kitchen Deep Clean',
+      bathroom: 'Bathroom Clean',
+    };
+    return types[type] || 'Cleaning Service';
+  };
+
+  // Load bookings on mount and when tab is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadBookings();
+    }, [loadBookings])
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadBookings();
+  };
+
+  // Filter bookings based on active tab
+  const filteredBookings = bookings.filter(b => b.status === activeTab);
 
   useEffect(() => {
     // Animate progress bars
@@ -387,7 +400,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
   const handleQuickRebook = (booking: Booking) => {
     // Pre-fill the booking flow with previous booking details
-    propNavigation.navigate('SimpleBookingFlow', {
+    propNavigation.navigate('NewBookingFlow', {
       cleanerId: booking.provider.id,
       serviceType: booking.service,
       // Smart defaults from previous booking
@@ -397,6 +410,75 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       serviceId: booking.id,
       basePrice: booking.price,
     });
+  };
+
+  const handleCancelBooking = (booking: Booking) => {
+    Alert.alert(
+      'Cancel Booking',
+      `Are you sure you want to cancel your ${booking.service} appointment on ${booking.date} at ${booking.time}?\n\nCancellation policy: Full refund if cancelled 24+ hours before scheduled time.`,
+      [
+        {
+          text: 'Keep Booking',
+          style: 'cancel',
+        },
+        {
+          text: 'Cancel Booking',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('bookings')
+                .update({ 
+                  status: 'cancelled',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', booking.id);
+
+              if (error) throw error;
+
+              Alert.alert(
+                'Booking Cancelled',
+                'Your booking has been cancelled. A refund will be processed within 3-5 business days.',
+                [{ text: 'OK' }]
+              );
+              
+              // Refresh bookings list
+              loadBookings();
+            } catch (error) {
+              console.error('Error cancelling booking:', error);
+              Alert.alert('Error', 'Failed to cancel booking. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleRescheduleBooking = (booking: Booking) => {
+    Alert.alert(
+      'Reschedule Booking',
+      'Choose how you\'d like to reschedule:',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Pick New Date & Time',
+          onPress: () => {
+            // Navigate to booking flow with reschedule mode
+            propNavigation.navigate('NewBookingFlow', {
+              cleanerId: booking.provider.id,
+              serviceType: booking.service,
+              defaultAddress: booking.address,
+              basePrice: booking.price,
+              rescheduleBookingId: booking.id,
+              isReschedule: true,
+            });
+          },
+        },
+      ]
+    );
   };
 
   const renderProgressBar = (progress: number) => (
@@ -581,11 +663,19 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       <View style={styles.actionButtons}>
         {booking.status === 'upcoming' && (
           <>
-            <TouchableOpacity style={styles.outlineButton}>
+            <TouchableOpacity 
+              style={styles.outlineButton}
+              onPress={() => handleRescheduleBooking(booking)}
+            >
+              <Ionicons name="calendar-outline" size={16} color="#3ad3db" />
               <Text style={styles.outlineButtonText}>Reschedule</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.outlineButton}>
-              <Text style={styles.outlineButtonText}>Cancel</Text>
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => handleCancelBooking(booking)}
+            >
+              <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
           </>
         )}
@@ -687,7 +777,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         <View style={styles.quickActionsContainer}>
           <Text style={styles.quickActionsTitle}>Quick Rebook</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickActionsScroll}>
-            {mockBookings.filter(b => b.status === 'completed').slice(0, 3).map((booking) => (
+            {bookings.filter(b => b.status === 'completed').slice(0, 3).map((booking) => (
               <TouchableOpacity
                 key={`quick-${booking.id}`}
                 style={styles.quickActionCard}
@@ -819,19 +909,6 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           </View>
         )}
       </ScrollView>
-
-      {/* Book Service Button - Only show on Upcoming tab */}
-      {activeTab === 'upcoming' && (
-        <View style={styles.fixedBottomButton}>
-          <TouchableOpacity 
-            style={styles.bookServiceButton}
-            onPress={() => propNavigation.navigate('SimpleBookingFlow', {})}
-          >
-            <Ionicons name="add" size={20} color="#ffffff" />
-            <Text style={styles.bookServiceButtonText}>Book Service</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       {/* Floating Navigation */}
       <FloatingNavigation navigation={propNavigation} currentScreen="Bookings" />
@@ -1276,12 +1353,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    gap: 6,
   },
   outlineButtonText: {
     color: '#3ad3db',
     fontSize: 14,
     fontWeight: '600',
-    marginLeft: 4,
+  },
+  cancelButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  cancelButtonText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '600',
   },
   primaryButton: {
     flex: 1,

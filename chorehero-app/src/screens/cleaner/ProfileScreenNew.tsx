@@ -52,6 +52,7 @@ type StackParamList = {
   Content: undefined;
   CreateService: undefined;
   Settings: undefined;
+  BookingCustomization: undefined;
 };
 
 type ProfileScreenProps = {
@@ -102,6 +103,9 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
         break;
       case 'earnings':
         navigation.navigate('Earnings');
+        break;
+      case 'bookingCustomization':
+        navigation.navigate('BookingCustomization');
         break;
     }
   }, [navigation]);
@@ -308,6 +312,11 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
               icon="calendar-outline"
               label="Schedule"
               onPress={() => handleQuickAction('schedule')}
+            />
+            <QuickActionTile
+              icon="options-outline"
+              label="Customize Booking"
+              onPress={() => handleQuickAction('bookingCustomization')}
             />
           </View>
           {/* Earnings - Full Width */}

@@ -77,14 +77,14 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
           mediaTypes: contentType === 'video' ? ImagePicker.MediaTypeOptions.Videos : ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           quality: 0.8,
-          videoMaxDuration: contentType === 'video' ? 60 : undefined,
+          videoMaxDuration: contentType === 'video' ? 45 : undefined, // 30-45 seconds max
         });
       } else {
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: contentType === 'video' ? ImagePicker.MediaTypeOptions.Videos : ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           quality: 0.8,
-          videoMaxDuration: contentType === 'video' ? 60 : undefined,
+          videoMaxDuration: contentType === 'video' ? 45 : undefined, // 30-45 seconds max
         });
       }
 

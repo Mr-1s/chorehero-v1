@@ -100,26 +100,40 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
 
   const loadProfile = async () => {
     try {
-      // In a real app, this would fetch from the database
-      // For now, we'll use mock data or user data
-      const mockProfile: CleanerProfile = {
-        name: user?.name || 'Sarah Johnson',
-        email: user?.email || 'sarah.johnson@email.com',
-        phone: '+1 (555) 123-4567',
-        bio: 'Professional cleaner with 5+ years of experience. I take pride in providing thorough, reliable cleaning services for busy families and professionals.',
-        avatar_url: user?.avatar_url || 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-        hourly_rate: 35,
-        years_experience: 5,
-        specialties: ['Deep Cleaning', 'Kitchen Specialist', 'Organization'],
-        available_services: ['Standard Clean', 'Deep Clean', 'Kitchen Deep Clean'],
-        coverage_area: 'San Francisco Bay Area',
-        is_available: true,
-        instant_booking: true,
-        background_checked: true,
-        verified: true,
+      const { supabase } = await import('../../services/supabase');
+      
+      // Fetch actual cleaner profile from database
+      const { data: cleanerData, error: cleanerError } = await supabase
+        .from('cleaner_profiles')
+        .select('*')
+        .eq('user_id', user?.id)
+        .single();
+      
+      // Fetch user data
+      const { data: userData } = await supabase
+        .from('users')
+        .select('name, email, phone, avatar_url')
+        .eq('id', user?.id)
+        .single();
+
+      const realProfile: CleanerProfile = {
+        name: userData?.name || user?.name || '',
+        email: userData?.email || user?.email || '',
+        phone: userData?.phone || '',
+        bio: cleanerData?.bio || '',
+        avatar_url: userData?.avatar_url || user?.avatar_url || '',
+        hourly_rate: cleanerData?.hourly_rate || 0,
+        years_experience: cleanerData?.years_experience || 0,
+        specialties: cleanerData?.specialties || [],
+        available_services: cleanerData?.available_services || [],
+        coverage_area: cleanerData?.coverage_area || '',
+        is_available: cleanerData?.is_available ?? true,
+        instant_booking: cleanerData?.instant_booking ?? false,
+        background_checked: cleanerData?.background_checked ?? false,
+        verified: cleanerData?.verified ?? false,
       };
 
-      setProfile(mockProfile);
+      setProfile(realProfile);
 
       // Ensure default booking template exists for this cleaner
       try {
@@ -147,10 +161,37 @@ const CleanerProfileEditScreen: React.FC<CleanerProfileEditProps> = ({ navigatio
   const handleSave = async () => {
     setSaving(true);
     try {
-      // In a real app, this would save to the database
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
+      const { supabase } = await import('../../services/supabase');
       
-      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated' }); } catch {}
+      // Update user table
+      const { error: userError } = await supabase
+        .from('users')
+        .update({
+          name: profile.name,
+          phone: profile.phone,
+        })
+        .eq('id', user?.id);
+      
+      if (userError) throw userError;
+
+      // Update cleaner_profiles table
+      const { error: cleanerError } = await supabase
+        .from('cleaner_profiles')
+        .update({
+          bio: profile.bio,
+          hourly_rate: profile.hourly_rate,
+          years_experience: profile.years_experience,
+          specialties: profile.specialties,
+          available_services: profile.available_services,
+          coverage_area: profile.coverage_area,
+          is_available: profile.is_available,
+          instant_booking: profile.instant_booking,
+        })
+        .eq('user_id', user?.id);
+      
+      if (cleanerError) throw cleanerError;
+      
+      try { (showToast as any) && showToast({ type: 'success', message: 'Profile updated successfully!' }); } catch {}
       navigation.goBack();
     } catch (error) {
       console.error('Error saving profile:', error);

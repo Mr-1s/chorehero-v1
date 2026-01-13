@@ -22,6 +22,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 import { useAuth } from '../../hooks/useAuth';
 import { messageService, type ChatMessage } from '../../services/messageService';
+import { supabase } from '../../services/supabase';
 
 type TabParamList = {
   Home: undefined;
@@ -71,37 +72,8 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const [realChatMode, setRealChatMode] = useState(false);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(roomId || null);
   
-  const mockMessages: Message[] = [
-    {
-      id: '1',
-      text: 'Hi! I\'m on my way to your location. ETA is about 15 minutes.',
-      sender: 'cleaner',
-      timestamp: new Date(Date.now() - 10 * 60 * 1000),
-      type: 'text',
-    },
-    {
-      id: '2',
-      text: 'Great! I\'ll be ready.',
-      sender: 'user',
-      timestamp: new Date(Date.now() - 8 * 60 * 1000),
-      type: 'text',
-    },
-    {
-      id: '3',
-      text: 'I\'ve arrived! I\'m outside your building.',
-      sender: 'cleaner',
-      timestamp: new Date(Date.now() - 2 * 60 * 1000),
-      type: 'text',
-    },
-    {
-      id: '4',
-      text: 'Here\'s a photo of the kitchen before I start cleaning.',
-      sender: 'cleaner',
-      timestamp: new Date(Date.now() - 1 * 60 * 1000),
-      type: 'image',
-      image: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400',
-    },
-  ];
+  // No mock messages - always use real data
+  const [cleanerData, setCleanerData] = useState<any>(null);
 
   // Initialize component
   useEffect(() => {
@@ -112,15 +84,71 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
     try {
       setLoading(true);
       
-      // Check if this is a real user chat (has roomId and otherParticipant)
-      if (currentRoomId && otherParticipant && user && !user.id.startsWith('demo_')) {
-        console.log('💬 Initializing real chat mode');
+      if (!user) {
+        console.log('❌ No user - cannot load chat');
+        setMessages([]);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch cleaner data if we have a cleanerId
+      if (cleanerId) {
+        const { data: cleaner } = await supabase
+          .from('users')
+          .select('id, name, avatar_url')
+          .eq('id', cleanerId)
+          .single();
+        
+        if (cleaner) {
+          setCleanerData(cleaner);
+        }
+      }
+
+      // Try to find or create a chat room
+      let roomToUse = currentRoomId;
+      
+      if (!roomToUse && cleanerId && user.id) {
+        console.log('💬 Looking for existing chat room...');
+        
+        // Look for existing thread
+        const { data: existingThread } = await supabase
+          .from('chat_threads')
+          .select('id')
+          .or(`and(customer_id.eq.${user.id},cleaner_id.eq.${cleanerId}),and(customer_id.eq.${cleanerId},cleaner_id.eq.${user.id})`)
+          .maybeSingle();
+        
+        if (existingThread) {
+          roomToUse = existingThread.id;
+          setCurrentRoomId(roomToUse);
+          console.log('✅ Found existing chat room:', roomToUse);
+        } else if (bookingId) {
+          // Create new thread for this booking
+          console.log('💬 Creating new chat room...');
+          const { data: newThread, error } = await supabase
+            .from('chat_threads')
+            .insert({
+              customer_id: user.id,
+              cleaner_id: cleanerId,
+              booking_id: bookingId,
+            })
+            .select()
+            .single();
+          
+          if (newThread && !error) {
+            roomToUse = newThread.id;
+            setCurrentRoomId(roomToUse);
+            console.log('✅ Created new chat room:', roomToUse);
+          }
+        }
+      }
+
+      if (roomToUse) {
+        console.log('💬 Loading messages for room:', roomToUse);
         setRealChatMode(true);
         
         // Load real messages
-        const response = await messageService.getMessages(currentRoomId);
+        const response = await messageService.getMessages(roomToUse);
         if (response.success && response.data) {
-          // Transform ChatMessage to Message format
           const transformedMessages: Message[] = response.data.map(msg => ({
             id: msg.id,
             text: msg.content,
@@ -130,12 +158,13 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           }));
           setMessages(transformedMessages);
           
-          // Mark messages as read
-          await messageService.markMessagesAsRead(currentRoomId, user.id);
+          await messageService.markMessagesAsRead(roomToUse, user.id);
+        } else {
+          setMessages([]); // Empty chat, no mock
         }
         
         // Subscribe to real-time messages
-        const subscription = messageService.subscribeToMessages(currentRoomId, (newMessage) => {
+        const subscription = messageService.subscribeToMessages(roomToUse, (newMessage) => {
           const transformedMessage: Message = {
             id: newMessage.id,
             text: newMessage.content,
@@ -146,9 +175,8 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           
           setMessages(prev => [...prev, transformedMessage]);
           
-          // Mark as read if not from current user
           if (newMessage.sender_id !== user.id) {
-            messageService.markMessagesAsRead(currentRoomId, user.id);
+            messageService.markMessagesAsRead(roomToUse!, user.id);
           }
         });
         
@@ -156,14 +184,13 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           subscription?.unsubscribe();
         };
       } else {
-        console.log('💬 Initializing demo chat mode');
-        setRealChatMode(false);
-        setMessages(mockMessages);
+        console.log('💬 No chat room available - showing empty state');
+        setRealChatMode(true);
+        setMessages([]); // Empty, not mock
       }
     } catch (error) {
       console.error('❌ Error initializing chat:', error);
-      // Fallback to mock messages
-      setMessages(mockMessages);
+      setMessages([]); // Empty on error, not mock
     } finally {
       setLoading(false);
     }
@@ -173,21 +200,25 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const messageSlideAnim = useRef(new Animated.Value(50)).current;
   const [quickReplyCategory, setQuickReplyCategory] = useState<'general' | 'service' | 'location'>('general');
 
-  // Get participant data (real or mock)
-  const participant = realChatMode && otherParticipant ? {
+  // Get participant data from props or fetched cleaner data
+  const participant = otherParticipant ? {
     id: otherParticipant.id,
     name: otherParticipant.name,
     avatar: otherParticipant.avatar_url,
     status: 'Online',
     service: 'Professional Cleaning',
-    eta: '15 min',
-  } : {
-    id: cleanerId || 'demo',
-    name: 'Sarah Martinez',
-    avatar: 'https://randomuser.me/api/portraits/women/44.jpg',
+  } : cleanerData ? {
+    id: cleanerData.id,
+    name: cleanerData.name || 'Cleaner',
+    avatar: cleanerData.avatar_url,
     status: 'Online',
-    service: 'Kitchen Deep Clean',
-    eta: '15 min',
+    service: 'Professional Cleaning',
+  } : {
+    id: cleanerId || '',
+    name: 'Loading...',
+    avatar: null,
+    status: 'Offline',
+    service: 'Cleaning Service',
   };
 
   // Enhanced Quick reply options with categories

@@ -197,107 +197,26 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   };
 
   const loadMockData = () => {
-    // Fallback mock data loading - simplified without MockDataToggle
+    // Empty state data - user has no bookings yet
     const mockStats = {
-      totalBookings: 24,
-      completedBookings: 22,
-      totalSpent: 1847.50,
-      favoriteCleaners: 8,
+      totalBookings: 0,
+      completedBookings: 0,
+      totalSpent: 0,
+      favoriteCleaners: 0,
     };
 
-    const mockUpcoming = [
-      {
-        id: 'upcoming-1',
-        status: 'upcoming' as const,
-        cleaner: {
-          id: 'cleaner-1',
-          name: 'Sarah Martinez',
-          avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-          rating: 4.9,
-        },
-        service: {
-          type: 'kitchen',
-          title: 'Kitchen Deep Clean',
-          duration: 120,
-        },
-        schedule: {
-          date: 'Tomorrow',
-          time: '2:00 PM',
-        },
-        location: {
-          address: '123 Main St, San Francisco',
-        },
-        payment: {
-          total: 89.25,
-        },
-      }
-    ];
+    // Empty arrays - no mock bookings
+    const mockUpcoming: Booking[] = [];
 
-    const mockRecent = [
-      {
-        id: 'recent-1',
-        status: 'completed' as const,
-        cleaner: {
-          id: 'cleaner-2',
-          name: 'Maria Lopez',
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-          rating: 4.8,
-        },
-        service: {
-          type: 'bathroom',
-          title: 'Bathroom Deep Clean',
-          duration: 90,
-        },
-        schedule: {
-          date: 'Last Tuesday',
-          time: '10:00 AM',
-        },
-        location: {
-          address: '123 Main St, San Francisco',
-        },
-        payment: {
-          total: 65.00,
-        },
-        review: {
-          rating: 5,
-          comment: 'Amazing work! Very thorough and professional.',
-        },
-      },
-      {
-        id: 'recent-2',
-        status: 'completed' as const,
-        cleaner: {
-          id: 'cleaner-3',
-          name: 'David Chen',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-          rating: 4.7,
-        },
-        service: {
-          type: 'living_room',
-          title: 'Living Room Clean',
-          duration: 75,
-        },
-        schedule: {
-          date: 'Last Friday',
-          time: '3:00 PM',
-        },
-        location: {
-          address: '123 Main St, San Francisco',
-        },
-        payment: {
-          total: 55.00,
-        },
-        review: {
-          rating: 5,
-          comment: 'Great attention to detail!',
-        },
-      }
-    ];
+    const mockRecent: Booking[] = [];
 
+    // Set empty state
     setUserStats(mockStats);
     setUpcomingBookings(mockUpcoming);
     setRecentBookings(mockRecent);
   };
+
+  // Mock data removed - app now uses real database data
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -441,30 +360,37 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
 
   const renderBookingCard = (booking: Booking) => (
     <TouchableOpacity
-      key={booking.id}
+      key={booking?.id || Math.random().toString()}
       style={styles.bookingCard}
       onPress={() => {
-        if (booking.status === 'upcoming' || booking.status === 'in_progress') {
+        if (!booking?.id) return;
+        if (booking?.status === 'upcoming' || booking?.status === 'in_progress') {
           navigation.navigate('ActiveJob', { jobId: booking.id });
-        } else if (booking.status === 'completed') {
+        } else if (booking?.status === 'completed') {
           navigation.navigate('RatingsScreen', { jobId: booking.id, type: 'complete' });
         }
       }}
     >
       <View style={styles.bookingHeader}>
-        <Image source={{ uri: booking.cleaner.avatar }} style={styles.cleanerAvatar} />
+        {booking?.cleaner?.avatar ? (
+          <Image source={{ uri: booking.cleaner.avatar }} style={styles.cleanerAvatar} />
+        ) : (
+          <View style={[styles.cleanerAvatar, { backgroundColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="person" size={20} color="#9CA3AF" />
+          </View>
+        )}
         <View style={styles.bookingInfo}>
-          <Text style={styles.cleanerName}>{booking.cleaner.name}</Text>
-          <Text style={styles.serviceTitle}>{booking.service.title}</Text>
-          <Text style={styles.bookingDate}>{booking.schedule.date} at {booking.schedule.time}</Text>
+          <Text style={styles.cleanerName}>{booking?.cleaner?.name || 'Cleaner'}</Text>
+          <Text style={styles.serviceTitle}>{booking?.service?.title || booking?.service?.name || 'Service'}</Text>
+          <Text style={styles.bookingDate}>{booking?.schedule?.date || 'Date TBD'} at {booking?.schedule?.time || 'Time TBD'}</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
-          <Text style={styles.statusText}>{booking.status}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking?.status || 'pending') }]}>
+          <Text style={styles.statusText}>{booking?.status || 'pending'}</Text>
         </View>
       </View>
       <View style={styles.bookingFooter}>
-        <Text style={styles.bookingPrice}>${booking.payment.total.toFixed(2)}</Text>
-        {booking.status === 'completed' && (
+        <Text style={styles.bookingPrice}>${(booking?.payment?.total || 0).toFixed(2)}</Text>
+        {booking?.status === 'completed' && booking?.cleaner?.id && (
           <TouchableOpacity 
             style={styles.rebookButton}
             onPress={() => navigation.navigate('BookingFlow', { cleanerId: booking.cleaner.id })}

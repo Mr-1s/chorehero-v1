@@ -8,13 +8,14 @@ import {
   SafeAreaView,
   Dimensions,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
-import { earningsService } from '../../services/earningsService';
-import { errorHandlingService } from '../../services/errorHandlingService';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
 
 const { width } = Dimensions.get('window');
 
@@ -39,81 +40,140 @@ interface PaymentHistory {
 }
 
 const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
-  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'year'>('month');
   
-  // EARNINGS DATA SOURCES - In production, this data will come from:
-  // 1. Supabase 'bookings' table - completed jobs with cleaner_earnings
-  // 2. Stripe Connect - actual payment transfers and balances
-  // 3. Real-time calculations based on job completion dates
-  
-  const mockEarningsData = {
-    currentBalance: 1247.50,    // Available for withdrawal (from Stripe)
-    pendingBalance: 890.25,     // Jobs completed but not yet transferred
-    totalEarnings: 15430.75,    // Lifetime earnings across all jobs
-  };
-  
-  const emptyEarningsData = {
+  // Real earnings data state
+  const [earningsData, setEarningsData] = useState({
     currentBalance: 0,
     pendingBalance: 0,
     totalEarnings: 0,
-  };
+  });
   
-  const earningsData = emptyEarningsData; // TODO: Load real earnings data from database
-  const { currentBalance, pendingBalance, totalEarnings } = earningsData;
-  
-  // EARNINGS BREAKDOWN - Will be calculated from:
-  // - SELECT SUM(cleaner_earnings) FROM bookings WHERE cleaner_id = ? AND status = 'completed' GROUP BY date periods
-  // - Real-time aggregation of job completions by week/month/year
-  const mockEarningsHistory: EarningData[] = [
-    { period: 'This Week', amount: 420.50, jobs: 6, avgPerJob: 70.08 },
-    { period: 'This Month', amount: 2450.75, jobs: 23, avgPerJob: 106.55 },
-    { period: 'Last Month', amount: 3120.25, jobs: 31, avgPerJob: 100.65 },
-    { period: 'This Year', amount: 15430.75, jobs: 142, avgPerJob: 108.66 },
-  ];
-  
-  const earningsHistory: EarningData[] = []; // TODO: Load real earnings history from database
+  const [earningsHistory, setEarningsHistory] = useState<EarningData[]>([]);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
 
-  // PAYMENT HISTORY - Will come from:
-  // - Stripe Connect transfer history (payouts to cleaner bank account)
-  // - Supabase 'bookings' table (individual job earnings)
-  // - Combined timeline of earnings and withdrawals
-  const mockPaymentHistory: PaymentHistory[] = [
-    {
-      id: '1',
-      date: '2024-01-15',
-      amount: 890.25,
-      type: 'payout',
-      status: 'processing',
-      description: 'Weekly payout to bank ****4532',
-    },
-    {
-      id: '2',
-      date: '2024-01-14',
-      amount: 85.00,
-      type: 'earning',
-      status: 'completed',
-      description: 'Deep clean at Marina Bay Residences',
-    },
-    {
-      id: '3',
-      date: '2024-01-13',
-      amount: 65.00,
-      type: 'earning',
-      status: 'completed',
-      description: 'Standard clean at Orchard Towers',
-    },
-    {
-      id: '4',
-      date: '2024-01-08',
-      amount: 750.00,
-      type: 'payout',
-      status: 'completed',
-      description: 'Weekly payout to bank ****4532',
-    },
-  ];
-  
-  const paymentHistory: PaymentHistory[] = mockPaymentHistory || [];
+  const { currentBalance, pendingBalance, totalEarnings } = earningsData;
+
+  useEffect(() => {
+    loadEarningsData();
+  }, [user?.id]);
+
+  const loadEarningsData = async () => {
+    if (!user?.id) return;
+    
+    try {
+      setLoading(true);
+      console.log('💰 Loading earnings for cleaner:', user.id);
+
+      // Get current date for calculations
+      const now = new Date();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+      // Fetch completed bookings for this cleaner
+      const { data: completedBookings, error: completedError } = await supabase
+        .from('bookings')
+        .select('id, total_amount, cleaner_earnings, scheduled_time, status, address, special_requests')
+        .eq('cleaner_id', user.id)
+        .eq('status', 'completed')
+        .order('scheduled_time', { ascending: false });
+
+      if (completedError) throw completedError;
+
+      // Fetch pending bookings (confirmed but not completed)
+      const { data: pendingBookings, error: pendingError } = await supabase
+        .from('bookings')
+        .select('id, total_amount, cleaner_earnings')
+        .eq('cleaner_id', user.id)
+        .in('status', ['confirmed', 'in_progress']);
+
+      if (pendingError) throw pendingError;
+
+      // Calculate totals
+      const totalEarned = (completedBookings || []).reduce((sum, b) => 
+        sum + (b.cleaner_earnings || b.total_amount * 0.81 || 0), 0
+      );
+      
+      const pendingAmount = (pendingBookings || []).reduce((sum, b) => 
+        sum + (b.cleaner_earnings || b.total_amount * 0.81 || 0), 0
+      );
+
+      // For now, available balance = total - pending (in reality this comes from Stripe)
+      const availableBalance = totalEarned; // Simplified - in production use Stripe balance
+
+      setEarningsData({
+        currentBalance: availableBalance,
+        pendingBalance: pendingAmount,
+        totalEarnings: totalEarned,
+      });
+
+      // Calculate earnings breakdown by period
+      const weeklyBookings = (completedBookings || []).filter(b => 
+        new Date(b.scheduled_time) >= startOfWeek
+      );
+      const monthlyBookings = (completedBookings || []).filter(b => 
+        new Date(b.scheduled_time) >= startOfMonth
+      );
+      const lastMonthBookings = (completedBookings || []).filter(b => {
+        const date = new Date(b.scheduled_time);
+        return date >= startOfLastMonth && date <= endOfLastMonth;
+      });
+      const yearlyBookings = (completedBookings || []).filter(b => 
+        new Date(b.scheduled_time) >= startOfYear
+      );
+
+      const calcPeriodData = (bookings: any[], label: string): EarningData => {
+        const amount = bookings.reduce((sum, b) => sum + (b.cleaner_earnings || b.total_amount * 0.81 || 0), 0);
+        const jobs = bookings.length;
+        return {
+          period: label,
+          amount,
+          jobs,
+          avgPerJob: jobs > 0 ? amount / jobs : 0,
+        };
+      };
+
+      setEarningsHistory([
+        calcPeriodData(weeklyBookings, 'This Week'),
+        calcPeriodData(monthlyBookings, 'This Month'),
+        calcPeriodData(lastMonthBookings, 'Last Month'),
+        calcPeriodData(yearlyBookings, 'This Year'),
+      ]);
+
+      // Build payment history from completed bookings
+      const history: PaymentHistory[] = (completedBookings || []).slice(0, 10).map(b => ({
+        id: b.id,
+        date: new Date(b.scheduled_time).toISOString().split('T')[0],
+        amount: b.cleaner_earnings || b.total_amount * 0.81 || 0,
+        type: 'earning' as const,
+        status: 'completed' as const,
+        description: b.special_requests?.split('.')[0] || b.address || 'Cleaning service',
+      }));
+
+      setPaymentHistory(history);
+      console.log('✅ Earnings loaded:', { totalEarned, pendingAmount, jobCount: completedBookings?.length });
+
+    } catch (error) {
+      console.error('❌ Error loading earnings:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadEarningsData();
+  };
 
   const handleWithdraw = () => {
     setLoading(true);
@@ -142,9 +202,25 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
     }
   };
 
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4ECDC4" />
+          <Text style={styles.loadingText}>Loading earnings...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4ECDC4" />
+        }
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -531,6 +607,16 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 100,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#718096',
   },
   // Empty State Styles
   emptyState: {

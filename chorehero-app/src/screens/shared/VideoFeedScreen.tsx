@@ -54,11 +54,17 @@ type TabParamList = {
   Messages: undefined;
   Profile: undefined;
   CleanerProfile: { cleanerId: string };
-  SimpleBookingFlow: {
-    cleanerId: string;
-    serviceType: string;
-    fromVideoFeed: boolean;
-    videoTitle: string;
+  NewBookingFlow: {
+    cleanerId?: string;
+    serviceType?: string;
+    fromVideoFeed?: boolean;
+    videoTitle?: string;
+  };
+  VideoFeed: {
+    source?: 'main' | 'featured' | 'cleaner';
+    cleanerId?: string;
+    initialVideoId?: string;
+    videos?: any[]; // Pre-loaded videos for featured section
   };
 };
 
@@ -66,6 +72,14 @@ type VideoFeedScreenNavigationProp = BottomTabNavigationProp<TabParamList, 'Home
 
 interface VideoFeedScreenProps {
   navigation: VideoFeedScreenNavigationProp;
+  route?: {
+    params?: {
+      source?: 'main' | 'featured' | 'cleaner';
+      cleanerId?: string;
+      initialVideoId?: string;
+      videos?: any[];
+    };
+  };
 }
 
 
@@ -421,7 +435,13 @@ const ExpoVideoPlayer: React.FC<{
   );
 };
 
-const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
+const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
+  // Route params for different video sources
+  const source = route?.params?.source || 'main';
+  const cleanerIdParam = route?.params?.cleanerId;
+  const initialVideoId = route?.params?.initialVideoId;
+  const preloadedVideos = route?.params?.videos;
+  
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -436,6 +456,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const [likedVideos, setLikedVideos] = useState<Set<string>>(new Set());
   const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
   const [followedCleaners, setFollowedCleaners] = useState<Set<string>>(new Set());
+  const [feedTitle, setFeedTitle] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const device = useDeviceStabilization();
   const layout = getVideoFeedLayout(device);
@@ -514,24 +535,199 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const initializeData = async () => {
     setLoading(true);
     console.log('🚀 VideoFeedScreen: Initializing data...');
-    console.log('🚀 Current videos length:', videos.length);
+    console.log('🚀 Source:', source);
+    console.log('🚀 CleanerId:', cleanerIdParam);
+    console.log('🚀 Initial Video:', initialVideoId);
 
     try {
-      console.log('🌐 About to call loadRealContent...');
-      await loadRealContent();
-      console.log('✅ Real content loading completed');
-      console.log('✅ Videos after loading:', videos.length);
+      // Load videos based on source
+      if (source === 'cleaner' && cleanerIdParam) {
+        // Load only this cleaner's videos
+        console.log('👤 Loading cleaner-specific videos...');
+        setFeedTitle('Videos');
+        await loadCleanerVideos(cleanerIdParam);
+      } else if (source === 'featured' && preloadedVideos) {
+        // Use preloaded featured videos
+        console.log('⭐ Loading featured videos...');
+        setFeedTitle('Featured');
+        await loadFeaturedVideos(preloadedVideos);
+      } else {
+        // Default: load main feed
+        console.log('🌐 Loading main feed...');
+        setFeedTitle(null);
+        await loadRealContent();
+      }
+      
+      console.log('✅ Content loading completed');
     } catch (error) {
-      console.error('❌ Error loading real content:', error);
-      console.error('❌ Error details:', error.message || error);
-      // Set empty state if real content loading fails
+      console.error('❌ Error loading content:', error);
       setVideos([]);
     } finally {
       setLoading(false);
       console.log('✅ VideoFeedScreen: Data initialization complete');
-      console.log('✅ Final videos length:', videos.length);
-      console.log('✅ Loading state:', false);
     }
+  };
+
+  // Load videos for a specific cleaner
+  const loadCleanerVideos = async (cleanerId: string) => {
+    try {
+      console.log('👤 Loading videos for cleaner:', cleanerId);
+      
+      const { data: posts, error } = await supabase
+        .from('content_posts')
+        .select(`
+          id,
+          user_id,
+          title,
+          description,
+          media_url,
+          thumbnail_url,
+          status,
+          like_count,
+          comment_count,
+          view_count,
+          tags,
+          created_at,
+          user:users!content_posts_user_id_fkey(
+            id, name, avatar_url, role,
+            cleaner_profiles(
+              hourly_rate, rating_average, total_jobs, bio, 
+              specialties, verification_status, is_available, service_radius_km
+            )
+          )
+        `)
+        .eq('user_id', cleanerId)
+        .eq('status', 'published')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      if (posts && posts.length > 0) {
+        const transformedVideos = transformPosts(posts);
+        
+        // If initialVideoId is specified, reorder so it's first
+        if (initialVideoId) {
+          const initialIndex = transformedVideos.findIndex(v => v.id === initialVideoId);
+          if (initialIndex > 0) {
+            const [initialVideo] = transformedVideos.splice(initialIndex, 1);
+            transformedVideos.unshift(initialVideo);
+          }
+        }
+        
+        setVideos(transformedVideos);
+        console.log(`✅ Loaded ${transformedVideos.length} cleaner videos`);
+      } else {
+        setVideos([]);
+        console.log('📭 No videos found for this cleaner');
+      }
+    } catch (error) {
+      console.error('❌ Error loading cleaner videos:', error);
+      setVideos([]);
+    }
+  };
+
+  // Load featured videos from preloaded data
+  const loadFeaturedVideos = async (featuredData: any[]) => {
+    try {
+      console.log('⭐ Processing featured videos:', featuredData.length);
+      
+      // Get video IDs from featured data
+      const videoIds = featuredData.map(v => v.id).filter(Boolean);
+      
+      if (videoIds.length === 0) {
+        setVideos([]);
+        return;
+      }
+
+      // Fetch full video data from database
+      const { data: posts, error } = await supabase
+        .from('content_posts')
+        .select(`
+          id,
+          user_id,
+          title,
+          description,
+          media_url,
+          thumbnail_url,
+          status,
+          like_count,
+          comment_count,
+          view_count,
+          tags,
+          created_at,
+          user:users!content_posts_user_id_fkey(
+            id, name, avatar_url, role,
+            cleaner_profiles(
+              hourly_rate, rating_average, total_jobs, bio, 
+              specialties, verification_status, is_available, service_radius_km
+            )
+          )
+        `)
+        .in('id', videoIds)
+        .eq('status', 'published');
+
+      if (error) throw error;
+
+      if (posts && posts.length > 0) {
+        const transformedVideos = transformPosts(posts);
+        
+        // Maintain original order from featured data
+        const orderedVideos = videoIds
+          .map(id => transformedVideos.find(v => v.id === id))
+          .filter(Boolean) as VideoItem[];
+        
+        // If initialVideoId is specified, reorder so it's first
+        if (initialVideoId) {
+          const initialIndex = orderedVideos.findIndex(v => v.id === initialVideoId);
+          if (initialIndex > 0) {
+            const [initialVideo] = orderedVideos.splice(initialIndex, 1);
+            orderedVideos.unshift(initialVideo);
+          }
+        }
+        
+        setVideos(orderedVideos);
+        console.log(`✅ Loaded ${orderedVideos.length} featured videos`);
+      } else {
+        setVideos([]);
+      }
+    } catch (error) {
+      console.error('❌ Error loading featured videos:', error);
+      setVideos([]);
+    }
+  };
+
+  // Helper to transform posts to VideoItem format
+  const transformPosts = (posts: any[]): VideoItem[] => {
+    return posts.map(post => ({
+      id: post.id,
+      cleaner: {
+        user_id: post.user_id,
+        name: post.user?.name || 'ChoreHero Cleaner',
+        username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
+        rating_average: post.user?.cleaner_profiles?.rating_average || 0,
+        total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
+        hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0,
+        service_title: 'Professional Cleaning',
+        estimated_duration: '2-3 hours',
+        avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
+        bio: post.description || 'Professional cleaning specialist',
+        video_profile_url: post.media_url || '',
+        specialties: post.user?.cleaner_profiles?.specialties || ['Professional Cleaning'],
+        verification_status: post.user?.cleaner_profiles?.verification_status || 'verified',
+        is_available: post.user?.cleaner_profiles?.is_available ?? true,
+        service_radius_km: post.user?.cleaner_profiles?.service_radius_km || 25,
+      },
+      video_url: post.media_url || '',
+      title: post.title,
+      description: post.description || '',
+      liked: false,
+      saved: false,
+      likes: post.like_count || 0,
+      comments: post.comment_count || 0,
+      shares: 0,
+      hashtags: post.tags || [],
+      contentFit: 'cover',
+    } as any));
   };
 
   const loadMockData = async () => {
@@ -598,9 +794,9 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             user_id: post.user_id,
             name: post.user?.name || 'ChoreHero Cleaner',
             username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
-            rating_average: 4.8, // Default rating, can be fetched from cleaner profile
-            total_jobs: 0, // Can be fetched from cleaner profile
-            hourly_rate: 85, // Default rate
+            rating_average: post.user?.cleaner_profiles?.rating_average || 0, // 0 = New cleaner
+            total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
+            hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0, // 0 = Not set
             service_title: 'Professional Cleaning',
             estimated_duration: '2-3 hours',
             avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
@@ -635,11 +831,11 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
             user_id: post.user_id,
             name: post.user?.name || 'ChoreHero Cleaner',
             username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
-          rating_average: 4.8,
-            total_jobs: 0,
-          hourly_rate: 85,
+            rating_average: post.user?.cleaner_profiles?.rating_average || 0,
+            total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
+            hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0,
             service_title: 'Professional Cleaning',
-          estimated_duration: '2-3 hours',
+            estimated_duration: '2-3 hours',
             avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
             bio: post.description || 'Professional cleaning specialist',
             video_profile_url: post.media_url || '',
@@ -721,10 +917,26 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
   const onViewableItemsChanged = ({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
-      setCurrentIndex(viewableItems[0].index);
-      // Auto-resume playing when switching to a new video
-      if (isScreenFocused && !isPlaying) {
-        setIsPlaying(true);
+      const newIndex = viewableItems[0].index;
+      
+      // Only reset if actually changing to a different video
+      if (newIndex !== currentIndex) {
+        setCurrentIndex(newIndex);
+        
+        // Auto-hide description when switching videos
+        if (showDescriptionCard) {
+          setShowDescriptionCard(false);
+          Animated.timing(descriptionSlideAnim, {
+            toValue: 0,
+            duration: 150,
+            useNativeDriver: true,
+          }).start();
+        }
+        
+        // Auto-resume playing when switching to a new video
+        if (isScreenFocused && !isPlaying) {
+          setIsPlaying(true);
+        }
       }
     }
   };
@@ -743,8 +955,10 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   };
 
   // Button interaction handlers
-  const handleLike = (videoId: string) => {
+  const handleLike = async (videoId: string, cleanerId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const isLiking = !likedVideos.has(videoId);
+    
     setLikedVideos(prev => {
       const newSet = new Set(prev);
       if (newSet.has(videoId)) {
@@ -754,6 +968,22 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
       }
       return newSet;
     });
+    
+    // Send like notification to cleaner (only when liking, not unliking)
+    if (isLiking && user && cleanerId && user.id !== cleanerId) {
+      try {
+        await notificationService.sendLikeNotification(
+          videoId,
+          cleanerId,
+          user.id,
+          user.name || 'A customer',
+          user.avatar_url
+        );
+        console.log('💓 Like notification sent to cleaner:', cleanerId);
+      } catch (error) {
+        console.log('Could not send like notification:', error);
+      }
+    }
   };
 
   const handleSave = (videoId: string) => {
@@ -797,7 +1027,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   const handleBooking = (cleanerId: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // Navigate to booking flow
-    navigation.navigate('BookingFlow', { cleanerId });
+    navigation.navigate('NewBookingFlow', { cleanerId });
   };
 
 
@@ -886,13 +1116,13 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
         >
           {/* Top Section - Creator pill */}
           <CreatorFollowPill
-            avatarUrl={item.cleaner.avatar_url}
-            username={item.cleaner.username || item.cleaner.name}
-            serviceTitle={item.cleaner.service_title || 'Professional Cleaning'}
-            verified={item.cleaner.verification_status === 'verified'}
-            isFollowing={followedCleaners.has(item.cleaner.user_id)}
-            onPressProfile={() => navigation.navigate('CleanerProfile', { cleanerId: 'demo_cleaner_1' })}
-            onToggleFollow={() => handleFollow(item.cleaner.user_id)}
+            avatarUrl={item.cleaner?.avatar_url}
+            username={item.cleaner?.username || item.cleaner?.name || 'Cleaner'}
+            serviceTitle={item.cleaner?.service_title || 'Professional Cleaning'}
+            verified={item.cleaner?.verification_status === 'verified'}
+            isFollowing={followedCleaners.has(item.cleaner?.user_id || '')}
+            onPressProfile={() => item.cleaner?.user_id && navigation.navigate('CleanerProfile', { cleanerId: item.cleaner.user_id })}
+            onToggleFollow={() => item.cleaner?.user_id && handleFollow(item.cleaner.user_id)}
             height={layout.creatorPill.height}
             maxWidth={layout.creatorPill.maxWidth}
           />
@@ -929,7 +1159,7 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
                     borderRadius: layout.actionRail.buttonSize / 2,
                   }
                 ]}
-                onPress={() => handleLike(item.id)}
+                onPress={() => handleLike(item.id, item.cleaner?.user_id || '')}
               >
                 <Ionicons 
                   name={likedVideos.has(item.id) ? "heart" : "heart-outline"} 
@@ -1012,12 +1242,20 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
                 <View style={styles.descriptionCardHandle}>
                   <View style={styles.handleBar} />
                 </View>
-                <Text style={styles.descriptionTitle} numberOfLines={2}>
-                  {(item as any).title || (item as any).post?.title || item.cleaner.service_title}
-                </Text>
+                <View style={styles.descriptionHeader}>
+                  <Text style={styles.descriptionTitle} numberOfLines={2}>
+                    {(item as any).title || (item as any).post?.title || item.cleaner?.service_title || 'Cleaning Service'}
+                  </Text>
+                  <View style={styles.durationBadge}>
+                    <Ionicons name="time-outline" size={14} color="#3AD3DB" />
+                    <Text style={styles.durationBadgeText}>
+                      {(item as any).estimated_duration || item.cleaner?.estimated_duration || '2-3 hrs'}
+                    </Text>
+                  </View>
+                </View>
                 <View style={styles.descriptionDivider} />
-                <Text style={styles.descriptionText} numberOfLines={5}>
-                  {(item as any).description || (item as any).post?.description || item.cleaner.bio || 'Professional cleaning service with attention to detail and customer satisfaction.'}
+                <Text style={styles.descriptionText} numberOfLines={4}>
+                  {(item as any).description || (item as any).post?.description || item.cleaner?.bio || 'Professional cleaning service with attention to detail and customer satisfaction.'}
                 </Text>
                 {/* Close Button */}
                 <TouchableOpacity 
@@ -1030,12 +1268,12 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
 
             {/* Enhanced Booking Section with Even Spacing */}
             <BookingBubble
-              hourlyRate={(item as any).hourly_rate || item.cleaner.hourly_rate}
-              rating={(item as any).rating || item.cleaner.rating_average}
-              duration={(item as any).estimated_duration || item.cleaner.estimated_duration}
+              hourlyRate={(item as any).hourly_rate || item.cleaner?.hourly_rate || 0}
+              rating={(item as any).rating || item.cleaner?.rating_average || 0}
+              duration={(item as any).estimated_duration || item.cleaner?.estimated_duration}
               isSmall={device.isSmall}
               onToggleInfo={toggleDescriptionCard}
-              onBook={() => handleBooking(item.cleaner.user_id)}
+              onBook={() => item.cleaner?.user_id && handleBooking(item.cleaner.user_id)}
               height={layout.bookingSection.height}
               marginHorizontal={layout.bookingSection.marginHorizontal}
             />
@@ -1099,11 +1337,29 @@ const VideoFeedScreen = ({ navigation }: VideoFeedScreenProps) => {
   return (
       <View ref={videoFeedRef} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="black" translucent />
-      {/* Header Controls */}
-
-
-
-
+      
+      {/* Back Button for non-main sources */}
+      {source !== 'main' && (
+        <>
+          <View style={styles.sourceHeader}>
+            <TouchableOpacity 
+              style={styles.sourceBackButton}
+              onPress={() => navigation.goBack()}
+            >
+              <BlurView intensity={80} tint="dark" style={styles.sourceBackBlur}>
+                <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+              </BlurView>
+            </TouchableOpacity>
+          </View>
+          {feedTitle && (
+            <View style={styles.sourceTitleContainer}>
+              <BlurView intensity={80} tint="dark" style={styles.sourceTitleBlur}>
+                <Text style={styles.sourceTitleText}>{feedTitle}</Text>
+              </BlurView>
+            </View>
+          )}
+        </>
+      )}
       
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
@@ -1202,6 +1458,46 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     padding: 0,
     margin: 0,
+  },
+  // Source-specific header styles
+  sourceHeader: {
+    position: 'absolute',
+    top: 50,
+    left: 16,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sourceBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  sourceBackBlur: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+  },
+  sourceTitleContainer: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    zIndex: 99,
+  },
+  sourceTitleBlur: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  sourceTitleText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,
@@ -2393,16 +2689,21 @@ const styles = StyleSheet.create({
 
   // Slideable Description Card Styles - Refined visual treatment
   slideableDescriptionCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.98)', // More opaque for consistency
-    borderRadius: DESIGN_TOKENS.radius.lg,
-    padding: DESIGN_TOKENS.spacing.md,
-    paddingBottom: DESIGN_TOKENS.spacing.xs,
-    ...DESIGN_TOKENS.shadow.lg,
-    borderWidth: 2,
-    borderColor: DESIGN_TOKENS.colors.brandLight, // Consistent with booking bubble
-    minHeight: 120,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 16,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(58, 211, 219, 0.25)',
+    minHeight: 110,
     maxHeight: 180,
-    marginHorizontal: 2, // Match booking bubble margin
+    marginHorizontal: 0, // Match booking bubble alignment
+    alignSelf: 'stretch', // Full width within container
   },
   descriptionGradient: {
     borderRadius: DESIGN_TOKENS.radius.lg,
@@ -2419,12 +2720,33 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58, 211, 219, 0.35)',
     borderRadius: 3,
   },
+  descriptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: DESIGN_TOKENS.spacing.xs,
+  },
   descriptionTitle: {
+    flex: 1,
     color: DESIGN_TOKENS.colors.text.primary,
-    fontSize: DESIGN_TOKENS.text.xl, // Increased back to xl (18px) for better readability
+    fontSize: DESIGN_TOKENS.text.xl,
     fontWeight: '700',
-    lineHeight: 22, // Increased line height
-    marginBottom: DESIGN_TOKENS.spacing.xs, // Keep minimal spacing
+    lineHeight: 22,
+    marginRight: 10,
+  },
+  durationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(58, 211, 219, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 4,
+  },
+  durationBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#3AD3DB',
   },
   descriptionDivider: {
     height: 1,
