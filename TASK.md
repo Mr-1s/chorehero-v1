@@ -2,6 +2,7 @@
 - 2026-01-24: Push build to TestFlight, update Expo, push git.
 
 ## Completed Tasks
+- 2026-01-25: Fix role selection routing on signup.
  - 2026-01-24: Refactor cleaner nav, jobs tab, pro dashboard UI.
  - 2026-01-24: Wire profile navigation screens.
  - 2026-01-24: Fix job request payout/vibe fields.

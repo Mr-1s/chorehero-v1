@@ -182,9 +182,11 @@ const AppNavigator = () => {
   const [restoredRoute, setRestoredRoute] = useState<{ name: keyof StackParamList; params?: any } | null>(null);
   const [guestZip, setGuestZip] = useState<string | null>(null);
   const [cleanerOnboardingOverride, setCleanerOnboardingOverride] = useState(false);
+  const [pendingRole, setPendingRole] = useState<'customer' | 'cleaner' | null>(null);
 
   const inferredRole =
     user?.role ||
+    pendingRole ||
     (user?.cleaner_onboarding_state || user?.cleaner_onboarding_step ? 'cleaner' : 'customer');
 
   const isCustomerComplete =
@@ -205,6 +207,16 @@ const AppNavigator = () => {
   // Determine the correct initial route based on auth state and onboarding completion
   const getInitialRoute = (): keyof StackParamList => {
     if (!isAuthenticated) return "AuthScreen";
+    if (
+      !user?.role &&
+      !pendingRole &&
+      !user?.cleaner_onboarding_state &&
+      user?.cleaner_onboarding_step === undefined &&
+      !user?.customer_onboarding_state &&
+      user?.customer_onboarding_step === undefined
+    ) {
+      return "AccountTypeSelection";
+    }
     if (inferredRole === 'customer' && !isCustomerComplete) {
       console.log('📋 Customer onboarding incomplete - routing to LocationLock');
       return "LocationLock";
@@ -231,6 +243,10 @@ const AppNavigator = () => {
         const storedZip = await AsyncStorage.getItem('guest_zip');
         if (storedZip) {
           setGuestZip(storedZip);
+        }
+        const storedPendingRole = await AsyncStorage.getItem('pending_auth_role');
+        if (storedPendingRole === 'customer' || storedPendingRole === 'cleaner') {
+          setPendingRole(storedPendingRole);
         }
         const storedCleanerOverride = await AsyncStorage.getItem('cleaner_onboarding_complete');
         setCleanerOnboardingOverride(storedCleanerOverride === 'true');
@@ -280,7 +296,7 @@ const AppNavigator = () => {
         routes: [{ name: nextRoute.name, params: nextRoute.params }],
       })
     );
-  }, [isLoading, isAuthenticated, user?.role, isCustomerComplete, isCleanerComplete, restoredRoute]);
+  }, [isLoading, isAuthenticated, user?.role, pendingRole, isCustomerComplete, isCleanerComplete, restoredRoute]);
 
   // Initialize services when user is authenticated
   React.useEffect(() => {
