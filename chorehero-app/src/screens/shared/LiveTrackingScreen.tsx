@@ -19,6 +19,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
+import { trackingWorkflowService } from '../../services/trackingWorkflowService';
 
 type TabParamList = {
   Home: undefined;
@@ -58,6 +59,7 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     longitude: -122.4194,
   });
   const [bookingStatus, setBookingStatus] = useState<string>('confirmed');
+  const [destinationLocation, setDestinationLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
   const cardSlideAnim = useRef(new Animated.Value(300)).current;
   const etaUpdateAnim = useRef(new Animated.Value(1)).current;
@@ -74,6 +76,14 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
           .from('bookings')
           .select(`
             *,
+            address:addresses!address_id(
+              street,
+              city,
+              state,
+              zip_code,
+              latitude,
+              longitude
+            ),
             cleaner:users!bookings_cleaner_id_fkey(
               id,
               name,
@@ -91,6 +101,15 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         } else if (bookingData) {
           setBooking(bookingData);
           setBookingStatus(bookingData.status);
+
+          if (bookingData.address?.latitude && bookingData.address?.longitude) {
+            const dest = {
+              latitude: Number(bookingData.address.latitude),
+              longitude: Number(bookingData.address.longitude),
+            };
+            setDestinationLocation(dest);
+            setCustomerLocation(dest);
+          }
           
           // Fetch cleaner profile separately
           const { data: profileData } = await supabase
@@ -107,6 +126,17 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
             status: getStatusLabel(bookingData.status),
             phone: bookingData.cleaner?.phone,
           });
+        }
+        
+        const latestLocation = await trackingWorkflowService.getLatestLocation(bookingId);
+        if (latestLocation) {
+          setCleanerLocation({
+            latitude: latestLocation.latitude,
+            longitude: latestLocation.longitude,
+          });
+          if (latestLocation.eta) {
+            setETA(Math.max(1, Math.round(latestLocation.eta)));
+          }
         }
       } catch (error) {
         console.error('❌ Error loading booking:', error);
@@ -148,54 +178,67 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     }
   };
 
+  const calculateDistanceMiles = (from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const R = 3958.8;
+    const dLat = toRad(to.latitude - from.latitude);
+    const dLng = toRad(to.longitude - from.longitude);
+    const lat1 = toRad(from.latitude);
+    const lat2 = toRad(to.latitude);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const calculateEtaMinutes = (from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }) => {
+    const miles = calculateDistanceMiles(from, to);
+    const speedMph = 22;
+    return Math.max(1, Math.round((miles / speedMph) * 60));
+  };
+
   useEffect(() => {
     if (loading) return;
 
-    // Slide in the floating card
     Animated.timing(cardSlideAnim, {
       toValue: 0,
       duration: 600,
       useNativeDriver: true,
     }).start();
 
-    // ETA updates (in production, this would come from real location data)
-    const etaInterval = setInterval(() => {
-      setETA(prev => {
-        if (prev > 1 && bookingStatus === 'cleaner_en_route') {
-          Animated.sequence([
-            Animated.timing(etaUpdateAnim, {
-              toValue: 1.1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(etaUpdateAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]).start();
-          return prev - 1;
-        }
-        return prev;
-      });
-    }, 60000);
+    if (!destinationLocation) return;
+    if (bookingStatus !== 'cleaner_en_route') return;
 
-    // Note: In production, cleaner location would come from real-time GPS tracking
-    // For now, simulate movement when en route
-    const locationInterval = setInterval(() => {
-      if (bookingStatus === 'cleaner_en_route') {
-        setCleanerLocation(prev => ({
-          latitude: prev.latitude + (customerLocation.latitude - prev.latitude) * 0.02,
-          longitude: prev.longitude + (customerLocation.longitude - prev.longitude) * 0.02,
-        }));
-      }
-    }, 5000);
+    const unsubscribe = trackingWorkflowService.subscribeToCleanerLocation(bookingId, (location) => {
+      setCleanerLocation({
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+
+      const nextEta = location.eta
+        ? Math.max(1, Math.round(location.eta))
+        : calculateEtaMinutes({ latitude: location.latitude, longitude: location.longitude }, destinationLocation);
+
+      Animated.sequence([
+        Animated.timing(etaUpdateAnim, {
+          toValue: 1.1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(etaUpdateAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      setETA(nextEta);
+    });
 
     return () => {
-      clearInterval(etaInterval);
-      clearInterval(locationInterval);
+      unsubscribe?.();
     };
-  }, [loading, bookingStatus]);
+  }, [loading, bookingStatus, destinationLocation, bookingId]);
 
   const handleBackPress = () => {
     navigation.goBack();
@@ -218,12 +261,19 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     }
   };
 
-  const mapRegion = {
-    latitude: (cleanerLocation.latitude + customerLocation.latitude) / 2,
-    longitude: (cleanerLocation.longitude + customerLocation.longitude) / 2,
-    latitudeDelta: 0.02,
-    longitudeDelta: 0.02,
-  };
+  const mapRegion = destinationLocation
+    ? {
+        latitude: (cleanerLocation.latitude + destinationLocation.latitude) / 2,
+        longitude: (cleanerLocation.longitude + destinationLocation.longitude) / 2,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      }
+    : {
+        latitude: cleanerLocation.latitude,
+        longitude: cleanerLocation.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      };
 
   // Show loading state
   if (loading) {
@@ -250,6 +300,17 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     );
   }
 
+  const silverMapStyle = [
+    { elementType: 'geometry', stylers: [{ color: '#f5f5f5' }] },
+    { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+    { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+    { elementType: 'labels.text.stroke', stylers: [{ color: '#f5f5f5' }] },
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
+    { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#e6e6e6' }] },
+    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#e9ecef' }] },
+    { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#efefef' }] },
+  ];
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -259,36 +320,39 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         region={mapRegion}
+        customMapStyle={silverMapStyle}
         showsUserLocation={false}
         showsMyLocationButton={false}
         showsCompass={false}
         showsScale={false}
         mapType="standard"
       >
-        {/* Cleaner Marker */}
-        <Marker
-          coordinate={cleanerLocation}
-          anchor={{ x: 0.5, y: 0.5 }}
-        >
-          <View style={styles.cleanerMarker}>
-            <LinearGradient
-              colors={[COLORS.primary, '#E97E0B']}
-              style={styles.markerGradient}
-            >
-              <Ionicons name="car" size={20} color={COLORS.text.inverse} />
-            </LinearGradient>
-          </View>
-        </Marker>
+        {bookingStatus === 'cleaner_en_route' && (
+          <Marker
+            coordinate={cleanerLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.cleanerMarker}>
+              <LinearGradient
+                colors={[COLORS.primary, '#E97E0B']}
+                style={styles.markerGradient}
+              >
+                <Ionicons name="car" size={20} color={COLORS.text.inverse} />
+              </LinearGradient>
+            </View>
+          </Marker>
+        )}
 
-        {/* Customer Location Marker */}
-        <Marker
-          coordinate={customerLocation}
-          anchor={{ x: 0.5, y: 0.5 }}
-        >
-          <View style={styles.customerMarker}>
-            <Ionicons name="home" size={24} color={COLORS.success} />
-          </View>
-        </Marker>
+        {destinationLocation && (
+          <Marker
+            coordinate={destinationLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.customerMarker}>
+              <Ionicons name="home" size={24} color={COLORS.success} />
+            </View>
+          </Marker>
+        )}
       </MapView>
 
       {/* ETA Header */}

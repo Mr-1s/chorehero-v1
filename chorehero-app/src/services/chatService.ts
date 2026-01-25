@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getConversationId } from '../utils/conversationId';
 
 export interface ChatMessage {
   id: string;
@@ -20,7 +21,8 @@ export interface ChatThread {
   id: string;
   customer_id: string;
   cleaner_id: string;
-  booking_id: string;
+  booking_id: string | null;
+  conversation_id: string | null;
   last_message_at: string | null;
   created_at: string;
 }
@@ -45,14 +47,15 @@ class ChatService {
   async createOrGetChatThread(params: CreateChatThreadParams): Promise<{ success: boolean; data?: ChatThread; error?: string }> {
     try {
       const { customer_id, cleaner_id, booking_id } = params;
+      const conversationId = getConversationId(customer_id, cleaner_id);
       
-      console.log('🏠 Creating/getting chat thread for booking:', booking_id);
+      console.log('🏠 Creating/getting chat thread for conversation:', conversationId);
       
-      // Check if thread already exists for this booking
+      // Check if thread already exists for this conversation
       const { data: existingThread, error: findError } = await supabase
         .from('chat_threads')
         .select('*')
-        .eq('booking_id', booking_id)
+        .eq('conversation_id', conversationId)
         .single();
 
       if (findError && findError.code !== 'PGRST116') {
@@ -62,7 +65,27 @@ class ChatService {
 
       if (existingThread) {
         console.log('✅ Found existing chat thread:', existingThread.id);
+        if (booking_id && !existingThread.booking_id) {
+          await supabase
+            .from('chat_threads')
+            .update({ booking_id })
+            .eq('id', existingThread.id);
+        }
         return { success: true, data: existingThread };
+      }
+
+      const { data: legacyThread } = await supabase
+        .from('chat_threads')
+        .select('*')
+        .or(`and(customer_id.eq.${customer_id},cleaner_id.eq.${cleaner_id}),and(customer_id.eq.${cleaner_id},cleaner_id.eq.${customer_id})`)
+        .maybeSingle();
+
+      if (legacyThread) {
+        await supabase
+          .from('chat_threads')
+          .update({ conversation_id: conversationId, booking_id: booking_id || legacyThread.booking_id })
+          .eq('id', legacyThread.id);
+        return { success: true, data: { ...legacyThread, conversation_id: conversationId } };
       }
 
       // Create new thread
@@ -70,6 +93,7 @@ class ChatService {
       const { data: newThread, error: createError } = await supabase
         .from('chat_threads')
         .insert({
+          conversation_id: conversationId,
           customer_id,
           cleaner_id,
           booking_id,
@@ -193,8 +217,17 @@ class ChatService {
         throw error;
       }
 
-      console.log(`✅ Retrieved ${threads?.length || 0} threads`);
-      return { success: true, data: threads || [] };
+      const deduped = new Map<string, ChatThread>();
+      (threads || []).forEach(thread => {
+        const conversationId = thread.conversation_id || getConversationId(thread.customer_id, thread.cleaner_id);
+        const existing = deduped.get(conversationId);
+        if (!existing || (thread.last_message_at || '') > (existing.last_message_at || '')) {
+          deduped.set(conversationId, { ...thread, conversation_id: conversationId });
+        }
+      });
+
+      console.log(`✅ Retrieved ${deduped.size} threads`);
+      return { success: true, data: Array.from(deduped.values()) };
 
     } catch (error) {
       console.error('❌ Get threads failed:', error);

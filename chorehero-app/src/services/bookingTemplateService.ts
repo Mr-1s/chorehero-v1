@@ -126,6 +126,17 @@ class BookingTemplateService {
    * Get active template for a cleaner
    */
   async getActiveTemplate(cleanerId: string): Promise<ApiResponse<BookingTemplate>> {
+    // Validate cleanerId before making the query
+    if (!cleanerId || cleanerId === 'undefined' || cleanerId === 'null') {
+      return { success: true, data: null as any };
+    }
+    
+    // Check if it's a valid UUID format
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleanerId);
+    if (!isUuid) {
+      return { success: true, data: null as any };
+    }
+    
     try {
       const { data, error } = await supabase
         .from('booking_templates')
@@ -288,6 +299,17 @@ class BookingTemplateService {
    * Get custom questions for a template
    */
   async getTemplateQuestions(templateId: string): Promise<ApiResponse<CustomBookingQuestion[]>> {
+    // Validate templateId before making the query
+    if (!templateId || templateId === 'undefined' || templateId === 'null') {
+      return { success: true, data: [] };
+    }
+    
+    // Check if it's a valid UUID format
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(templateId);
+    if (!isUuid) {
+      return { success: true, data: [] };
+    }
+    
     try {
       const { data, error } = await supabase
         .from('custom_booking_questions')
@@ -302,6 +324,7 @@ class BookingTemplateService {
       console.error('Error fetching custom questions:', error);
       return { 
         success: false, 
+        data: [], // Always return empty array on error
         error: error instanceof Error ? error.message : 'Failed to fetch questions' 
       };
     }

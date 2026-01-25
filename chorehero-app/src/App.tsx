@@ -27,8 +27,10 @@ import { EnhancedMessageProvider } from './context/EnhancedMessageContext';
 import RoleBasedTabNavigator from './components/navigation/RoleBasedTabNavigator';
 import CleanerProfileScreen from './screens/shared/CleanerProfileScreen';
 import BookingConfirmationScreen from './screens/shared/BookingConfirmationScreen';
+import BookingSummaryScreen from './screens/shared/BookingSummaryScreen';
 import LiveTrackingScreen from './screens/shared/LiveTrackingScreen';
 import IndividualChatScreen from './screens/shared/IndividualChatScreen';
+import MessagesScreen from './screens/shared/MessagesScreen';
 import RatingReviewScreen from './screens/shared/RatingReviewScreen';
 import TipAndReviewScreen from './screens/shared/TipAndReviewScreen';
 import HelpScreen from './screens/shared/HelpScreen';
@@ -41,6 +43,8 @@ import AuthScreen from './screens/shared/AuthScreen';
 import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectionScreen';
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
+import LocationLockScreen from './screens/onboarding/LocationLockScreen';
+import WaitlistScreen from './screens/onboarding/WaitlistScreen';
 import NewBookingFlowScreen from './screens/booking/NewBookingFlowScreen';
 import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
@@ -50,10 +54,15 @@ import BookingCustomizationScreen from './screens/cleaner/BookingCustomizationSc
 import PaymentScreen from './screens/shared/PaymentScreen';
 import EditProfileScreen from './screens/shared/EditProfileScreen';
 import VideoFeedScreen from './screens/shared/VideoFeedScreen';
+import SavedVideosScreen from './screens/shared/SavedVideosScreen';
+import LikedVideosScreen from './screens/shared/LikedVideosScreen';
+import FollowListScreen from './screens/shared/FollowListScreen';
 // Removed unused/legacy screens not present in current StackParamList
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
 import { useRoleFeatures } from './components/RoleBasedUI';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCleanerOnboardingOverride } from './utils/onboardingOverride';
 
 
 // Import services for initialization
@@ -76,6 +85,8 @@ type StackParamList = {
   AccountTypeSelection: undefined;
   CustomerOnboarding: undefined;
   CleanerOnboarding: undefined;
+  LocationLock: undefined;
+  Waitlist: { zip: string; city?: string; state?: string };
   NewBookingFlow: {
     cleanerId?: string;
     serviceType?: string;
@@ -88,7 +99,7 @@ type StackParamList = {
     category: string;
   };
   MainTabs: undefined;
-  CleanerProfile: { cleanerId: string };
+  CleanerProfile: { cleanerId: string; activeTab?: 'videos' | 'services' | 'reviews' | 'about' };
   BookingConfirmation: {
     bookingId: string;
     service?: {
@@ -105,6 +116,13 @@ type StackParamList = {
     };
     address?: string;
     scheduledTime?: string;
+  };
+  BookingSummary: {
+    cleanerId: string;
+    cleanerName?: string;
+    hourlyRate?: number;
+    selectedService?: string;
+    selectedTime?: string;
   };
   LiveTracking: { bookingId: string };
   IndividualChat: { cleanerId: string; bookingId: string };
@@ -138,10 +156,17 @@ type StackParamList = {
   VideoUpload: undefined;
   BookingCustomization: undefined;
   VideoFeed: {
-    source?: 'main' | 'featured' | 'cleaner';
+    source?: 'main' | 'featured' | 'cleaner' | 'saved' | 'liked' | 'global';
     cleanerId?: string;
     initialVideoId?: string;
     videos?: any[];
+  };
+  SavedVideos: undefined;
+  LikedVideos: undefined;
+  FollowList: {
+    userId: string;
+    type?: 'followers' | 'following';
+    userName?: string;
   };
 };
 
@@ -152,59 +177,127 @@ const Stack = createStackNavigator<StackParamList>();
 const TabNavigator = RoleBasedTabNavigator;
 
 const AppNavigator = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, isLoading } = useAuth();
   const navigationRef = useRef<any>(null);
+  const [restoredRoute, setRestoredRoute] = useState<{ name: keyof StackParamList; params?: any } | null>(null);
+  const [guestZip, setGuestZip] = useState<string | null>(null);
+  const [cleanerOnboardingOverride, setCleanerOnboardingOverride] = useState(false);
+
+  const inferredRole =
+    user?.role ||
+    (user?.cleaner_onboarding_state || user?.cleaner_onboarding_step ? 'cleaner' : 'customer');
+
+  const isCustomerComplete =
+    inferredRole === 'customer' &&
+    ((user?.customer_onboarding_state === 'LOCATION_SET' ||
+      user?.customer_onboarding_state === 'ACTIVE_CUSTOMER' ||
+      user?.customer_onboarding_state === 'TRANSACTION_READY') ||
+      !!guestZip);
+
+  const isCleanerComplete =
+    inferredRole === 'cleaner' &&
+    (user.cleaner_onboarding_state === 'STAGING' ||
+      user.cleaner_onboarding_state === 'LIVE' ||
+      (user.cleaner_onboarding_step !== undefined && user.cleaner_onboarding_step >= 6) ||
+      cleanerOnboardingOverride ||
+      getCleanerOnboardingOverride());
 
   // Determine the correct initial route based on auth state and onboarding completion
   const getInitialRoute = (): keyof StackParamList => {
-    if (!isAuthenticated) {
-      return "AuthScreen";
+    if (!isAuthenticated) return "AuthScreen";
+    if (inferredRole === 'customer' && !isCustomerComplete) {
+      console.log('📋 Customer onboarding incomplete - routing to LocationLock');
+      return "LocationLock";
     }
-    // User is authenticated but hasn't completed onboarding (no role set)
-    if (!user?.role) {
-      console.log('📋 User authenticated but no role - routing to AccountTypeSelection');
-      return "AccountTypeSelection";
+    if (inferredRole === 'cleaner' && !isCleanerComplete) {
+      console.log('📋 Cleaner onboarding incomplete - routing to CleanerOnboarding');
+      return "CleanerOnboarding";
     }
     // User is fully onboarded
     return "MainTabs";
   };
 
-  // Handle logout navigation
+  // Restore last known route
   useEffect(() => {
-    if (!isAuthenticated && navigationRef.current) {
-      // Navigate to AuthScreen when user logs out
-      navigationRef.current.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'AuthScreen' }],
-        })
-      );
-    }
-  }, [isAuthenticated]);
+    const loadLastRoute = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('last_route');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.name) {
+            setRestoredRoute(parsed);
+          }
+        }
+        const storedZip = await AsyncStorage.getItem('guest_zip');
+        if (storedZip) {
+          setGuestZip(storedZip);
+        }
+        const storedCleanerOverride = await AsyncStorage.getItem('cleaner_onboarding_complete');
+        setCleanerOnboardingOverride(storedCleanerOverride === 'true');
+      } catch (error) {
+        console.warn('⚠️ Failed to restore last route:', error);
+      }
+    };
+    loadLastRoute();
+  }, []);
 
-  // Handle navigation when user completes onboarding (role gets set)
-  useEffect(() => {
-    if (isAuthenticated && user?.role && navigationRef.current) {
-      // User just completed onboarding, navigate to MainTabs
-      console.log('✅ User has role, navigating to MainTabs');
-      navigationRef.current.dispatch(
-        CommonActions.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        })
-      );
+  const getSafeRoute = () => {
+    if (!isAuthenticated) {
+      return { name: 'AuthScreen' };
     }
-  }, [isAuthenticated, user?.role]);
+    const shouldBypassLocationLock =
+      isAuthenticated &&
+      user?.role === 'customer' &&
+      (isCustomerComplete || !!guestZip);
+
+    if (isCleanerComplete && restoredRoute?.name === 'CleanerOnboarding') {
+      return { name: 'MainTabs' };
+    }
+    if (shouldBypassLocationLock && restoredRoute?.name === 'LocationLock') {
+      return { name: 'MainTabs' };
+    }
+    if (
+      restoredRoute?.name &&
+      !['AuthScreen', 'AccountTypeSelection'].includes(restoredRoute.name)
+    ) {
+      return restoredRoute;
+    }
+    return { name: getInitialRoute() };
+  };
+
+  // Handle navigation when auth state changes (after loading)
+  useEffect(() => {
+    if (isLoading || !navigationRef.current) {
+      return;
+    }
+    const nextRoute = getSafeRoute();
+    if (nextRoute.name === 'MainTabs') {
+      console.log('✅ User onboarding complete, navigating to MainTabs');
+    }
+    navigationRef.current.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: nextRoute.name, params: nextRoute.params }],
+      })
+    );
+  }, [isLoading, isAuthenticated, user?.role, isCustomerComplete, isCleanerComplete, restoredRoute]);
 
   // Initialize services when user is authenticated
   React.useEffect(() => {
-    if (isAuthenticated && user?.id) {
-      initializeServices(user.id);
+    if (!isAuthenticated || !user?.id) {
+      return () => {
+        presenceService.cleanup();
+      };
     }
+    initializeServices(user.id);
     return () => {
       presenceService.cleanup();
     };
   }, [isAuthenticated, user?.id]);
+
+  if (isLoading) {
+    return null;
+  }
 
   const initializeServices = async (userId: string) => {
     try {
@@ -223,17 +316,34 @@ const AppNavigator = () => {
     }
   };
 
+  const persistRoute = (state: any) => {
+    try {
+      const route = state?.routes?.[state.index];
+      if (!route) return;
+      const payload = { name: route.name, params: route.params };
+      AsyncStorage.setItem('last_route', JSON.stringify(payload)).catch(() => {});
+    } catch {
+      // no-op
+    }
+  };
+
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} onStateChange={persistRoute}>
       <Stack.Navigator 
         screenOptions={{ headerShown: false }}
-        initialRouteName={getInitialRoute()}
+        initialRouteName="AuthScreen"
       >
           {/* Authentication Flow */}
           <Stack.Screen name="AuthScreen" component={AuthScreen} />
           <Stack.Screen name="AccountTypeSelection" component={AccountTypeSelectionScreen} />
           <Stack.Screen name="CustomerOnboarding" component={CustomerOnboardingScreen} />
           <Stack.Screen name="CleanerOnboarding" component={CleanerOnboardingScreen} />
+          <Stack.Screen
+            name="LocationLock"
+            component={LocationLockScreen}
+            options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen name="Waitlist" component={WaitlistScreen} />
           
           {/* Main App Flow */}
           <Stack.Screen name="MainTabs" component={TabNavigator} />
@@ -245,8 +355,10 @@ const AppNavigator = () => {
           {/* Other Screens */}
           <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />
           <Stack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
+          <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
           <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} />
           <Stack.Screen name="IndividualChat" component={IndividualChatScreen} />
+          <Stack.Screen name="Messages" component={MessagesScreen} />
           <Stack.Screen name="RatingReview" component={RatingReviewScreen} />
           <Stack.Screen name="TipAndReview" component={TipAndReviewScreen} />
           <Stack.Screen name="HelpScreen" component={HelpScreen} />
@@ -264,6 +376,9 @@ const AppNavigator = () => {
           <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} />
           <Stack.Screen name="EditProfile" component={EditProfileScreen} />
           <Stack.Screen name="VideoFeed" component={VideoFeedScreen} />
+          <Stack.Screen name="SavedVideos" component={SavedVideosScreen} />
+          <Stack.Screen name="LikedVideos" component={LikedVideosScreen} />
+          <Stack.Screen name="FollowList" component={FollowListScreen} />
           
 
         </Stack.Navigator>

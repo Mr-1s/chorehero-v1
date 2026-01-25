@@ -200,3 +200,7 @@ class NotificationService {
 }
 
 export const notificationService = new NotificationService(); 
+
+export const send_notification = async (
+  notification: Omit<Notification, 'id' | 'timestamp' | 'read'>
+) => notificationService.sendNotification(notification);

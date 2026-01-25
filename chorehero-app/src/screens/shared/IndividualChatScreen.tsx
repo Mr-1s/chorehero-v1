@@ -23,6 +23,7 @@ import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 import { useAuth } from '../../hooks/useAuth';
 import { messageService, type ChatMessage } from '../../services/messageService';
 import { supabase } from '../../services/supabase';
+import { getConversationId } from '../../utils/conversationId';
 
 type TabParamList = {
   Home: undefined;
@@ -71,6 +72,8 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const [loading, setLoading] = useState(true);
   const [realChatMode, setRealChatMode] = useState(false);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(roomId || null);
+  const [trackableBookingId, setTrackableBookingId] = useState<string | null>(null);
+  const [trackableStatus, setTrackableStatus] = useState<string | null>(null);
   
   // No mock messages - always use real data
   const [cleanerData, setCleanerData] = useState<any>(null);
@@ -79,6 +82,34 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   useEffect(() => {
     initializeChat();
   }, []);
+
+  // Listen for deleted messages so both sides update
+  useEffect(() => {
+    if (!currentRoomId) return;
+
+    const channel = supabase
+      .channel(`messages-delete:${currentRoomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `thread_id=eq.${currentRoomId}`,
+        },
+        (payload: any) => {
+          const deletedId = payload?.old?.id;
+          if (deletedId) {
+            setMessages(prev => prev.filter(m => m.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentRoomId]);
 
   const initializeChat = async () => {
     try {
@@ -109,33 +140,30 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
       
       if (!roomToUse && cleanerId && user.id) {
         console.log('💬 Looking for existing chat room...');
-        
-        // Look for existing thread
+
+        const isParticipantCleaner = otherParticipant?.role === 'cleaner' || !otherParticipant?.role;
+        const customerId = isParticipantCleaner ? user.id : cleanerId;
+        const resolvedCleanerId = isParticipantCleaner ? cleanerId : user.id;
+        const conversationId = getConversationId(customerId, resolvedCleanerId);
+
         const { data: existingThread } = await supabase
           .from('chat_threads')
           .select('id')
-          .or(`and(customer_id.eq.${user.id},cleaner_id.eq.${cleanerId}),and(customer_id.eq.${cleanerId},cleaner_id.eq.${user.id})`)
+          .eq('conversation_id', conversationId)
           .maybeSingle();
-        
+
         if (existingThread) {
           roomToUse = existingThread.id;
           setCurrentRoomId(roomToUse);
           console.log('✅ Found existing chat room:', roomToUse);
-        } else if (bookingId) {
-          // Create new thread for this booking
-          console.log('💬 Creating new chat room...');
-          const { data: newThread, error } = await supabase
-            .from('chat_threads')
-            .insert({
-              customer_id: user.id,
-              cleaner_id: cleanerId,
-              booking_id: bookingId,
-            })
-            .select()
-            .single();
-          
-          if (newThread && !error) {
-            roomToUse = newThread.id;
+        } else {
+          const response = await messageService.createOrGetChatRoom({
+            customer_id: customerId,
+            cleaner_id: resolvedCleanerId,
+            booking_id: bookingId,
+          });
+          if (response.success && response.data) {
+            roomToUse = response.data.id;
             setCurrentRoomId(roomToUse);
             console.log('✅ Created new chat room:', roomToUse);
           }
@@ -248,6 +276,41 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const quickReplies = quickReplyTemplates[quickReplyCategory];
 
   useEffect(() => {
+    const loadTrackableBooking = async () => {
+      if (!user?.id || !cleanerId) {
+        setTrackableBookingId(null);
+        setTrackableStatus(null);
+        return;
+      }
+
+      const participantId = otherParticipant?.id || cleanerId;
+      const isParticipantCleaner = otherParticipant?.role === 'cleaner' || (!otherParticipant?.role && user.role !== 'cleaner');
+      const customerId = isParticipantCleaner ? user.id : participantId;
+      const resolvedCleanerId = isParticipantCleaner ? participantId : user.id;
+
+      const { data: activeBooking } = await supabase
+        .from('bookings')
+        .select('id, status')
+        .eq('customer_id', customerId)
+        .eq('cleaner_id', resolvedCleanerId)
+        .in('status', ['cleaner_en_route', 'in_progress'])
+        .order('scheduled_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeBooking?.id) {
+        setTrackableBookingId(activeBooking.id);
+        setTrackableStatus(activeBooking.status);
+      } else {
+        setTrackableBookingId(null);
+        setTrackableStatus(null);
+      }
+    };
+
+    loadTrackableBooking();
+  }, [user?.id, cleanerId, otherParticipant?.id, otherParticipant?.role]);
+
+  useEffect(() => {
     // Animate in new messages
     Animated.timing(messageSlideAnim, {
       toValue: 0,
@@ -261,56 +324,50 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
     }, 100);
   }, [messages]);
 
-  const handleSendMessage = async () => {
-    if (message.trim()) {
-      const messageText = message.trim();
-      setMessage(''); // Clear input immediately for better UX
-      
-      if (realChatMode && currentRoomId && user) {
-        // Send real message
-        try {
-          const response = await messageService.sendMessage({
-            roomId: currentRoomId,
-            senderId: user.id,
-            content: messageText,
-            messageType: 'text'
-          });
-          
-          if (response.success && response.data) {
-            // Message will be added via real-time subscription
-            console.log('✅ Message sent successfully');
-          } else {
-            console.error('❌ Failed to send message:', response.error);
-            // Re-add message to input if sending failed
-            setMessage(messageText);
-          }
-        } catch (error) {
-          console.error('❌ Error sending message:', error);
+  const sendMessageText = async (messageText: string) => {
+    if (!messageText.trim()) return;
+
+    if (realChatMode && currentRoomId && user) {
+      try {
+        const response = await messageService.sendMessage({
+          roomId: currentRoomId,
+          senderId: user.id,
+          content: messageText,
+          messageType: 'text'
+        });
+
+        if (response.success && response.data) {
+          console.log('✅ Message sent successfully');
+        } else {
+          console.error('❌ Failed to send message:', response.error);
           setMessage(messageText);
         }
-      } else {
-        // Demo mode - add message locally
-        const newMessage: Message = {
-          id: Date.now().toString(),
-          text: messageText,
-          sender: 'user',
-          timestamp: new Date(),
-          type: 'text',
-        };
-        setMessages(prev => [...prev, newMessage]);
+      } catch (error) {
+        console.error('❌ Error sending message:', error);
+        setMessage(messageText);
       }
+      return;
     }
-  };
 
-  const handleQuickReply = (reply: string) => {
     const newMessage: Message = {
       id: Date.now().toString(),
-      text: reply,
+      text: messageText,
       sender: 'user',
       timestamp: new Date(),
       type: 'text',
     };
     setMessages(prev => [...prev, newMessage]);
+  };
+
+  const handleSendMessage = async () => {
+    if (!message.trim()) return;
+    const messageText = message.trim();
+    setMessage('');
+    await sendMessageText(messageText);
+  };
+
+  const handleQuickReply = (reply: string) => {
+    sendMessageText(reply);
   };
 
   const handleBackPress = () => {
@@ -322,7 +379,40 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   };
 
   const handleTrackService = () => {
-    navigation.navigate('LiveTracking', { bookingId });
+    if (trackableBookingId) {
+      navigation.navigate('LiveTracking', { bookingId: trackableBookingId });
+    }
+  };
+
+  const handleDeleteMessage = (msg: Message) => {
+    if (!user) return;
+
+    Alert.alert(
+      'Delete message?',
+      'This will remove the message for both participants.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (realChatMode && currentRoomId) {
+                const response = await messageService.deleteMessage(msg.id, user.id);
+                if (!response.success) {
+                  throw new Error(response.error || 'Failed to delete message');
+                }
+              }
+
+              // Remove locally
+              setMessages(prev => prev.filter(m => m.id !== msg.id));
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete message.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const formatTime = (date: Date) => {
@@ -346,10 +436,18 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           <Image source={{ uri: participant.avatar }} style={styles.messageAvatar} />
         )}
         
-        <View style={[
-          styles.messageBubble,
-          isUser ? styles.userBubble : styles.cleanerBubble,
-        ]}>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onLongPress={() => {
+            if (isUser) {
+              handleDeleteMessage(msg);
+            }
+          }}
+          style={[
+            styles.messageBubble,
+            isUser ? styles.userBubble : styles.cleanerBubble,
+          ]}
+        >
           {msg.type === 'image' && msg.image && (
             <Image source={{ uri: msg.image }} style={styles.messageImage} />
           )}
@@ -365,7 +463,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           ]}>
             {formatTime(msg.timestamp)}
           </Text>
-        </View>
+        </TouchableOpacity>
 
         {isUser && (
           <View style={styles.userAvatarPlaceholder} />
@@ -423,12 +521,18 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
             <View style={styles.serviceHeader}>
               <Ionicons name="home" size={20} color={COLORS.primary} />
               <Text style={styles.serviceTitle}>Kitchen Deep Clean</Text>
-              <Text style={styles.serviceETA}>ETA: {participant.eta}</Text>
+              {trackableStatus && (
+                <Text style={styles.serviceETA}>
+                  {trackableStatus === 'cleaner_en_route' ? 'En Route' : 'In Progress'}
+                </Text>
+              )}
             </View>
-            <TouchableOpacity style={styles.trackButton} onPress={handleTrackService}>
-              <Text style={styles.trackButtonText}>Track Service</Text>
-              <Ionicons name="location" size={16} color={COLORS.primary} />
-            </TouchableOpacity>
+            {trackableBookingId && (
+              <TouchableOpacity style={styles.trackButton} onPress={handleTrackService}>
+                <Text style={styles.trackButtonText}>Track Service</Text>
+                <Ionicons name="location" size={16} color={COLORS.primary} />
+              </TouchableOpacity>
+            )}
           </View>
         </BlurView>
       </View>

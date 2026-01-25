@@ -19,6 +19,11 @@ import VideoUploadScreen from '../../screens/cleaner/VideoUploadScreen';
 import TipsScreen from '../../screens/cleaner/TipsScreen';
 import CleanerContentScreen from '../../screens/cleaner/ContentScreenNew';
 import CleanerMessagesScreen from '../../screens/cleaner/MessagesScreenNew';
+import EarningsBreakdownScreen from '../../screens/cleaner/EarningsBreakdownScreen';
+import HeroStatsScreen from '../../screens/cleaner/HeroStatsScreen';
+import CalendarSettingsScreen from '../../screens/cleaner/CalendarSettingsScreen';
+import RateManagerScreen from '../../screens/cleaner/RateManagerScreen';
+import CameraView from '../../screens/cleaner/CameraView';
 
 // Shared Screens
 import DiscoverScreen from '../../screens/shared/DiscoverScreen';
@@ -56,8 +61,13 @@ const CleanerProfileStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />
     <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
+    <Stack.Screen name="CameraView" component={CameraView} />
     <Stack.Screen name="ContentCreation" component={ContentCreationScreen} />
     <Stack.Screen name="Content" component={CleanerContentScreen} />
+    <Stack.Screen name="EarningsBreakdown" component={EarningsBreakdownScreen} />
+    <Stack.Screen name="HeroStats" component={HeroStatsScreen} />
+    <Stack.Screen name="CalendarSettings" component={CalendarSettingsScreen} />
+    <Stack.Screen name="RateManager" component={RateManagerScreen} />
   </Stack.Navigator>
 );
 
@@ -93,18 +103,22 @@ const CleanerNavigator = () => {
         headerShown: false,
         gestureEnabled: true,
       }}
-      initialRouteName="Heroes"
+      initialRouteName="Dashboard"
     >
       <Stack.Screen name="Home" component={CleanerProfileScreen as any} />
-      <Stack.Screen name="Dashboard" component={CleanerDashboardScreen as any} />
+      <Stack.Screen name="Dashboard" component={TipsScreen as any} />
       <Stack.Screen name="Jobs" component={CleanerJobsScreen as any} />
-      <Stack.Screen name="Heroes" component={TipsScreen as any} />
       <Stack.Screen name="Content" component={CleanerContentScreen as any} />
       <Stack.Screen name="Schedule" component={CleanerScheduleScreen} />
       <Stack.Screen name="Earnings" component={CleanerEarningsScreen as any} />
+      <Stack.Screen name="EarningsBreakdown" component={EarningsBreakdownScreen} />
+      <Stack.Screen name="HeroStats" component={HeroStatsScreen} />
+      <Stack.Screen name="CalendarSettings" component={CalendarSettingsScreen} />
+      <Stack.Screen name="RateManager" component={RateManagerScreen} />
       <Stack.Screen name="Messages" component={CleanerMessagesScreen as any} />
       <Stack.Screen name="Profile" component={CleanerProfileStack as any} />
       <Stack.Screen name="VideoUpload" component={VideoUploadScreen as any} />
+      <Stack.Screen name="CameraView" component={CameraView as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
@@ -123,6 +137,7 @@ const RoleBasedTabNavigator = () => {
   const [isLoadingRole, setIsLoadingRole] = useState(true);
   const [showRoleSelection, setShowRoleSelection] = useState(false);
   const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
+  const [interfaceRoleOverride, setInterfaceRoleOverride] = useState<'customer' | 'cleaner' | null>(null);
 
   // Check for demo role on mount (only for non-authenticated users)
   useEffect(() => {
@@ -168,6 +183,34 @@ const RoleBasedTabNavigator = () => {
     checkDemoRole();
   }, [isCleaner, isCustomer, isAuthenticated, user]);
 
+  // Check for interface override (for authenticated users)
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    const loadOverride = async () => {
+      if (!isAuthenticated) {
+        setInterfaceRoleOverride(null);
+        return;
+      }
+      try {
+        const storedOverride = await AsyncStorage.getItem('interface_role_override');
+        if (storedOverride === 'customer' || storedOverride === 'cleaner') {
+          setInterfaceRoleOverride(storedOverride);
+        } else {
+          setInterfaceRoleOverride(null);
+        }
+      } catch (error) {
+        console.warn('Failed to load interface override:', error);
+      }
+    };
+    loadOverride();
+    if (isAuthenticated) {
+      interval = setInterval(loadOverride, 1200);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAuthenticated]);
+
   const handleRoleSelected = async (role: 'customer' | 'cleaner') => {
     try {
       console.log('🎯 Setting guest user role:', role);
@@ -183,8 +226,12 @@ const RoleBasedTabNavigator = () => {
 
   // Determine which interface to show
   // Priority: Real auth > Guest role selection > Default to customer
-  const effectiveIsCleaner = isAuthenticated ? isCleaner : guestRole === 'cleaner';
-  const effectiveIsCustomer = isAuthenticated ? isCustomer : guestRole === 'customer' || guestRole === null;
+  const inferredRole =
+    user?.role ||
+    (user?.cleaner_onboarding_state || user?.cleaner_onboarding_step ? 'cleaner' : 'customer');
+  const resolvedRole = isAuthenticated ? (interfaceRoleOverride || inferredRole) : guestRole;
+  const effectiveIsCleaner = resolvedRole === 'cleaner';
+  const effectiveIsCustomer = resolvedRole === 'customer' || !resolvedRole;
   
   // Debug logging
   console.log('🔍 Role Debug:', {
@@ -207,6 +254,7 @@ const RoleBasedTabNavigator = () => {
     effectiveIsCleaner,
     effectiveIsCustomer,
     guestRole,
+    interfaceRoleOverride,
     userRole: user?.role,
     userName: user?.name,
     willLoadCleanerInterface: effectiveIsCleaner

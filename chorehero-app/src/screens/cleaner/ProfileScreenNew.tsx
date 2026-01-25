@@ -21,7 +21,10 @@ import {
   Switch,
   RefreshControl,
   Dimensions,
+  TouchableOpacity,
+  Modal,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // spacing.xl = 20px padding each side (40px total), spacing.md = 12px gap
@@ -34,7 +37,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { useCleanerStore } from '../../store/cleanerStore';
 
 // Components
-import { MetricCard, QuickActionTile, Chip, PressableScale } from '../../components/cleaner';
+import { MetricCard, QuickActionTile, PressableScale } from '../../components/cleaner';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { SkeletonBlock } from '../../components/Skeleton';
 
@@ -47,11 +50,17 @@ type StackParamList = {
   Profile: undefined;
   EditProfile: undefined;
   Earnings: undefined;
+  EarningsBreakdown: undefined;
   Schedule: undefined;
   Jobs: undefined;
   Content: undefined;
+  VideoUpload: undefined;
+  CameraView: undefined;
+  HeroStats: undefined;
+  CalendarSettings: undefined;
+  RateManager: undefined;
   CreateService: undefined;
-  Settings: undefined;
+  SettingsScreen: undefined;
   BookingCustomization: undefined;
 };
 
@@ -76,6 +85,13 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
     toggleOnlineStatus,
     refreshData,
   } = useCleanerStore();
+  const [detailsVisible, setDetailsVisible] = React.useState(false);
+
+  useEffect(() => {
+    if (currentCleaner?.profileCompletion !== undefined && currentCleaner.profileCompletion < 1 && currentCleaner.isOnline) {
+      toggleOnlineStatus();
+    }
+  }, [currentCleaner?.profileCompletion, currentCleaner?.isOnline, toggleOnlineStatus]);
 
   useEffect(() => {
     fetchDashboard();
@@ -89,23 +105,20 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
   // Handle quick action navigation
   const handleQuickAction = useCallback((action: string) => {
     switch (action) {
-      case 'createService':
-        navigation.navigate('CreateService');
-        break;
       case 'quickUpload':
-        navigation.navigate('Content');
+        navigation.navigate('CameraView');
         break;
       case 'viewJobs':
         navigation.navigate('Jobs');
         break;
       case 'schedule':
-        navigation.navigate('Schedule');
+        navigation.navigate('CalendarSettings');
         break;
       case 'earnings':
-        navigation.navigate('Earnings');
+        navigation.navigate('EarningsBreakdown');
         break;
       case 'bookingCustomization':
-        navigation.navigate('BookingCustomization');
+        navigation.navigate('RateManager');
         break;
     }
   }, [navigation]);
@@ -124,6 +137,12 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
   }
 
   const cleaner = currentCleaner!;
+  const canGoOnline = cleaner.profileCompletion >= 1;
+  const isOnline = canGoOnline && cleaner.isOnline;
+  const showPendingReview = cleaner.onboardingState === 'STAGING' && cleaner.verificationStatus !== 'verified';
+  const showVerificationCard = showPendingReview || cleaner.verificationStatus === 'verified';
+  const backgroundCheckLabel = cleaner.backgroundCheckStatus || 'pending';
+  const auditionLabel = cleaner.videoProfileUrl ? 'Submitted' : 'Not submitted';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -171,17 +190,17 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
                 <View style={styles.metaDot} />
                 <Text style={styles.metaText}>{cleaner.totalJobs} jobs</Text>
                 <View style={styles.metaDot} />
-                <Chip
-                  label={cleaner.isOnline ? 'Online' : 'Offline'}
-                  variant="filled"
-                  color={cleaner.isOnline ? 'success' : 'grey'}
-                  size="sm"
-                />
+                <Text style={[
+                  styles.metaStatus,
+                  isOnline && styles.metaStatusOnline,
+                ]}>
+                  {isOnline ? 'Online' : 'Offline'}
+                </Text>
               </View>
             </View>
 
             {/* Settings */}
-            <PressableScale onPress={() => navigation.navigate('Settings')}>
+            <PressableScale onPress={() => navigation.navigate('SettingsScreen')}>
               <View style={styles.settingsButton}>
                 <Ionicons name="settings-outline" size={22} color={colors.textSecondary} />
               </View>
@@ -192,12 +211,19 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
           <View style={styles.onlineToggle}>
             <Text style={styles.onlineToggleLabel}>Available for jobs</Text>
             <Switch
-              value={cleaner.isOnline}
-              onValueChange={toggleOnlineStatus}
+              value={isOnline}
+              onValueChange={() => {
+                if (!canGoOnline) return;
+                toggleOnlineStatus();
+              }}
+              disabled={!canGoOnline}
               trackColor={{ false: colors.borderSubtle, true: colors.primaryLight }}
               thumbColor={cleaner.isOnline ? colors.primary : colors.textMuted}
             />
           </View>
+          {!canGoOnline && (
+            <Text style={styles.toggleHelper}>Complete your profile to go Online.</Text>
+          )}
         </Animated.View>
 
         {/* Profile Completion */}
@@ -229,64 +255,110 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
         </Animated.View>
 
         {/* Verification */}
-        <Animated.View entering={FadeInUp.delay(150).duration(400)} style={styles.section}>
-          <View style={styles.verificationCard}>
-            <View style={styles.verificationRow}>
-              <Chip
-                label="Verified"
-                variant="filled"
-                color="teal"
-                icon="checkmark-circle"
-                size="sm"
-              />
-              <PressableScale>
-                <Text style={styles.verificationLink}>View details</Text>
-              </PressableScale>
+        {showVerificationCard && (
+          <Animated.View entering={FadeInUp.delay(150).duration(400)} style={styles.section}>
+            <View style={styles.verificationCard}>
+              <View style={styles.verificationRow}>
+                <View style={[
+                  styles.verificationBadge,
+                  cleaner.verificationStatus === 'verified' && styles.verificationBadgeVerified,
+                ]}>
+                  <Ionicons
+                    name={cleaner.verificationStatus === 'verified' ? 'checkmark-circle' : 'time'}
+                    size={14}
+                    color={cleaner.verificationStatus === 'verified' ? '#0F766E' : '#9CA3AF'}
+                  />
+                  <Text style={[
+                    styles.verificationBadgeText,
+                    cleaner.verificationStatus === 'verified' && styles.verificationBadgeTextVerified,
+                  ]}>
+                    {cleaner.verificationStatus === 'verified' ? 'Verified' : 'Pending Review'}
+                  </Text>
+                </View>
+                <PressableScale onPress={() => setDetailsVisible(true)}>
+                  <Text style={styles.verificationLink}>View details</Text>
+                </PressableScale>
+              </View>
             </View>
-          </View>
+          </Animated.View>
+        )}
+
+        {/* Combined Earnings Card */}
+        <Animated.View entering={FadeInUp.delay(200).duration(400)} style={styles.section}>
+          <TouchableOpacity 
+            style={styles.combinedEarningsCard}
+            onPress={() => navigation.navigate('EarningsBreakdown')}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={['#FF8C00', '#F97316']}
+              style={styles.combinedEarningsGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.combinedEarningsHeader}>
+                <View style={styles.combinedEarningsIconContainer}>
+                  <Ionicons name="wallet" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.combinedEarningsTitle}>Earnings</Text>
+                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
+              </View>
+              
+              <View style={styles.combinedEarningsRow}>
+                <View style={styles.combinedEarningsItem}>
+                  <Text style={styles.combinedEarningsValue}>{formatCurrency(cleaner.todayEarnings)}</Text>
+                  <Text style={styles.combinedEarningsLabel}>Today</Text>
+                </View>
+                <View style={styles.combinedEarningsDivider} />
+                <View style={styles.combinedEarningsItem}>
+                  <Text style={styles.combinedEarningsValue}>{formatCurrency(cleaner.weeklyEarnings)}</Text>
+                  <Text style={styles.combinedEarningsLabel}>This Week</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
         </Animated.View>
 
-        {/* Today's Performance */}
-        <Animated.View entering={FadeInUp.delay(200).duration(400)} style={styles.section}>
-          <Text style={styles.sectionTitle}>Today's Performance</Text>
-          <View style={styles.performanceGrid}>
-            <MetricCard
-              value={formatCurrency(cleaner.todayEarnings)}
-              label="Today"
-              icon="cash-outline"
-              iconColor={colors.primary}
-              delay={0}
-              compact
-              style={styles.performanceCard}
-            />
-            <MetricCard
-              value={formatCurrency(cleaner.weeklyEarnings)}
-              label="This week"
-              icon="wallet-outline"
-              iconColor="#10B981"
-              delay={50}
-              compact
-              style={styles.performanceCard}
-            />
-            <MetricCard
-              value={cleaner.totalJobs}
-              label="Jobs done"
-              icon="briefcase-outline"
-              iconColor="#8B5CF6"
-              delay={100}
-              compact
-              style={styles.performanceCard}
-            />
-            <MetricCard
-              value={cleaner.rating.toFixed(1)}
-              label="Rating"
-              icon="star-outline"
-              iconColor="#F59E0B"
-              delay={150}
-              compact
-              style={styles.performanceCard}
-            />
-          </View>
+        {/* Performance Card */}
+        <Animated.View entering={FadeInUp.delay(250).duration(400)} style={styles.section}>
+          <TouchableOpacity 
+            style={styles.combinedPerformanceCard}
+            onPress={() => navigation.navigate('HeroStats')}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={['#1A2B48', '#1A2B48']}
+              style={styles.combinedPerformanceGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.combinedPerformanceHeader}>
+                <View style={styles.combinedPerformanceIconContainer}>
+                  <Ionicons name="stats-chart" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.combinedPerformanceTitle}>Performance</Text>
+                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.8)" />
+              </View>
+              
+              <View style={styles.combinedPerformanceRow}>
+                <View style={styles.combinedPerformanceItem}>
+                  <View style={styles.combinedPerformanceValueRow}>
+                    <Ionicons name="briefcase" size={18} color="rgba(255,255,255,0.9)" />
+                    <Text style={styles.combinedPerformanceValue}>{cleaner.totalJobs}</Text>
+                  </View>
+                  <Text style={styles.combinedPerformanceLabel}>Jobs Done</Text>
+                </View>
+                <View style={styles.combinedPerformanceDivider} />
+                <View style={styles.combinedPerformanceItem}>
+                  <View style={styles.combinedPerformanceValueRow}>
+                    <Ionicons name="star" size={18} color="#FBBF24" />
+                    <Text style={styles.combinedPerformanceValue}>{cleaner.rating.toFixed(1)}</Text>
+                  </View>
+                  <Text style={styles.combinedPerformanceLabel}>Rating</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </TouchableOpacity>
         </Animated.View>
 
         {/* Quick Actions */}
@@ -294,38 +366,30 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.quickActionsGrid}>
             <QuickActionTile
-              icon="add-circle-outline"
-              label="Create Service"
-              onPress={() => handleQuickAction('createService')}
-            />
-            <QuickActionTile
               icon="videocam-outline"
-              label="Quick Upload"
+              label="Post a Chore"
+              gradientColors={['#26B7C9', '#26B7C9']}
               onPress={() => handleQuickAction('quickUpload')}
             />
             <QuickActionTile
               icon="briefcase-outline"
-              label="View Jobs"
+              label="Find Work"
+              gradientColors={['#26B7C9', '#26B7C9']}
               onPress={() => handleQuickAction('viewJobs')}
             />
             <QuickActionTile
               icon="calendar-outline"
-              label="Schedule"
+              label="My Availability"
+              style={styles.quickActionMuted}
+              labelColor="#444444"
               onPress={() => handleQuickAction('schedule')}
             />
             <QuickActionTile
               icon="options-outline"
-              label="Customize Booking"
+              label="Service Rates"
+              style={styles.quickActionMuted}
+              labelColor="#444444"
               onPress={() => handleQuickAction('bookingCustomization')}
-            />
-          </View>
-          {/* Earnings - Full Width */}
-          <View style={styles.earningsFullRow}>
-            <QuickActionTile
-              icon="cash-outline"
-              label="Earnings"
-              onPress={() => handleQuickAction('earnings')}
-              style={styles.earningsTile}
             />
           </View>
         </Animated.View>
@@ -336,13 +400,9 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
             <Text style={styles.sectionTitle}>Specialties</Text>
             <View style={styles.specialtiesRow}>
               {cleaner.specialties.map((specialty, index) => (
-                <Chip
-                  key={index}
-                  label={specialty}
-                  variant="muted"
-                  color="primary"
-                  size="sm"
-                />
+                <View key={index} style={styles.specialtyTag}>
+                  <Text style={styles.specialtyTagText}>{specialty}</Text>
+                </View>
               ))}
             </View>
           </Animated.View>
@@ -354,6 +414,32 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
         navigation={navigation as any}
         currentScreen="Profile"
       />
+      <Modal
+        visible={detailsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailsVisible(false)}
+      >
+        <View style={styles.detailsBackdrop}>
+          <View style={styles.detailsCard}>
+            <View style={styles.detailsHeader}>
+              <Text style={styles.detailsTitle}>Review Summary</Text>
+              <TouchableOpacity onPress={() => setDetailsVisible(false)}>
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.detailsRow}>
+              <Ionicons name="shield-checkmark-outline" size={18} color="#26B7C9" />
+              <Text style={styles.detailsText}>Background Check: {backgroundCheckLabel}</Text>
+            </View>
+            <View style={styles.detailsRow}>
+              <Ionicons name="videocam-outline" size={18} color="#26B7C9" />
+              <Text style={styles.detailsText}>Hero Audition: {auditionLabel}</Text>
+            </View>
+            <Text style={styles.detailsNote}>This summary is read-only.</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -415,6 +501,26 @@ const styles = StyleSheet.create({
   heroInfo: {
     flex: 1,
   },
+  verificationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(148, 163, 184, 0.2)',
+  },
+  verificationBadgeVerified: {
+    backgroundColor: 'rgba(38, 183, 201, 0.16)',
+  },
+  verificationBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  verificationBadgeTextVerified: {
+    color: '#0F766E',
+  },
   greeting: {
     fontSize: typography.body.fontSize,
     color: colors.textSecondary,
@@ -442,6 +548,15 @@ const styles = StyleSheet.create({
     borderRadius: 1.5,
     backgroundColor: colors.textMuted,
   },
+  metaStatus: {
+    fontSize: typography.label.fontSize,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  metaStatusOnline: {
+    color: '#26B7C9',
+    fontWeight: '700',
+  },
   settingsButton: {
     width: 40,
     height: 40,
@@ -461,6 +576,11 @@ const styles = StyleSheet.create({
   onlineToggleLabel: {
     fontSize: typography.body.fontSize,
     color: colors.textPrimary,
+  },
+  toggleHelper: {
+    marginTop: spacing.sm,
+    fontSize: 12,
+    color: colors.textMuted,
   },
 
   // Sections
@@ -550,6 +670,131 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
   },
 
+  // Combined Earnings Card
+  combinedEarningsCard: {
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  combinedEarningsGradient: {
+    padding: spacing.lg,
+    borderRadius: radii.xl,
+  },
+  combinedEarningsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  combinedEarningsIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  combinedEarningsTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  combinedEarningsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  combinedEarningsItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  combinedEarningsDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: spacing.md,
+  },
+  combinedEarningsValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  combinedEarningsLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.8)',
+  },
+
+  // Combined Performance Card
+  combinedPerformanceCard: {
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    shadowColor: '#1A2B48',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  combinedPerformanceGradient: {
+    padding: spacing.lg,
+    borderRadius: radii.xl,
+  },
+  combinedPerformanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  combinedPerformanceIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+  },
+  combinedPerformanceTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  combinedPerformanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  combinedPerformanceItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  combinedPerformanceDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginHorizontal: spacing.md,
+  },
+  combinedPerformanceValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  combinedPerformanceValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  combinedPerformanceLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.8)',
+  },
+
   // Quick Actions Grid
   quickActionsGrid: {
     flexDirection: 'row',
@@ -557,18 +802,70 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     rowGap: spacing.md,
   },
-  earningsFullRow: {
-    marginTop: spacing.md,
+  quickActionMuted: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  earningsTile: {
-    width: SCREEN_WIDTH - 40, // Full width minus 20px padding each side
-  },
-
   // Specialties
   specialtiesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.sm,
+  },
+  specialtyTag: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  specialtyTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#26B7C9',
+  },
+  detailsBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  detailsCard: {
+    width: '100%',
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    padding: spacing.lg,
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  detailsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: spacing.sm,
+  },
+  detailsText: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+  detailsNote: {
+    marginTop: spacing.sm,
+    fontSize: 12,
+    color: colors.textMuted,
   },
 });
 

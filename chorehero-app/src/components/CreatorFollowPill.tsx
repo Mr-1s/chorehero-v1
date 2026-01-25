@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { View, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import StabilizedText from './StabilizedText';
 
@@ -37,6 +38,7 @@ function CreatorFollowPillBase(props: CreatorFollowPillProps) {
       accessibilityLabel={`Open ${username} profile`}
       style={[styles.wrap, { height, maxWidth }]}
     >
+      <BlurView intensity={15} tint="dark" style={StyleSheet.absoluteFill} />
       <View style={styles.avatarContainer}>
         <Image source={{ uri: avatarUrl || 'https://via.placeholder.com/50' }} style={styles.avatar} />
         {verified && (
@@ -74,15 +76,18 @@ function CreatorFollowPillBase(props: CreatorFollowPillProps) {
 const CreatorFollowPill = memo(CreatorFollowPillBase);
 export default CreatorFollowPill;
 
+const PRIMARY_ACTION = '#26B7C9';
+
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFFF2',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     borderRadius: 26,
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 10,
+    overflow: 'hidden',
   },
   avatarContainer: {
     width: 40,
@@ -103,7 +108,7 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#3AD3DB',
+    backgroundColor: PRIMARY_ACTION,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -114,18 +119,18 @@ const styles = StyleSheet.create({
     minWidth: 0, // allow truncation
   },
   username: {
-    color: '#0A1A2A',
+    color: '#FFFFFF',
     fontWeight: '800',
   },
   subtitle: {
-    color: '#4B5563',
+    color: '#FFFFFF',
     fontWeight: '600',
     marginTop: 1,
   },
   followButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1.5,
-    borderColor: 'rgba(58, 211, 219, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.35)',
     borderRadius: 18,
     height: 36,
     paddingHorizontal: 14,
@@ -134,12 +139,12 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   followText: {
-    color: '#3AD3DB',
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   followActive: {
-    backgroundColor: '#3AD3DB',
-    borderColor: '#3AD3DB',
+    backgroundColor: PRIMARY_ACTION,
+    borderColor: PRIMARY_ACTION,
   },
   followTextActive: {
     color: '#FFFFFF',

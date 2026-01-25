@@ -101,15 +101,24 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const SERVICE_TYPE_OPTIONS = [
     { id: 'standard_clean', label: 'Standard Cleaning', icon: 'home-outline' },
     { id: 'deep_clean', label: 'Deep Cleaning', icon: 'sparkles-outline' },
+    { id: 'express_clean', label: 'Express Clean', icon: 'flash-outline' },
     { id: 'kitchen', label: 'Kitchen Cleaning', icon: 'restaurant-outline' },
     { id: 'bathroom', label: 'Bathroom Cleaning', icon: 'water-outline' },
     { id: 'bedroom', label: 'Bedroom Cleaning', icon: 'bed-outline' },
     { id: 'living_room', label: 'Living Room', icon: 'tv-outline' },
     { id: 'move_out', label: 'Move Out Clean', icon: 'car-outline' },
+    { id: 'move_in', label: 'Move In Clean', icon: 'key-outline' },
+    { id: 'post_construction', label: 'Post-Construction', icon: 'hammer-outline' },
+    { id: 'airbnb_turnover', label: 'Airbnb Turnover', icon: 'calendar-outline' },
     { id: 'office', label: 'Office Cleaning', icon: 'briefcase-outline' },
     { id: 'carpet', label: 'Carpet Cleaning', icon: 'layers-outline' },
+    { id: 'floor', label: 'Floor Care', icon: 'grid-outline' },
     { id: 'window', label: 'Window Cleaning', icon: 'grid-outline' },
     { id: 'laundry', label: 'Laundry Service', icon: 'shirt-outline' },
+    { id: 'organizing', label: 'Home Organizing', icon: 'albums-outline' },
+    { id: 'appliance', label: 'Appliance Cleaning', icon: 'cube-outline' },
+    { id: 'pet', label: 'Pet-Friendly Clean', icon: 'paw-outline' },
+    { id: 'eco', label: 'Eco-Friendly Clean', icon: 'leaf-outline' },
     { id: 'other', label: 'Other Service', icon: 'ellipsis-horizontal-outline' },
   ];
   
@@ -118,6 +127,12 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const [selectedVideoForMenu, setSelectedVideoForMenu] = useState<UploadedVideo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Video player modal
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [playingVideo, setPlayingVideo] = useState<UploadedVideo | null>(null);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const playerRef = useRef<Video>(null);
   const [performanceSummary, setPerformanceSummary] = useState<ContentPerformanceSummary>({
     totalViews: 0,
     totalBookings: 0,
@@ -268,7 +283,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
             { text: 'Cancel', style: 'cancel' },
             { 
               text: 'Edit Profile', 
-              onPress: () => navigation.navigate('ProfileEdit' as any)
+              onPress: () => navigation.navigate('EditProfile' as any)
             }
           ]
         );
@@ -391,7 +406,7 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
             { text: 'Cancel', style: 'cancel' },
             { 
               text: 'Edit Profile', 
-              onPress: () => navigation.navigate('ProfileEdit' as any)
+              onPress: () => navigation.navigate('EditProfile' as any)
             }
           ]
         );
@@ -835,81 +850,107 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   );
 
   const renderVideoItem = ({ item, index }: { item: UploadedVideo; index: number }) => (
-    <View style={styles.videoCard}>
-      {/* Video Thumbnail with Gradient Overlay */}
-      <View style={styles.thumbnailContainer}>
-      <Video
-        source={{ uri: item.uri }}
-        style={styles.videoThumbnail}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={false}
-      />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.6)']}
-          style={styles.thumbnailGradient}
-        />
-        
-        {/* Play Button Overlay */}
-        <View style={styles.playButtonOverlay}>
-          <View style={styles.playButton}>
-            <Ionicons name="play" size={20} color="#FFFFFF" />
+    <TouchableOpacity 
+      style={styles.videoCard}
+      activeOpacity={0.9}
+      onPress={() => handlePlayVideo(item)}
+    >
+      <View style={styles.videoCardInner}>
+        {/* Video Thumbnail */}
+        <View style={styles.thumbnailContainer}>
+          <Video
+            source={{ uri: item.uri }}
+            style={styles.videoThumbnail}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={false}
+          />
+      
+          {/* Bottom gradient for text readability */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.5)']}
+            style={styles.thumbnailGradient}
+          />
+          
+          {/* Play Button Overlay */}
+          <View style={styles.playButtonOverlay}>
+            <View style={styles.playButtonGlow}>
+              <View style={styles.playButton}>
+                <Ionicons name="play" size={20} color="#FFFFFF" />
+              </View>
+            </View>
           </View>
+          
+          {/* Duration Badge */}
+          <View style={styles.durationBadge}>
+            <Ionicons name="time-outline" size={10} color="#FFFFFF" />
+            <Text style={styles.durationText}>{item.duration || 30}s</Text>
           </View>
-        
-        {/* Duration Badge */}
-        <View style={styles.durationBadge}>
-          <Ionicons name="time-outline" size={10} color="#FFFFFF" />
-          <Text style={styles.durationText}>{item.duration || 30}s</Text>
-      </View>
 
-        {/* Status Badge */}
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>{item.status === 'live' ? 'LIVE' : item.status.toUpperCase()}</Text>
-        </View>
-        </View>
-        
-{/* Video Info */}
-      <View style={styles.videoInfo}>
-        <View style={styles.videoHeader}>
-          <Text style={styles.videoTitle} numberOfLines={1}>{item.title}</Text>
-          <TouchableOpacity 
-            style={styles.moreButton} 
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            onPress={() => handleOpenVideoMenu(item)}
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color="#6B7280" />
-        </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.videoDate}>
-          <Ionicons name="calendar-outline" size={11} color="#9CA3AF" /> {item.uploadDate}
-        </Text>
-        
-        {/* Engagement Stats Row */}
-        <View style={styles.engagementRow}>
-          <View style={styles.engagementItem}>
-            <Ionicons name="heart" size={16} color="#EF4444" />
-            <Text style={styles.engagementText}>{item.likes || 0}</Text>
-          </View>
-          <View style={styles.engagementItem}>
-            <Ionicons name="chatbubble" size={15} color="#3B82F6" />
-            <Text style={styles.engagementText}>{item.comments || 0}</Text>
-          </View>
-          <View style={styles.engagementItem}>
-            <Ionicons name="eye" size={16} color="#F59E0B" />
-            <Text style={styles.engagementText}>{item.views}</Text>
+          {/* Status Badge */}
+          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+            <View style={styles.statusDot} />
+            <Text style={styles.statusText}>{item.status === 'live' ? 'LIVE' : item.status.toUpperCase()}</Text>
           </View>
         </View>
         
-        {/* Bookings Badge */}
-        <View style={styles.bookingsBadge}>
-          <Ionicons name="calendar-outline" size={14} color="#10B981" />
-          <Text style={styles.bookingsText}>{item.bookings} bookings from this video</Text>
+        {/* Video Info */}
+        <View style={styles.videoInfo}>
+          <View style={styles.videoHeader}>
+            <Text style={styles.videoTitle} numberOfLines={1}>{item.title}</Text>
+            <TouchableOpacity 
+              style={styles.moreButton} 
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleOpenVideoMenu(item);
+              }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={18} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={styles.videoDate}>
+            <Ionicons name="calendar-outline" size={11} color="#9CA3AF" /> {item.uploadDate}
+          </Text>
+          
+          {/* Engagement Stats Row - matching performance card style */}
+          <View style={styles.engagementRow}>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementIconWrapper, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                <Ionicons name="heart" size={16} color="#EF4444" />
+              </View>
+              <Text style={styles.engagementText}>{item.likes || 0}</Text>
+            </View>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementIconWrapper, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
+                <Ionicons name="chatbubble" size={15} color="#3B82F6" />
+              </View>
+              <Text style={styles.engagementText}>{item.comments || 0}</Text>
+            </View>
+            <View style={styles.engagementItem}>
+              <View style={[styles.engagementIconWrapper, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                <Ionicons name="eye" size={16} color="#F59E0B" />
+              </View>
+              <Text style={styles.engagementText}>{item.views}</Text>
+            </View>
+          </View>
+          
+          {/* Bookings Badge - matching performance card style */}
+          <View style={[styles.bookingsBadge, { backgroundColor: 'rgba(16, 185, 129, 0.08)' }]}>
+            <Ionicons name="calendar-outline" size={14} color="#10B981" />
+            <Text style={styles.bookingsText}>{item.bookings} bookings from this video</Text>
+          </View>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
+
+  // Open video player
+  const handlePlayVideo = (video: UploadedVideo) => {
+    setPlayingVideo(video);
+    setShowVideoPlayer(true);
+    setIsVideoPlaying(true);
+  };
 
   // Video menu actions
   const handleOpenVideoMenu = (video: UploadedVideo) => {
@@ -930,11 +971,26 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              if (!user?.id) {
+                showToast({ type: 'error', message: 'Please log in again.' });
+                return;
+              }
+
+              const videoId = selectedVideoForMenu.id;
+              const deleteResponse = await contentService.deletePost(user.id, videoId);
+
+              if (!deleteResponse.success) {
+                throw new Error(deleteResponse.error || 'Failed to delete video');
+              }
+
               // Remove from local state
-              setVideos(prev => prev.filter(v => v.id !== selectedVideoForMenu.id));
+              setVideos(prev => prev.filter(v => v.id !== videoId));
               showToast({ type: 'success', message: 'Video deleted' });
               setShowVideoMenu(false);
               setSelectedVideoForMenu(null);
+
+              // Refresh analytics/feed data
+              setTimeout(() => loadContentData(), 300);
             } catch (error) {
               showToast({ type: 'error', message: 'Failed to delete video' });
             }
@@ -1050,64 +1106,161 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
         currentScreen="Content"
       />
 
-      {/* Video Actions Menu */}
+      {/* Full Screen Video Player Modal */}
       <Modal
-        visible={showVideoMenu}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setShowVideoMenu(false)}
+        visible={showVideoPlayer}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => {
+          setShowVideoPlayer(false);
+          setPlayingVideo(null);
+          setIsVideoPlaying(false);
+        }}
       >
-        <TouchableOpacity 
-          style={styles.menuOverlay}
-          activeOpacity={1}
-          onPress={() => setShowVideoMenu(false)}
-        >
-          <View style={styles.menuContainer}>
-            <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle} numberOfLines={1}>
-                {selectedVideoForMenu?.title || 'Video'}
+        <View style={styles.videoPlayerModal}>
+          <StatusBar barStyle="light-content" />
+          
+          {/* Header */}
+          <View style={styles.videoPlayerHeader}>
+            <TouchableOpacity 
+              style={styles.videoPlayerCloseButton}
+              onPress={() => {
+                setShowVideoPlayer(false);
+                setPlayingVideo(null);
+                setIsVideoPlaying(false);
+              }}
+            >
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.videoPlayerTitle} numberOfLines={1}>
+              {playingVideo?.title || 'Video'}
+            </Text>
+            <TouchableOpacity 
+              style={styles.videoPlayerShareButton}
+              onPress={() => Alert.alert('Share', 'Share functionality coming soon!')}
+            >
+              <Ionicons name="share-outline" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          
+          {/* Video Player */}
+          <View style={styles.videoPlayerContainer}>
+            {playingVideo && (
+              <Video
+                ref={playerRef}
+                source={{ uri: playingVideo.uri }}
+                style={styles.fullScreenVideo}
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay={isVideoPlaying}
+                isLooping
+                useNativeControls
+                onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+                  if (status.isLoaded) {
+                    setIsVideoPlaying(status.isPlaying);
+                  }
+                }}
+              />
+            )}
+          </View>
+          
+          {/* Video Stats & Info */}
+          <ScrollView style={styles.videoPlayerInfo} showsVerticalScrollIndicator={false}>
+            {/* Video Title & Date */}
+            <View style={styles.videoPlayerTitleSection}>
+              <Text style={styles.videoPlayerVideoTitle}>{playingVideo?.title}</Text>
+              <Text style={styles.videoPlayerDate}>
+                Uploaded {playingVideo?.uploadDate}
               </Text>
             </View>
             
-            <TouchableOpacity style={styles.menuItem} onPress={handleViewVideoAnalytics}>
-              <Ionicons name="stats-chart" size={22} color="#3B82F6" />
-              <Text style={styles.menuItemText}>View Analytics</Text>
-              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
-            </TouchableOpacity>
+            {/* Stats Row */}
+            <View style={styles.videoPlayerStatsRow}>
+              <View style={styles.videoPlayerStatItem}>
+                <View style={[styles.videoPlayerStatIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                  <Ionicons name="eye" size={20} color="#F59E0B" />
+                </View>
+                <Text style={styles.videoPlayerStatValue}>{playingVideo?.views || 0}</Text>
+                <Text style={styles.videoPlayerStatLabel}>Views</Text>
+              </View>
+              
+              <View style={styles.videoPlayerStatItem}>
+                <View style={[styles.videoPlayerStatIcon, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                  <Ionicons name="heart" size={20} color="#EF4444" />
+                </View>
+                <Text style={styles.videoPlayerStatValue}>{playingVideo?.likes || 0}</Text>
+                <Text style={styles.videoPlayerStatLabel}>Likes</Text>
+              </View>
+              
+              <View style={styles.videoPlayerStatItem}>
+                <View style={[styles.videoPlayerStatIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                  <Ionicons name="chatbubble" size={20} color="#3B82F6" />
+                </View>
+                <Text style={styles.videoPlayerStatValue}>{playingVideo?.comments || 0}</Text>
+                <Text style={styles.videoPlayerStatLabel}>Comments</Text>
+              </View>
+              
+              <View style={styles.videoPlayerStatItem}>
+                <View style={[styles.videoPlayerStatIcon, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                  <Ionicons name="calendar" size={20} color="#10B981" />
+                </View>
+                <Text style={styles.videoPlayerStatValue}>{playingVideo?.bookings || 0}</Text>
+                <Text style={styles.videoPlayerStatLabel}>Bookings</Text>
+              </View>
+            </View>
             
-            <TouchableOpacity style={styles.menuItem} onPress={handleEditVideo}>
-              <Ionicons name="create-outline" size={22} color="#F59E0B" />
-              <Text style={styles.menuItemText}>Edit Details</Text>
-              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
-            </TouchableOpacity>
+            {/* Description */}
+            {playingVideo?.description && (
+              <View style={styles.videoPlayerDescriptionSection}>
+                <Text style={styles.videoPlayerSectionTitle}>Description</Text>
+                <Text style={styles.videoPlayerDescription}>{playingVideo.description}</Text>
+              </View>
+            )}
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => {
-              setShowVideoMenu(false);
-              if (selectedVideoForMenu) {
-                // Share functionality
-                Alert.alert('Share', 'Share video coming soon!');
-              }
-            }}>
-              <Ionicons name="share-social-outline" size={22} color="#10B981" />
-              <Text style={styles.menuItemText}>Share Video</Text>
-              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
-            </TouchableOpacity>
+            {/* Reviews Section Placeholder */}
+            <View style={styles.videoPlayerReviewsSection}>
+              <View style={styles.videoPlayerReviewsHeader}>
+                <Text style={styles.videoPlayerSectionTitle}>Reviews & Feedback</Text>
+                <View style={styles.videoPlayerReviewsBadge}>
+                  <Ionicons name="star" size={14} color="#F59E0B" />
+                  <Text style={styles.videoPlayerReviewsCount}>{playingVideo?.comments || 0}</Text>
+                </View>
+              </View>
+              
+              {(playingVideo?.comments || 0) > 0 ? (
+                <View style={styles.videoPlayerReviewsList}>
+                  {/* Placeholder reviews - in production, fetch real reviews */}
+                  <View style={styles.videoPlayerReviewItem}>
+                    <View style={styles.videoPlayerReviewAvatar}>
+                      <Ionicons name="person" size={20} color="#9CA3AF" />
+                    </View>
+                    <View style={styles.videoPlayerReviewContent}>
+                      <View style={styles.videoPlayerReviewHeader}>
+                        <Text style={styles.videoPlayerReviewerName}>Customer</Text>
+                        <View style={styles.videoPlayerReviewStars}>
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Ionicons key={star} name="star" size={12} color="#F59E0B" />
+                          ))}
+                        </View>
+                      </View>
+                      <Text style={styles.videoPlayerReviewText}>Great cleaning video! Very helpful tips.</Text>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.videoPlayerNoReviews}>
+                  <Ionicons name="chatbubble-outline" size={40} color="#D1D5DB" />
+                  <Text style={styles.videoPlayerNoReviewsText}>No reviews yet</Text>
+                  <Text style={styles.videoPlayerNoReviewsSubtext}>
+                    Reviews from customers will appear here
+                  </Text>
+                </View>
+              )}
+            </View>
             
-            <View style={styles.menuDivider} />
-            
-            <TouchableOpacity style={styles.menuItemDanger} onPress={handleDeleteVideo}>
-              <Ionicons name="trash-outline" size={22} color="#EF4444" />
-              <Text style={styles.menuItemTextDanger}>Delete Video</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.menuCancel}
-              onPress={() => setShowVideoMenu(false)}
-            >
-              <Text style={styles.menuCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+            {/* Bottom padding for safe area */}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
       </Modal>
 
       {/* Service Type Picker Modal */}
@@ -1164,6 +1317,75 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Video Actions Menu */}
+      <Modal
+        visible={showVideoMenu}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowVideoMenu(false)}
+      >
+        <TouchableOpacity 
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowVideoMenu(false)}
+        >
+          <View style={styles.menuContainer}>
+            <View style={styles.menuHandle} />
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle} numberOfLines={1}>
+                {selectedVideoForMenu?.title || 'Video'}
+              </Text>
+            </View>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={handleViewVideoAnalytics}>
+              <View style={styles.menuItemIcon}>
+                <Ionicons name="stats-chart" size={20} color="#3B82F6" />
+              </View>
+              <Text style={styles.menuItemText}>View Analytics</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" style={styles.menuItemChevron} />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={handleEditVideo}>
+              <View style={styles.menuItemIcon}>
+                <Ionicons name="create-outline" size={20} color="#F59E0B" />
+              </View>
+              <Text style={styles.menuItemText}>Edit Details</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" style={styles.menuItemChevron} />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.menuItem} onPress={() => {
+              setShowVideoMenu(false);
+              if (selectedVideoForMenu) {
+                // Share functionality
+                Alert.alert('Share', 'Share video coming soon!');
+              }
+            }}>
+              <View style={styles.menuItemIcon}>
+                <Ionicons name="share-social-outline" size={20} color="#10B981" />
+              </View>
+              <Text style={styles.menuItemText}>Share Video</Text>
+              <Ionicons name="chevron-forward" size={18} color="#D1D5DB" style={styles.menuItemChevron} />
+            </TouchableOpacity>
+            
+            <View style={styles.menuDivider} />
+            
+            <TouchableOpacity style={styles.menuItemDanger} onPress={handleDeleteVideo}>
+              <View style={styles.menuItemDangerIcon}>
+                <Ionicons name="trash-outline" size={20} color="#EF4444" />
+              </View>
+              <Text style={styles.menuItemTextDanger}>Delete Video</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.menuCancel}
+              onPress={() => setShowVideoMenu(false)}
+            >
+              <Text style={styles.menuCancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1432,20 +1654,32 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginBottom: 20,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
-    shadowColor: '#000',
+    borderRadius: 16,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
     shadowRadius: 20,
-    elevation: 8,
+    elevation: 10,
+    overflow: 'visible',
+  },
+  videoCardInner: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
     overflow: 'hidden',
   },
   thumbnailContainer: {
     position: 'relative',
     height: 200,
     backgroundColor: '#1F2937',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+  },
+  thumbnailInnerShadow: {
+    display: 'none',
   },
   videoThumbnail: {
     width: '100%',
@@ -1466,15 +1700,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 10,
   },
-  playButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(245, 158, 11, 0.9)',
+  playButtonGlow: {
     justifyContent: 'center',
     alignItems: 'center',
-    paddingLeft: 3, // Optical centering for play icon
+  },
+  playButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F59E0B',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 2,
   },
   durationBadge: {
     position: 'absolute',
@@ -1482,7 +1721,7 @@ const styles = StyleSheet.create({
     left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
@@ -1501,7 +1740,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 20,
+    borderRadius: 16,
     gap: 5,
   },
   statusDot: {
@@ -1518,6 +1757,7 @@ const styles = StyleSheet.create({
   },
   videoInfo: {
     padding: 14,
+    backgroundColor: '#FFFFFF',
   },
   videoHeader: {
     flexDirection: 'row',
@@ -1581,6 +1821,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
+  engagementIconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   engagementText: {
     fontSize: 14,
     fontWeight: '600',
@@ -1589,7 +1836,6 @@ const styles = StyleSheet.create({
   bookingsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ECFDF5',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
@@ -1604,15 +1850,28 @@ const styles = StyleSheet.create({
   // Video action menu styles
   menuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'flex-end',
   },
   menuContainer: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingBottom: 34,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 10,
+    paddingBottom: 26,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  menuHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E5E7EB',
+    marginBottom: 6,
   },
   menuHeader: {
     paddingHorizontal: 20,
@@ -1633,15 +1892,26 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     gap: 14,
   },
+  menuItemIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   menuItemText: {
     flex: 1,
     fontSize: 16,
     color: '#374151',
   },
+  menuItemChevron: {
+    marginLeft: 6,
+  },
   menuDivider: {
-    height: 8,
-    backgroundColor: '#F3F4F6',
-    marginVertical: 8,
+    height: 10,
+    backgroundColor: '#F9FAFB',
+    marginVertical: 6,
   },
   menuItemDanger: {
     flexDirection: 'row',
@@ -1649,6 +1919,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     gap: 14,
+  },
+  menuItemDangerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuItemTextDanger: {
     flex: 1,
@@ -1658,10 +1936,12 @@ const styles = StyleSheet.create({
   menuCancel: {
     marginHorizontal: 20,
     marginTop: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F9FAFB',
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   menuCancelText: {
     fontSize: 16,
@@ -1935,6 +2215,205 @@ const styles = StyleSheet.create({
   serviceTypeOptionTextSelected: {
     color: '#92400E',
     fontWeight: '600',
+  },
+  
+  // Video Player Modal Styles
+  videoPlayerModal: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  videoPlayerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+  },
+  videoPlayerCloseButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayerTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginHorizontal: 12,
+  },
+  videoPlayerShareButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayerContainer: {
+    height: 350,
+    marginTop: 100,
+    backgroundColor: '#000000',
+  },
+  fullScreenVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  videoPlayerInfo: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -20,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+  },
+  videoPlayerTitleSection: {
+    marginBottom: 20,
+  },
+  videoPlayerVideoTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 6,
+  },
+  videoPlayerDate: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  videoPlayerStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 16,
+    marginBottom: 24,
+  },
+  videoPlayerStatItem: {
+    alignItems: 'center',
+  },
+  videoPlayerStatIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  videoPlayerStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  videoPlayerStatLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  videoPlayerDescriptionSection: {
+    marginBottom: 24,
+  },
+  videoPlayerSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  videoPlayerDescription: {
+    fontSize: 14,
+    color: '#4B5563',
+    lineHeight: 22,
+  },
+  videoPlayerReviewsSection: {
+    marginBottom: 20,
+  },
+  videoPlayerReviewsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  videoPlayerReviewsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  videoPlayerReviewsCount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+  videoPlayerReviewsList: {
+    gap: 12,
+  },
+  videoPlayerReviewItem: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    padding: 14,
+    borderRadius: 12,
+  },
+  videoPlayerReviewAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  videoPlayerReviewContent: {
+    flex: 1,
+  },
+  videoPlayerReviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  videoPlayerReviewerName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  videoPlayerReviewStars: {
+    flexDirection: 'row',
+    gap: 2,
+  },
+  videoPlayerReviewText: {
+    fontSize: 13,
+    color: '#4B5563',
+    lineHeight: 20,
+  },
+  videoPlayerNoReviews: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+  },
+  videoPlayerNoReviewsText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginTop: 12,
+  },
+  videoPlayerNoReviewsSubtext: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    marginTop: 4,
   },
 });
 

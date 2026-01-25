@@ -45,6 +45,7 @@ export const useRoleFeatures = () => {
   // Use actual auth context
   const { user, isCustomer, isCleaner, isAuthenticated } = useAuth();
   const [demoRole, setDemoRole] = useState<string | null>(null);
+  const [interfaceRoleOverride, setInterfaceRoleOverride] = useState<'customer' | 'cleaner' | null>(null);
   const userRole = user?.role || 'customer';
   
   // Check for guest role in AsyncStorage (only relevant for non-authenticated users)
@@ -69,12 +70,41 @@ export const useRoleFeatures = () => {
     const interval = setInterval(checkDemoRole, 1000);
     return () => clearInterval(interval);
   }, [isAuthenticated]);
+
+  // Check for interface override for authenticated users
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    const loadOverride = async () => {
+      if (!isAuthenticated) {
+        setInterfaceRoleOverride(null);
+        return;
+      }
+      try {
+        const storedOverride = await AsyncStorage.getItem('interface_role_override');
+        if (storedOverride === 'customer' || storedOverride === 'cleaner') {
+          setInterfaceRoleOverride(storedOverride);
+        } else {
+          setInterfaceRoleOverride(null);
+        }
+      } catch (error) {
+        console.error('Error reading interface override:', error);
+      }
+    };
+    loadOverride();
+    if (isAuthenticated) {
+      interval = setInterval(loadOverride, 1200);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAuthenticated]);
   
   // For authenticated users, use their actual role from the database
   // For guests, use the demo role from AsyncStorage
   const forceCleanerMode = !isAuthenticated && (TESTING.FORCE_CLEANER_MODE || demoRole === 'cleaner');
-  const effectiveIsCleaner = isAuthenticated ? isCleaner : forceCleanerMode;
-  const effectiveIsCustomer = isAuthenticated ? isCustomer : !forceCleanerMode;
+  const resolvedRole = isAuthenticated ? (interfaceRoleOverride || user?.role) : (forceCleanerMode ? 'cleaner' : 'customer');
+  const effectiveIsCleaner = resolvedRole === 'cleaner';
+  const effectiveIsCustomer = resolvedRole === 'customer' || !resolvedRole;
 
   return {
     // Cleaner features
@@ -100,7 +130,7 @@ export const useRoleFeatures = () => {
     showTrackingTab: effectiveIsCustomer,
     
     // Role info
-    userRole: forceCleanerMode ? 'cleaner' : userRole,
+    userRole: resolvedRole || userRole,
     isCustomer: effectiveIsCustomer,
     isCleaner: effectiveIsCleaner,
   };

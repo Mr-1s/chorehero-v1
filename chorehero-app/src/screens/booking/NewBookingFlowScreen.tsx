@@ -87,6 +87,17 @@ interface BookingData {
   address: string;
   apartmentUnit: string;
   accessInstructions: string;
+  homeType: string;
+  bedrooms: string;
+  bathrooms: string;
+  squareFootage: string;
+  hasPets: boolean;
+  petDetails: string;
+  hasAllergies: boolean;
+  allergyDetails: string;
+  preferredProducts: string;
+  cleaningFrequency: string;
+  preferredTimes: string;
   
   // Custom Questions (from cleaner template)
   customAnswers: Record<string, string>;
@@ -156,6 +167,13 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
   const [hasCustomQuestions, setHasCustomQuestions] = useState(false);
   const totalSteps = hasCustomQuestions ? 4 : 4; // Always 4 steps, questions integrated into step 3
   
+  // Coupon code state
+  const [couponCode, setCouponCode] = useState('');
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponError, setCouponError] = useState('');
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  
   const [data, setData] = useState<BookingData>({
     selectedService: null,
     selectedDate: '',
@@ -165,6 +183,17 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
     address: '',
     apartmentUnit: '',
     accessInstructions: '',
+    homeType: '',
+    bedrooms: '',
+    bathrooms: '',
+    squareFootage: '',
+    hasPets: false,
+    petDetails: '',
+    hasAllergies: false,
+    allergyDetails: '',
+    preferredProducts: '',
+    cleaningFrequency: '',
+    preferredTimes: '',
     customAnswers: {},
     estimatedCost: 0,
   });
@@ -202,23 +231,33 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
   // ===========================================
   
   const loadCleanerTemplate = async () => {
-    if (!cleanerId) return;
+    if (!cleanerId || cleanerId === 'undefined') return;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleanerId);
+    if (!isUuid) return;
     
     try {
       // Get active template
       const templateResult = await bookingTemplateService.getActiveTemplate(cleanerId);
       
-      if (templateResult.success && templateResult.data) {
+      if (templateResult.success && templateResult.data?.id) {
         // Get custom questions
         const questionsResult = await bookingTemplateService.getTemplateQuestions(templateResult.data.id);
         
-        if (questionsResult.success && questionsResult.data && questionsResult.data.length > 0) {
+        if (questionsResult.success && Array.isArray(questionsResult.data) && questionsResult.data.length > 0) {
           setCustomQuestions(questionsResult.data);
           setHasCustomQuestions(true);
+        } else {
+          setCustomQuestions([]);
+          setHasCustomQuestions(false);
         }
+      } else {
+        setCustomQuestions([]);
+        setHasCustomQuestions(false);
       }
     } catch (error) {
       console.error('Error loading cleaner template:', error);
+      setCustomQuestions([]);
+      setHasCustomQuestions(false);
     }
   };
   
@@ -331,12 +370,90 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
     }
   };
   
+  // Coupon code validation
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError('Please enter a coupon code');
+      return;
+    }
+    
+    setIsValidatingCoupon(true);
+    setCouponError('');
+    
+    try {
+      // Valid coupon codes (could be fetched from database in production)
+      const validCoupons: Record<string, { discount: number; type: 'percent' | 'fixed'; description: string }> = {
+        'WELCOME10': { discount: 10, type: 'percent', description: '10% off your first booking' },
+        'SAVE15': { discount: 15, type: 'percent', description: '15% off any service' },
+        'HERO20': { discount: 20, type: 'percent', description: '20% off - ChoreHero special' },
+        'FIRST5': { discount: 5, type: 'fixed', description: '$5 off your first booking' },
+        'CLEAN25': { discount: 25, type: 'percent', description: '25% off deep cleaning' },
+      };
+      
+      const upperCode = couponCode.toUpperCase().trim();
+      const coupon = validCoupons[upperCode];
+      
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (coupon) {
+        const basePrice = data.estimatedCost || data.selectedService?.basePrice || 80;
+        let discountAmount = 0;
+        
+        if (coupon.type === 'percent') {
+          discountAmount = Math.round(basePrice * (coupon.discount / 100));
+        } else {
+          discountAmount = coupon.discount;
+        }
+        
+        setCouponDiscount(discountAmount);
+        setCouponApplied(true);
+        setCouponError('');
+        
+        // Haptic feedback for success
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
+        Alert.alert(
+          '🎉 Coupon Applied!',
+          `${coupon.description}\nYou save $${discountAmount}!`
+        );
+      } else {
+        setCouponError('Invalid coupon code. Please try again.');
+        setCouponApplied(false);
+        setCouponDiscount(0);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+    } catch (error) {
+      console.error('Coupon validation error:', error);
+      setCouponError('Failed to validate coupon. Please try again.');
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+  
+  const handleRemoveCoupon = () => {
+    setCouponCode('');
+    setCouponDiscount(0);
+    setCouponApplied(false);
+    setCouponError('');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+  
   const handleBookingSubmit = async () => {
     setIsLoading(true);
     
     try {
       if (!user) {
         Alert.alert('Error', 'Please log in to book a service.');
+        return;
+      }
+
+      if (user.role === 'customer' && user.customer_onboarding_state !== 'TRANSACTION_READY') {
+        Alert.alert(
+          'Payment Required',
+          'Please add a payment method before booking.',
+          [{ text: 'Add Payment Method', onPress: () => navigation.navigate('PaymentScreen') }]
+        );
         return;
       }
 
@@ -374,6 +491,21 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
       const platformFee = Math.round(servicePrice * 0.15); // 15% platform fee
       const totalAmount = servicePrice + platformFee;
 
+      const jobDetailsParts = [
+        data.homeType && `Home: ${data.homeType}`,
+        data.bedrooms && `Beds: ${data.bedrooms}`,
+        data.bathrooms && `Baths: ${data.bathrooms}`,
+        data.squareFootage && `Sq Ft: ${data.squareFootage}`,
+        data.hasPets ? `Pets: ${data.petDetails || 'Yes'}` : '',
+        data.hasAllergies ? `Allergies: ${data.allergyDetails || 'Yes'}` : '',
+        data.preferredProducts && `Products: ${data.preferredProducts}`,
+        data.cleaningFrequency && `Frequency: ${data.cleaningFrequency}`,
+        data.preferredTimes && `Preferred Times: ${data.preferredTimes}`,
+      ].filter(Boolean) as string[];
+
+      const baseRequest = `Service: ${data.selectedService?.name || 'Cleaning'}`;
+      const specialRequests = [baseRequest, ...jobDetailsParts].join(' • ');
+
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')
         .insert({
@@ -389,7 +521,12 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
           address: data.address || '',
           apartment_unit: data.apartmentUnit || null,
           access_instructions: data.accessInstructions || null,
-          special_requests: `Service: ${data.selectedService?.name || 'Cleaning'}`,
+          special_instructions: specialRequests,
+          bedrooms: data.bedrooms || null,
+          bathrooms: data.bathrooms || null,
+          square_feet: data.squareFootage ? Number(data.squareFootage) : null,
+          has_pets: data.hasPets,
+          pet_details: data.hasPets ? data.petDetails || null : null,
         })
         .select()
         .single();
@@ -810,9 +947,144 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
           />
         </View>
       </View>
+
+      {/* Home Details */}
+      <View style={styles.customQuestionsDivider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>Home Details (Optional)</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Home Type</Text>
+        <View style={styles.inputWrapper}>
+          <Ionicons name="home-outline" size={20} color="#9CA3AF" style={styles.inputIcon} />
+          <TextInput
+            style={styles.textInput}
+            value={data.homeType}
+            onChangeText={(text) => updateData('homeType', text)}
+            placeholder="House, Apartment, Condo..."
+            placeholderTextColor="#9CA3AF"
+          />
+        </View>
+      </View>
+
+      <View style={styles.inputRow}>
+        <View style={[styles.inputGroup, styles.halfInput]}>
+          <Text style={styles.inputLabel}>Bedrooms</Text>
+          <TextInput
+            style={styles.textInput}
+            value={data.bedrooms}
+            onChangeText={(text) => updateData('bedrooms', text)}
+            placeholder="2"
+            placeholderTextColor="#9CA3AF"
+            keyboardType="number-pad"
+          />
+        </View>
+        <View style={[styles.inputGroup, styles.halfInput]}>
+          <Text style={styles.inputLabel}>Bathrooms</Text>
+          <TextInput
+            style={styles.textInput}
+            value={data.bathrooms}
+            onChangeText={(text) => updateData('bathrooms', text)}
+            placeholder="1"
+            placeholderTextColor="#9CA3AF"
+            keyboardType="number-pad"
+          />
+        </View>
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Approx. Square Footage</Text>
+        <TextInput
+          style={styles.textInput}
+          value={data.squareFootage}
+          onChangeText={(text) => updateData('squareFootage', text)}
+          placeholder="1200"
+          placeholderTextColor="#9CA3AF"
+          keyboardType="number-pad"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Pets in Home?</Text>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>{data.hasPets ? 'Yes' : 'No'}</Text>
+          <Switch
+            value={data.hasPets}
+            onValueChange={(value) => updateData('hasPets', value)}
+            trackColor={{ false: '#E5E7EB', true: '#22C55E' }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+        {data.hasPets && (
+          <TextInput
+            style={styles.textInput}
+            value={data.petDetails}
+            onChangeText={(text) => updateData('petDetails', text)}
+            placeholder="Dog, cat, etc."
+            placeholderTextColor="#9CA3AF"
+          />
+        )}
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Allergies or sensitivities?</Text>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>{data.hasAllergies ? 'Yes' : 'No'}</Text>
+          <Switch
+            value={data.hasAllergies}
+            onValueChange={(value) => updateData('hasAllergies', value)}
+            trackColor={{ false: '#E5E7EB', true: '#22C55E' }}
+            thumbColor="#FFFFFF"
+          />
+        </View>
+        {data.hasAllergies && (
+          <TextInput
+            style={styles.textInput}
+            value={data.allergyDetails}
+            onChangeText={(text) => updateData('allergyDetails', text)}
+            placeholder="Describe allergies"
+            placeholderTextColor="#9CA3AF"
+          />
+        )}
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Preferred Products</Text>
+        <TextInput
+          style={styles.textInput}
+          value={data.preferredProducts}
+          onChangeText={(text) => updateData('preferredProducts', text)}
+          placeholder="Eco-friendly, unscented, etc."
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Cleaning Frequency</Text>
+        <TextInput
+          style={styles.textInput}
+          value={data.cleaningFrequency}
+          onChangeText={(text) => updateData('cleaningFrequency', text)}
+          placeholder="Weekly, bi-weekly, one-time..."
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Preferred Times</Text>
+        <TextInput
+          style={styles.textInput}
+          value={data.preferredTimes}
+          onChangeText={(text) => updateData('preferredTimes', text)}
+          placeholder="Mornings, weekends, etc."
+          placeholderTextColor="#9CA3AF"
+        />
+      </View>
       
       {/* Custom Questions from Cleaner */}
-      {customQuestions.length > 0 && (
+      {Array.isArray(customQuestions) && customQuestions.length > 0 && (
         <>
           <View style={styles.customQuestionsDivider}>
             <View style={styles.dividerLine} />
@@ -974,10 +1246,28 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         
         <View style={styles.summaryDivider} />
         
+        {/* Coupon Discount Row */}
+        {couponApplied && couponDiscount > 0 && (
+          <View style={styles.summaryRow}>
+            <View style={styles.discountRowLeft}>
+              <Ionicons name="pricetag" size={16} color="#059669" />
+              <Text style={styles.discountLabel}>Promo ({couponCode.toUpperCase()})</Text>
+            </View>
+            <Text style={styles.discountValue}>-${couponDiscount}</Text>
+          </View>
+        )}
+        
         {/* Total */}
         <View style={styles.totalSection}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>${data.estimatedCost}</Text>
+          <View style={styles.totalValueContainer}>
+            {couponApplied && couponDiscount > 0 && (
+              <Text style={styles.totalValueOriginal}>${data.estimatedCost}</Text>
+            )}
+            <Text style={styles.totalValue}>
+              ${Math.max(0, data.estimatedCost - couponDiscount)}
+            </Text>
+          </View>
         </View>
         
         {data.isRecurring && (
@@ -1011,6 +1301,64 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
           <Ionicons name="add-circle-outline" size={20} color="#6B7280" />
           <Text style={styles.addPaymentMethodText}>Add new payment method</Text>
         </TouchableOpacity>
+      </View>
+      
+      {/* Coupon Code Section */}
+      <View style={styles.couponSection}>
+        <View style={styles.summarySectionHeader}>
+          <Ionicons name="pricetag" size={20} color="#3ad3db" />
+          <Text style={styles.summarySectionTitle}>Promo Code</Text>
+        </View>
+        
+        {couponApplied ? (
+          <View style={styles.couponAppliedContainer}>
+            <View style={styles.couponAppliedBadge}>
+              <Ionicons name="checkmark-circle" size={20} color="#059669" />
+              <Text style={styles.couponAppliedCode}>{couponCode.toUpperCase()}</Text>
+              <Text style={styles.couponAppliedDiscount}>-${couponDiscount}</Text>
+            </View>
+            <TouchableOpacity onPress={handleRemoveCoupon} style={styles.removeCouponButton}>
+              <Ionicons name="close-circle" size={22} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.couponInputContainer}>
+            <TextInput
+              style={[styles.couponInput, couponError ? styles.couponInputError : null]}
+              placeholder="Enter promo code"
+              placeholderTextColor="#9CA3AF"
+              value={couponCode}
+              onChangeText={(text) => {
+                setCouponCode(text);
+                setCouponError('');
+              }}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            <TouchableOpacity 
+              style={[styles.applyCouponButton, isValidatingCoupon && styles.applyCouponButtonDisabled]}
+              onPress={handleApplyCoupon}
+              disabled={isValidatingCoupon}
+            >
+              {isValidatingCoupon ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.applyCouponButtonText}>Apply</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        {couponError ? (
+          <View style={styles.couponErrorContainer}>
+            <Ionicons name="alert-circle" size={14} color="#EF4444" />
+            <Text style={styles.couponErrorText}>{couponError}</Text>
+          </View>
+        ) : null}
+        
+        <Text style={styles.couponHint}>
+          Try: WELCOME10, SAVE15, or HERO20 for discounts
+        </Text>
       </View>
       
       {/* Payment Info */}
@@ -1047,7 +1395,10 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
   
   const getButtonText = () => {
     if (isLoading) return 'Processing Payment...';
-    if (currentStep === totalSteps) return `Pay & Book • $${data.estimatedCost}`;
+    if (currentStep === totalSteps) {
+      const finalPrice = Math.max(0, data.estimatedCost - couponDiscount);
+      return `Pay & Book • $${finalPrice}`;
+    }
     return 'Continue';
   };
   
@@ -1526,6 +1877,13 @@ const styles = StyleSheet.create({
   inputGroup: {
     marginBottom: 20,
   },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfInput: {
+    flex: 1,
+  },
   inputLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -1557,6 +1915,17 @@ const styles = StyleSheet.create({
   textArea: {
     height: 80,
     textAlignVertical: 'top',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
   },
   helpText: {
     fontSize: 12,
@@ -1741,6 +2110,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#3ad3db',
   },
+  totalValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  totalValueOriginal: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
+  },
+  discountRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  discountLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#059669',
+  },
+  discountValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#059669',
+  },
   discountNote: {
     fontSize: 13,
     color: '#059669',
@@ -1808,6 +2203,104 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     fontWeight: '500',
+  },
+  // Coupon Section Styles
+  couponSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  couponInputContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  couponInput: {
+    flex: 1,
+    height: 48,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1F2937',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    letterSpacing: 1,
+  },
+  couponInputError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  applyCouponButton: {
+    backgroundColor: '#3ad3db',
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  applyCouponButtonDisabled: {
+    opacity: 0.7,
+  },
+  applyCouponButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  couponAppliedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#059669',
+  },
+  couponAppliedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  couponAppliedCode: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#059669',
+    letterSpacing: 1,
+  },
+  couponAppliedDiscount: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#059669',
+    marginLeft: 8,
+  },
+  removeCouponButton: {
+    padding: 4,
+  },
+  couponErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  couponErrorText: {
+    fontSize: 13,
+    color: '#EF4444',
+    fontWeight: '500',
+  },
+  couponHint: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 10,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   paymentNote: {
     flexDirection: 'row',

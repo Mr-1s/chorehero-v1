@@ -9,6 +9,7 @@ interface MessageContextType {
 
 interface Conversation {
   id: string;
+  conversationId?: string;
   participant: {
     id: string;
     name: string;
@@ -18,7 +19,9 @@ interface Conversation {
   lastMessage: string;
   lastTimestamp: string;
   unreadCount: number;
-  bookingId: string;
+  bookingId?: string;
+  activeBookingId?: string | null;
+  hasActiveJob?: boolean;
 }
 
 const MessageContext = createContext<MessageContextType | undefined>(undefined);

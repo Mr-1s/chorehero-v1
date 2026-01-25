@@ -9,6 +9,9 @@ export interface Booking {
   estimated_duration: number;
   actual_start_time?: string;
   actual_end_time?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  square_feet?: number;
   price_breakdown: PriceBreakdown;
   add_ons: AddOn[];
   tracking_data?: LocationUpdate[];
@@ -82,8 +85,15 @@ export interface BookingRequest {
   service_type: ServiceType;
   address_id: string;
   scheduled_time: string;
+  estimated_duration?: number;
   add_ons: string[];
   special_instructions?: string;
+  access_instructions?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  square_feet?: number;
+  has_pets?: boolean | null;
+  pet_details?: string | null;
   payment_method_id: string;
   tip_amount?: number;
 }

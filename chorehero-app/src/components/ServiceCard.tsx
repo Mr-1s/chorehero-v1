@@ -16,7 +16,22 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { Video, ResizeMode } from 'expo-av';
 import { ServiceCardData, ServiceCardVariant, ServiceCardTheme } from '../types/serviceCard';
+
+// Helper to check if URL is a video file
+const isVideoUrl = (url: string): boolean => {
+  if (!url) return false;
+  const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.m4v'];
+  const lowerUrl = url.toLowerCase();
+  return videoExtensions.some(ext => lowerUrl.includes(ext));
+};
+
+const formatCount = (count: number): string => {
+  if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
+  return `${count}`;
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -108,15 +123,9 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     return (
       <View style={styles.engagementContainer}>
         <View style={styles.engagementStat}>
-          <Ionicons name="eye" size={12} color="#ffffff" />
-          <Text style={styles.engagementText}>{data.engagement.view_display}</Text>
+          <Ionicons name="heart" size={12} color="#ffffff" />
+          <Text style={styles.engagementText}>{formatCount(data.engagement.like_count || 0)}</Text>
         </View>
-        {data.engagement.like_count > 0 && (
-          <View style={styles.engagementStat}>
-            <Ionicons name="heart" size={12} color="#ffffff" />
-            <Text style={styles.engagementText}>{data.engagement.like_count}</Text>
-          </View>
-        )}
       </View>
     );
   };
@@ -275,97 +284,141 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
     </TouchableOpacity>
   );
 
-  const renderVideoLayout = () => (
-    <TouchableOpacity
-      style={[
-        styles.videoContainer,
-        {
-          width: cardDimensions.width,
-          height: cardDimensions.height,
-          borderRadius: cardTheme.corner_radius,
-        },
-        style,
-      ]}
-      onPress={handlePress}
-      activeOpacity={0.95}
-    >
-      <View style={styles.videoImageContainer}>
-        <Image
-          source={{ 
-            uri: imageError ? data.media.fallback_image_url || data.media.primary_image_url : data.media.primary_image_url 
-          }}
-          style={styles.videoImage}
-          onLoadStart={() => setImageLoading(true)}
-          onLoad={() => setImageLoading(false)}
-          onError={() => {
-            setImageError(true);
-            setImageLoading(false);
-          }}
-        />
-        
-        {imageLoading && (
-          <View style={styles.videoImageSkeleton}>
-            <ActivityIndicator size="small" color="#3ad3db" />
+  const renderVideoLayout = () => {
+    // Determine the best source for the thumbnail
+    const thumbnailUrl = data.media.thumbnail_url;
+    const primaryUrl = data.media.primary_image_url;
+    const videoUrl = data.media.video_url;
+    
+    // Check if we have a proper image thumbnail or need to use video first frame
+    const hasImageThumbnail = thumbnailUrl && !isVideoUrl(thumbnailUrl);
+    const hasPrimaryImage = primaryUrl && !isVideoUrl(primaryUrl);
+    const hasVideoSource = videoUrl || (primaryUrl && isVideoUrl(primaryUrl));
+    
+    const imageSource = hasImageThumbnail ? thumbnailUrl : hasPrimaryImage ? primaryUrl : null;
+    const videoSource = videoUrl || (primaryUrl && isVideoUrl(primaryUrl) ? primaryUrl : null);
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.videoContainer,
+          {
+            width: cardDimensions.width,
+            height: cardDimensions.height,
+            borderRadius: cardTheme.corner_radius,
+          },
+          style,
+        ]}
+        onPress={handlePress}
+        activeOpacity={0.95}
+      >
+        <View style={styles.videoImageContainer}>
+          {/* Show image thumbnail if available */}
+          {imageSource && !imageError ? (
+            <Image
+              source={{ uri: imageSource }}
+              style={styles.videoImage}
+              onLoadStart={() => setImageLoading(true)}
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                setImageError(true);
+                setImageLoading(false);
+              }}
+            />
+          ) : hasVideoSource && videoSource ? (
+            /* Show video first frame if no image thumbnail */
+            <Video
+              source={{ uri: videoSource }}
+              style={styles.videoImage}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={false}
+              isMuted={true}
+              positionMillis={1000}
+              onLoad={() => setImageLoading(false)}
+              onError={() => {
+                setImageError(true);
+                setImageLoading(false);
+              }}
+            />
+          ) : (
+            /* Fallback gradient placeholder */
+            <LinearGradient
+              colors={['#0891b2', '#06b6d4', '#22d3ee']}
+              style={styles.videoPlaceholder}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="videocam" size={32} color="#FFFFFF" />
+              <Text style={styles.videoPlaceholderText} numberOfLines={1}>
+                {data.title || 'Video'}
+              </Text>
+            </LinearGradient>
+          )}
+          
+          {imageLoading && (
+            <View style={styles.videoImageSkeleton}>
+              <ActivityIndicator size="small" color="#3ad3db" />
+            </View>
+          )}
+          
+          {/* Gradient overlay for better text visibility */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.6)']}
+            style={styles.videoGradientOverlay}
+          />
+          
+          {/* Play button overlay */}
+          <View style={styles.playButtonOverlay}>
+            <View style={styles.playButtonCircle}>
+              <Ionicons name="play" size={24} color="#ffffff" style={{ marginLeft: 3 }} />
+            </View>
           </View>
-        )}
-        
-        {/* Gradient overlay for better text visibility */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.6)']}
-          style={styles.videoGradientOverlay}
-        />
-        
-        {/* Play button overlay */}
-        <View style={styles.playButtonOverlay}>
-          <View style={styles.playButtonCircle}>
-            <Ionicons name="play" size={24} color="#ffffff" style={{ marginLeft: 3 }} />
-          </View>
+          
+          {/* Engagement stats positioned at bottom left of image */}
+          {data.engagement && (
+            <View style={styles.videoEngagementOverlay}>
+              <View style={styles.videoEngagementStat}>
+                <Ionicons name="heart" size={14} color="#ffffff" />
+                <Text style={styles.videoEngagementText}>{formatCount(data.engagement.like_count || 0)}</Text>
+              </View>
+            </View>
+          )}
         </View>
         
-        {/* Engagement stats positioned at bottom left of image */}
-        {data.engagement && (
-          <View style={styles.videoEngagementOverlay}>
-            <View style={styles.videoEngagementStat}>
-              <Ionicons name="eye-outline" size={14} color="#ffffff" />
-              <Text style={styles.videoEngagementText}>{data.engagement.view_display}</Text>
-            </View>
-          </View>
-        )}
-      </View>
-      
-      <View style={styles.videoContent}>
-        <Text style={styles.videoTitle} numberOfLines={2}>
-          {data.title}
-        </Text>
-        
-        {data.provider && (
-          <View style={styles.videoProviderContainer}>
-            <Image 
-              source={{ 
-                uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
-              }}
-              style={styles.videoProviderAvatar}
-            />
-            <View style={styles.videoProviderInfo}>
-              <Text style={styles.videoProviderName} numberOfLines={1}>
-                {data.provider.cleaner_name}
-              </Text>
-              {data.provider.specialties && data.provider.specialties.length > 0 && (
-                <Text style={styles.videoProviderSpecialty} numberOfLines={1}>
-                  {data.provider.specialties[0]}
+        <View style={styles.videoContent}>
+          <Text style={styles.videoTitle} numberOfLines={2}>
+            {data.title}
+          </Text>
+          
+          {data.provider && (
+            <View style={styles.videoProviderContainer}>
+              <Image 
+                source={{ 
+                  uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
+                }}
+                style={styles.videoProviderAvatar}
+              />
+              <View style={styles.videoProviderInfo}>
+                <Text style={styles.videoProviderName} numberOfLines={1}>
+                  {data.provider.cleaner_name}
                 </Text>
+                {data.provider.specialties && data.provider.specialties.length > 0 && (
+                  <Text style={styles.videoProviderSpecialty} numberOfLines={1}>
+                    {data.provider.specialties[0]}
+                  </Text>
+                )}
+              </View>
+              {data.provider.is_verified && (
+                <View style={styles.videoVerifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
+                </View>
               )}
             </View>
-            {data.provider.is_verified && (
-              <View style={styles.videoVerifiedBadge}>
-                <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
-              </View>
-            )}
-          </View>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   // Render based on variant
   switch (variant) {
@@ -654,6 +707,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  videoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  videoPlaceholderText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: 8,
   },
   videoGradientOverlay: {
     position: 'absolute',

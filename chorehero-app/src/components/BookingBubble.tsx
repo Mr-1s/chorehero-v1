@@ -75,6 +75,8 @@ function BookingBubbleBase(props: BookingBubbleProps) {
 const BookingBubble = memo(BookingBubbleBase);
 export default BookingBubble;
 
+const PRIMARY_ACTION = '#26B7C9';
+
 const styles = StyleSheet.create({
   wrap: {
     flexDirection: 'row',
@@ -85,7 +87,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderWidth: 1.5,
-    borderColor: 'rgba(58, 211, 219, 0.3)',
+    borderColor: 'rgba(38, 183, 201, 0.35)',
     width: '100%',
     // Enhanced depth
     shadowColor: '#000',
@@ -139,12 +141,12 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   bookButton: {
-    backgroundColor: '#3AD3DB',
+    backgroundColor: PRIMARY_ACTION,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
-    shadowColor: '#3AD3DB',
+    shadowColor: PRIMARY_ACTION,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

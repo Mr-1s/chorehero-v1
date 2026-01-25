@@ -11,6 +11,7 @@ import {
   Alert,
   Image,
   Animated,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -48,10 +49,11 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
   
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
-  const [tipAmount, setTipAmount] = useState(0);
+  const [tipAmount, setTipAmount] = useState(() => Math.round((serviceCost * 20) / 100));
   const [customTip, setCustomTip] = useState('');
   const [selectedTipType, setSelectedTipType] = useState<'percentage' | 'fixed'>('percentage');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showThankYou, setShowThankYou] = useState(false);
 
   // Predefined tip options
   const percentageTips = [15, 18, 20, 25];
@@ -59,6 +61,10 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
 
   const calculateTipAmount = (percentage: number) => {
     return Math.round((serviceCost * percentage) / 100);
+  };
+
+  const formatCurrency = (value: number) => {
+    return value.toFixed(2);
   };
 
   const handleRatingPress = (selectedRating: number) => {
@@ -79,6 +85,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
     setCustomTip(value);
     const numericValue = parseFloat(value) || 0;
     setTipAmount(numericValue);
+    setSelectedTipType('fixed');
   };
 
   const handleSubmit = async () => {
@@ -98,21 +105,21 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      Alert.alert(
-        'Thank You!',
-        `Your review and ${tipAmount > 0 ? `$${tipAmount} tip` : 'feedback'} have been submitted successfully.`,
-        [
-          {
-            text: 'Done',
-            onPress: () => navigation.goBack()
-          }
-        ]
-      );
+      setShowThankYou(true);
     } catch (error) {
       Alert.alert('Error', 'Failed to submit review and tip. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleScheduleNextClean = () => {
+    setShowThankYou(false);
+    navigation.navigate('NewBookingFlow' as any, {
+      cleanerId,
+      serviceType: serviceTitle,
+      basePrice: serviceCost,
+    });
   };
 
   const renderStars = () => {
@@ -221,7 +228,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
             <View style={styles.cleanerDetails}>
               <Text style={styles.cleanerName}>{cleanerName}</Text>
               <Text style={styles.serviceTitle}>{serviceTitle}</Text>
-              <Text style={styles.serviceCost}>Service Cost: ${serviceCost}</Text>
+              <Text style={styles.serviceCost}>Service Cost: ${formatCurrency(serviceCost)}</Text>
             </View>
           </View>
         </View>
@@ -280,17 +287,17 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
         <View style={styles.totalSection}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Service Cost:</Text>
-            <Text style={styles.totalAmount}>${serviceCost}</Text>
+            <Text style={styles.totalAmount}>${formatCurrency(serviceCost)}</Text>
           </View>
           {tipAmount > 0 && (
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Tip:</Text>
-              <Text style={styles.totalAmount}>${tipAmount}</Text>
+              <Text style={styles.totalAmount}>${formatCurrency(tipAmount)}</Text>
             </View>
           )}
           <View style={[styles.totalRow, styles.finalTotal]}>
             <Text style={styles.finalTotalLabel}>Total:</Text>
-            <Text style={styles.finalTotalAmount}>${serviceCost + tipAmount}</Text>
+            <Text style={styles.finalTotalAmount}>${formatCurrency(serviceCost + tipAmount)}</Text>
           </View>
         </View>
 
@@ -317,6 +324,28 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
 
         <View style={styles.bottomSpacing} />
       </ScrollView>
+      <Modal transparent visible={showThankYou} animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Thank You!</Text>
+            <Text style={styles.modalSubtitle}>
+              Want {cleanerName || 'your pro'} to come back?
+            </Text>
+            <TouchableOpacity style={styles.modalPrimaryButton} onPress={handleScheduleNextClean}>
+              <Text style={styles.modalPrimaryText}>Schedule Next Clean</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.modalSecondaryButton}
+              onPress={() => {
+                setShowThankYou(false);
+                navigation.goBack();
+              }}
+            >
+              <Text style={styles.modalSecondaryText}>Not now</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -583,6 +612,58 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#ffffff',
     marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalPrimaryButton: {
+    width: '100%',
+    backgroundColor: '#26B7C9',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalPrimaryText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  modalSecondaryButton: {
+    width: '100%',
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+  },
+  modalSecondaryText: {
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: '600',
   },
   bottomSpacing: {
     height: 32,

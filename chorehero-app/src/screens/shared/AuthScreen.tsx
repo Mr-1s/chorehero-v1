@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
   Image,
   ScrollView,
+  Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +23,7 @@ import { userService } from '../../services/user';
 
 import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { consumePostAuthRoute } from '../../utils/authPendingAction';
 
 type StackParamList = {
   AuthScreen: undefined;
@@ -35,16 +37,44 @@ interface AuthScreenProps {
   navigation: AuthScreenNavigationProp;
 }
 
+const PRIMARY_ACTION = '#26B7C9';
+const PRIMARY_ACTION_DESAT = '#9CCED6';
+
 const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const { refreshSession } = useAuth();
+  const logoPulse = useRef(new Animated.Value(0)).current;
+
+  const handlePostAuthRedirect = async () => {
+    const route = await consumePostAuthRoute();
+    if (route?.name) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: route.name as any, params: route.params }],
+      });
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(logoPulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(logoPulse, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => {
+      // @ts-ignore - stop exists at runtime
+      loop.stop && loop.stop();
+    };
+  }, [logoPulse]);
 
   // Load remember me preference on mount
   useEffect(() => {
@@ -76,16 +106,21 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     saveRememberMePreference(newValue);
   };
 
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
+  };
+
   const handleAuth = async () => {
     if (!email || !password) {
       Alert.alert('Missing Information', 'Please enter both email and password');
       return;
     }
 
-    if (!isLogin && password !== confirmPassword) {
-      Alert.alert('Password Mismatch', 'Passwords do not match');
-      return;
-    }
 
     setIsLoading(true);
     try {
@@ -94,8 +129,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         const response = await userService.signIn(email, password);
         
         if (response.success) {
-          await refreshSession();
-          navigation.navigate('AccountTypeSelection');
+          const redirected = await handlePostAuthRedirect();
+          if (!redirected) {
+            await refreshSession().catch(() => {});
+          }
         } else {
           Alert.alert('Sign In Failed', response.error || 'Invalid credentials');
         }
@@ -131,13 +168,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             response.error || 'An account with this email already exists.',
             [
               { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Sign In Instead', 
-                onPress: () => {
-                  setIsLogin(true);
-                  setConfirmPassword('');
-                }
-              }
+              { text: 'Sign In Instead', onPress: () => setIsLogin(true) }
             ]
           );
         } else {
@@ -175,13 +206,55 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 
       if (data?.url) {
         await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
-        await refreshSession();
-        navigation.navigate('AccountTypeSelection');
+        await withTimeout(refreshSession(), 8000, 'Session refresh').catch(error => {
+          console.warn('Session refresh skipped:', error);
+        });
+        const redirected = await handlePostAuthRedirect();
+          if (!redirected) {
+            return;
+          }
       } else {
         Alert.alert('Google Sign-in', 'Unable to start Google authentication.');
       }
     } catch (e) {
       Alert.alert('Google Sign-in Error', e instanceof Error ? e.message : 'Unexpected error');
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      const redirectUri = makeRedirectUri({
+        native: 'chorehero://auth',
+        scheme: 'chorehero',
+        preferLocalhost: false,
+      });
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) {
+        Alert.alert('Apple Sign-in Failed', error.message);
+        return;
+      }
+
+      if (data?.url) {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+        await withTimeout(refreshSession(), 8000, 'Session refresh').catch(error => {
+          console.warn('Session refresh skipped:', error);
+        });
+        const redirected = await handlePostAuthRedirect();
+          if (!redirected) {
+            return;
+          }
+      } else {
+        Alert.alert('Apple Sign-in', 'Unable to start Apple authentication.');
+      }
+    } catch (e) {
+      Alert.alert('Apple Sign-in Error', e instanceof Error ? e.message : 'Unexpected error');
     }
   };
 
@@ -216,7 +289,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      <StatusBar barStyle="light-content" backgroundColor={PRIMARY_ACTION} />
       
       <LinearGradient
         colors={['#06b6d4', '#0891b2']}
@@ -231,13 +304,27 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         >
           {/* Logo Section */}
           <View style={styles.logoSection}>
-          <View style={styles.logoContainer}>
+          <Animated.View
+            style={[
+              styles.logoContainer,
+              {
+                transform: [
+                  {
+                    scale: logoPulse.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 1.04],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
             <Image 
-              source={require('../../../assets/app-icon.png')} 
+              source={require('../../../assets/app-logo.png')} 
               style={styles.logoImage}
               resizeMode="contain"
             />
-          </View>
+          </Animated.View>
           <View style={styles.logoTextContainer}>
             <Text style={styles.choreText}>Chore</Text>
             <Text style={styles.heroText}>Hero</Text>
@@ -315,36 +402,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
                 </TouchableOpacity>
               </View>
 
-              {!isLogin && (
-                <View style={styles.inputContainer}>
-                  <Ionicons name="lock-closed-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.textInput, styles.passwordInput]}
-                    placeholder="Confirm password"
-                    placeholderTextColor="#9CA3AF"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry={!showConfirmPassword}
-                    textContentType="newPassword"
-                    autoComplete="new-password"
-                    autoCorrect={false}
-                    spellCheck={false}
-                    importantForAutofill="yes"
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeIcon}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons 
-                      name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
-                      size={20} 
-                      color="#6B7280" 
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
 
             {/* Remember Me */}
@@ -368,7 +425,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
               disabled={isLoading}
             >
               <LinearGradient
-                colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+                colors={isLoading ? ['#9CA3AF', '#6B7280'] : [PRIMARY_ACTION, PRIMARY_ACTION]}
                 style={styles.authButtonGradient}
               >
                 <Text style={styles.authButtonText}>
@@ -385,11 +442,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             )}
           </View>
 
-          {/* Continue as Guest */}
-          <TouchableOpacity style={styles.guestButton} onPress={handleGuestAccess}>
-            <Text style={styles.guestButtonText}>Continue as Guest</Text>
-          </TouchableOpacity>
-
           {/* Social Login Placeholder */}
           <View style={styles.socialContainer}>
             <View style={styles.divider}>
@@ -404,7 +456,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
                 <Text style={styles.socialButtonText}>Google</Text>
               </TouchableOpacity>
               
-              <TouchableOpacity style={styles.socialButton}>
+              <TouchableOpacity style={styles.socialButton} onPress={handleAppleSignIn}>
                 <Ionicons name="logo-apple" size={20} color="#000000" />
                 <Text style={styles.socialButtonText}>Apple</Text>
               </TouchableOpacity>
@@ -440,7 +492,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'space-between',
-    paddingBottom: 150,
+    paddingBottom: 60,
   },
   logoSection: {
     alignItems: 'center',
@@ -515,6 +567,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     borderRadius: 8,
+    backgroundColor: 'transparent',
   },
   activeTab: {
     backgroundColor: '#ffffff',
@@ -589,7 +642,7 @@ const styles = StyleSheet.create({
   },
   forgotPasswordText: {
     fontSize: 14,
-    color: '#3ad3db',
+    color: PRIMARY_ACTION,
     fontWeight: '500',
   },
   guestButton: {
@@ -678,9 +731,9 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   checkboxChecked: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
-    shadowColor: '#3ad3db',
+    backgroundColor: PRIMARY_ACTION,
+    borderColor: PRIMARY_ACTION,
+    shadowColor: PRIMARY_ACTION,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

@@ -25,9 +25,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { CleanerStatTile } from '../../components/cleaner';
 import { cleanerTheme } from '../../utils/theme';
+import { useCleanerStore } from '../../store/cleanerStore';
 
 const { width } = Dimensions.get('window');
 const { colors, typography, radii, shadows } = cleanerTheme;
+const BRAND_TEAL = '#26B7C9';
+const BRAND_TEAL_DARK = '#1C9FB1';
 
 // Tips data
 const TIPS_CATEGORIES = [
@@ -204,6 +207,7 @@ const CategorySection: React.FC<CategorySectionProps> = ({ category, isExpanded,
 
 const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['filming']));
+  const { currentCleaner, pastBookings, fetchDashboard, isLoading } = useCleanerStore();
 
   // Animation refs
   const bannerFade = useRef(new Animated.Value(0)).current;
@@ -235,6 +239,12 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     }).start();
   }, []);
 
+  useEffect(() => {
+    if (!currentCleaner && !isLoading) {
+      fetchDashboard();
+    }
+  }, [currentCleaner, isLoading, fetchDashboard]);
+
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories((prev) => {
       const newSet = new Set(prev);
@@ -251,6 +261,21 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
       
+      {/* Earnings Header */}
+      <View style={styles.earningsHeader}>
+        <View style={styles.earningsBlock}>
+          <Text style={styles.earningsLabel}>Earned this Week</Text>
+          <Text style={styles.earningsValue}>
+            {currentCleaner ? `$${Math.round(currentCleaner.weeklyEarnings)}` : '$0'}
+          </Text>
+        </View>
+        <View style={styles.earningsDivider} />
+        <View style={styles.earningsBlock}>
+          <Text style={styles.earningsLabel}>Completed Chores</Text>
+          <Text style={styles.earningsValue}>{pastBookings.length}</Text>
+        </View>
+      </View>
+
       {/* Header Banner */}
       <Animated.View 
         style={[
@@ -262,7 +287,7 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         ]}
       >
         <LinearGradient
-          colors={[colors.primary, colors.primaryDark]}
+          colors={[BRAND_TEAL, BRAND_TEAL_DARK]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.headerGradient}
@@ -271,10 +296,10 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           <View style={styles.patternOverlay} />
           
           <View style={styles.headerContent}>
-            <Ionicons name="bulb" size={28} color="#FFFFFF" />
+            <Ionicons name="sparkles" size={28} color="#FFFFFF" />
             <View style={styles.headerTextContainer}>
-              <Text style={styles.headerTitle}>Video Tips & Tricks</Text>
-              <Text style={styles.headerSubtitle}>Create content that converts</Text>
+              <Text style={styles.headerTitle}>Pro Dashboard</Text>
+              <Text style={styles.headerSubtitle}>Your performance at a glance</Text>
             </View>
           </View>
         </LinearGradient>
@@ -282,14 +307,16 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
 
       {/* Quick Stats */}
       <Animated.View style={[styles.statsContainer, { opacity: statsFade }]}>
-        <CleanerStatTile
-          icon="eye"
-          value="3x"
-          label="More Views"
-          color={colors.accentTeal}
-          animateIn
-          animationDelay={400}
-        />
+        <TouchableOpacity onPress={() => navigation.navigate('Content')}>
+          <CleanerStatTile
+            icon="eye"
+            value="3x"
+            label="Views"
+            color={BRAND_TEAL}
+            animateIn
+            animationDelay={400}
+          />
+        </TouchableOpacity>
         <CleanerStatTile
           icon="calendar"
           value="2x"
@@ -298,14 +325,16 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           animateIn
           animationDelay={500}
         />
-        <CleanerStatTile
-          icon="star"
-          value="Top"
-          label="Performer"
-          color="#8B5CF6"
-          animateIn
-          animationDelay={600}
-        />
+        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+          <CleanerStatTile
+            icon="star"
+            value="Top"
+            label="Performer"
+            color="#8B5CF6"
+            animateIn
+            animationDelay={600}
+          />
+        </TouchableOpacity>
       </Animated.View>
 
       {/* Tips Categories */}
@@ -332,7 +361,7 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
           activeOpacity={0.9}
         >
           <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
+            colors={[BRAND_TEAL, BRAND_TEAL_DARK]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.ctaGradient}
@@ -347,7 +376,7 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
       </ScrollView>
 
       {/* Navigation */}
-      <CleanerFloatingNavigation navigation={navigation} currentScreen="Heroes" />
+      <CleanerFloatingNavigation navigation={navigation} currentScreen="Dashboard" />
     </SafeAreaView>
   );
 };
@@ -356,6 +385,41 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
+  },
+  earningsHeader: {
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(38, 183, 201, 0.35)',
+    ...shadows.soft,
+  },
+  earningsBlock: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  earningsDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: 'rgba(148, 163, 184, 0.4)',
+  },
+  earningsLabel: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  earningsValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
   },
   header: {
     paddingHorizontal: 20,

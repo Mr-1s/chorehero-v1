@@ -83,6 +83,55 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
   const totalSteps = 5;
   const { refreshSession, refreshUser, authUser } = useAuth();
 
+  const getCustomerStateForStep = (step: number) => {
+    if (step >= totalSteps) return 'ACTIVE_CUSTOMER';
+    if (step >= 2) return 'LOCATION_SET';
+    return 'IDENTITY_PENDING';
+  };
+
+  const resolveUserId = async () => {
+    if (authUser?.user?.id) return authUser.user.id as string;
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id;
+  };
+
+  const persistProgress = async (step: number) => {
+    const userId = await resolveUserId();
+    if (!userId) return;
+    const state = getCustomerStateForStep(step);
+    const { error } = await supabase
+      .from('users')
+      .update({
+        customer_onboarding_state: state,
+        customer_onboarding_step: step,
+      })
+      .eq('id', userId);
+    if (error) {
+      console.warn('Failed to persist onboarding progress:', error);
+    }
+  };
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      const userId = await resolveUserId();
+      if (!userId) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('customer_onboarding_step, customer_onboarding_state, role')
+        .eq('id', userId)
+        .single();
+      if (error) return;
+      if (data?.role && data.role !== 'customer') return;
+      if (data?.customer_onboarding_step) {
+        const step = Math.min(Math.max(data.customer_onboarding_step, 1), totalSteps);
+        setCurrentStep(step);
+      } else {
+        await persistProgress(1);
+      }
+    };
+    loadProgress();
+  }, [authUser?.user?.id]);
+
   // Check username availability
   const checkUsernameAvailability = async (username: string) => {
     if (!username || username.length < 3) {
@@ -102,7 +151,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       const { data, error } = await supabase
         .from('users')
         .select('id')
-        .ilike('name', username)
+        .ilike('username', username)
         .limit(1);
       
       if (error) {
@@ -227,7 +276,9 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
     }
 
     if (currentStep < totalSteps) {
-      setCurrentStep(currentStep + 1);
+      const nextStep = currentStep + 1;
+      setCurrentStep(nextStep);
+      persistProgress(nextStep);
     } else {
       handleComplete();
     }
@@ -235,8 +286,19 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      const prevStep = currentStep - 1;
+      setCurrentStep(prevStep);
+      persistProgress(prevStep);
     }
+  };
+
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
   };
 
   const handleComplete = async () => {
@@ -246,7 +308,11 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       let userId: string | undefined;
       let userEmail: string | undefined;
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          8000,
+          'Get session'
+        );
         if (session?.user) {
           userId = session.user.id;
           userEmail = session.user.email || undefined;
@@ -258,7 +324,11 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       }
       if (!userId) {
         await refreshSession();
-        const { data: { session: session2 } } = await supabase.auth.getSession();
+        const { data: { session: session2 } } = await withTimeout(
+          supabase.auth.getSession(),
+          8000,
+          'Get session'
+        );
         if (session2?.user) {
           userId = session2.user.id;
           userEmail = session2.user.email || undefined;
@@ -268,82 +338,81 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       console.log('Customer onboarding completion - resolved user:', userId, userEmail);
       
       if (userId) {
-        // First, ensure user record exists in our database
-        const { data: existingUser, error: checkError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('id', userId)
-          .single();
-
-        if (checkError && checkError.code === 'PGRST116') {
-          // User doesn't exist, create the record
-          console.log('User record not found, creating...');
-          const { error: createUserError } = await supabase
+        // Upsert user record (avoids a separate read that can hang)
+        const { error: upsertUserError } = await withTimeout(
+          supabase
             .from('users')
-            .insert([{
+            .upsert([{
               id: userId,
               phone: data.phone,
               email: userEmail,
               name: `${data.firstName} ${data.lastName}`,
+              username: data.username,
               role: 'customer',
-            }]);
-          
-          if (createUserError) {
-            console.error('Error creating user record:', createUserError);
-            throw new Error('Failed to create user record: ' + createUserError.message);
-          }
-        } else if (checkError) {
-          console.error('Error checking user existence:', checkError);
-          throw new Error('Database error: ' + checkError.message);
-        } else {
-          // User exists, update it
-          const { error: userError } = await supabase
-            .from('users')
-            .update({
-              name: `${data.firstName} ${data.lastName}`,
-              phone: data.phone,
-              role: 'customer',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', userId);
+              updated_at: new Date().toISOString(),
+              customer_onboarding_state: 'ACTIVE_CUSTOMER',
+              customer_onboarding_step: totalSteps,
+            }], { onConflict: 'id' }),
+          15000,
+          'Upsert user record'
+        );
 
-          if (userError) {
-            console.error('Error updating user profile:', userError);
-            throw new Error('Failed to update user record: ' + userError.message);
-          }
+        if (upsertUserError) {
+          console.error('Error upserting user record:', upsertUserError);
+          throw new Error('Failed to save user record: ' + upsertUserError.message);
         }
 
         // Create customer profile with available fields
-        const { error: customerError } = await supabase
-          .from('customer_profiles')
-          .insert([{
-            user_id: userId,
-            preferred_language: 'en',
-            special_preferences: `${data.specialInstructions || ''}\n\nProperty: ${data.propertyType}, ${data.squareFootage} sq ft\nBedrooms: ${data.bedrooms}, Bathrooms: ${data.bathrooms}\nCleaning Frequency: ${data.cleaningFrequency}\nPreferred Products: ${data.preferredProducts}\nBudget: ${data.budgetRange}\nPets: ${data.hasPets ? 'Yes - ' + data.petDetails : 'No'}\nAllergies: ${data.hasAllergies ? 'Yes - ' + data.allergyDetails : 'No'}\nChildren: ${data.hasChildren ? 'Yes' : 'No'}`,
-          }]);
+        const { error: customerError } = await withTimeout(
+          supabase
+            .from('customer_profiles')
+            .insert([{
+              user_id: userId,
+              preferred_language: 'en',
+              special_preferences: `${data.specialInstructions || ''}\n\nProperty: ${data.propertyType}, ${data.squareFootage} sq ft\nBedrooms: ${data.bedrooms}, Bathrooms: ${data.bathrooms}\nCleaning Frequency: ${data.cleaningFrequency}\nPreferred Products: ${data.preferredProducts}\nBudget: ${data.budgetRange}\nPets: ${data.hasPets ? 'Yes - ' + data.petDetails : 'No'}\nAllergies: ${data.hasAllergies ? 'Yes - ' + data.allergyDetails : 'No'}\nChildren: ${data.hasChildren ? 'Yes' : 'No'}`,
+            }]),
+          15000,
+          'Create customer profile'
+        );
 
         // Also create an address record
         if (!customerError) {
-          const { error: addressError } = await supabase
-            .from('addresses')
-            .insert([{
-              user_id: userId,
-              street: data.address,
-              city: data.city,
-              state: data.state,
-              zip_code: data.zipCode,
-              is_default: true,
-              nickname: 'Home',
-            }]);
+          const { error: addressError } = await withTimeout(
+            supabase
+              .from('addresses')
+              .insert([{
+                user_id: userId,
+                street: data.address,
+                city: data.city,
+                state: data.state,
+                zip_code: data.zipCode,
+                is_default: true,
+                nickname: 'Home',
+              }]),
+            15000,
+            'Create address'
+          );
 
           if (addressError) {
             console.error('Error creating address:', addressError);
           }
         }
 
-        if (customerError) {
+        if (customerError && customerError.code !== '23505') {
           console.error('Error creating customer profile:', customerError);
           throw new Error('Failed to create customer profile: ' + customerError.message);
+        }
+
+        // Keep auth metadata in sync so the UI can show a name immediately
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              full_name: `${data.firstName} ${data.lastName}`,
+              username: data.username,
+            },
+          });
+        } catch (metadataError) {
+          console.warn('⚠️ Failed to update auth metadata:', metadataError);
         }
 
         // Send welcome message and profile completion milestone
@@ -366,12 +435,19 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
                 try {
                   // Refresh user data - App.tsx will auto-navigate when role is detected
                   console.log('🔄 Refreshing user data after onboarding...');
-                  await refreshUser();
-                  // Navigation is handled by App.tsx useEffect watching user.role
+                  await withTimeout(refreshUser(), 8000, 'Refresh user');
+                  // Ensure we leave onboarding even if role propagation is delayed
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' }],
+                  });
                 } catch (error) {
                   console.error('Error refreshing user:', error);
                   // Fallback: manually navigate if refresh fails
-                  navigation.navigate('MainTabs');
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'MainTabs' }],
+                  });
                 }
               }
             }
@@ -409,7 +485,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           <Switch
             value={bypassMode}
             onValueChange={setBypassMode}
-            trackColor={{ false: '#767577', true: '#3ad3db' }}
+            trackColor={{ false: '#767577', true: '#26B7C9' }}
             thumbColor={bypassMode ? '#ffffff' : '#f4f3f4'}
           />
         </View>
@@ -670,7 +746,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         <Switch
           value={data.hasPets}
           onValueChange={(value) => updateData('hasPets', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasPets ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -698,7 +774,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         <Switch
           value={data.hasAllergies}
           onValueChange={(value) => updateData('hasAllergies', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasAllergies ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -725,7 +801,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
         <Switch
           value={data.hasChildren}
           onValueChange={(value) => updateData('hasChildren', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasChildren ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -854,7 +930,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       <Text style={styles.stepSubtitle}>Final steps to secure your account</Text>
 
       <View style={styles.safetySection}>
-        <Ionicons name="shield-checkmark" size={24} color="#3ad3db" />
+        <Ionicons name="shield-checkmark" size={24} color="#26B7C9" />
         <Text style={styles.safetyTitle}>Emergency Contact</Text>
         <Text style={styles.safetyDescription}>
           Required for your safety. This person will be contacted in case of emergency.
@@ -879,7 +955,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       />
 
       <View style={styles.paymentSection}>
-        <Ionicons name="card" size={24} color="#3ad3db" />
+        <Ionicons name="card" size={24} color="#26B7C9" />
         <Text style={styles.safetyTitle}>Payment Method</Text>
         <Text style={styles.safetyDescription}>
           You'll be able to add payment methods after account creation.
@@ -944,7 +1020,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
             disabled={isLoading}
           >
             <LinearGradient
-              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#26B7C9', '#26B7C9']}
               style={styles.continueButtonGradient}
             >
               <Text style={styles.continueButtonText}>
@@ -1014,7 +1090,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 2,
   },
   progressText: {
@@ -1064,7 +1140,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -1127,7 +1203,7 @@ const styles = StyleSheet.create({
     minWidth: 80,
   },
   selectedOption: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   optionText: {
@@ -1136,7 +1212,7 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   selectedOptionText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   switchRow: {
     flexDirection: 'row',
@@ -1175,7 +1251,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   selectedCard: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   choiceLabel: {
@@ -1189,7 +1265,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   selectedCardText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   budgetCard: {
     flex: 1,
@@ -1241,7 +1317,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   linkText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontWeight: '600',
   },
   bottomContainer: {

@@ -95,6 +95,39 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
           .eq('user_id', userId)
           .single();
 
+        // Calculate today's earnings from completed bookings today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayISO = today.toISOString();
+        
+        const { data: todayBookings } = await supabase
+          .from('bookings')
+          .select('cleaner_earnings, total_amount')
+          .eq('cleaner_id', userId)
+          .eq('status', 'completed')
+          .gte('updated_at', todayISO);
+        
+        const todayEarningsCalc = (todayBookings || []).reduce((sum, b) => {
+          return sum + (b.cleaner_earnings || (b.total_amount * 0.85) || 0);
+        }, 0);
+
+        // Calculate this week's earnings (last 7 days)
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        weekAgo.setHours(0, 0, 0, 0);
+        const weekAgoISO = weekAgo.toISOString();
+        
+        const { data: weekBookings } = await supabase
+          .from('bookings')
+          .select('cleaner_earnings, total_amount')
+          .eq('cleaner_id', userId)
+          .eq('status', 'completed')
+          .gte('updated_at', weekAgoISO);
+        
+        const weeklyEarningsCalc = (weekBookings || []).reduce((sum, b) => {
+          return sum + (b.cleaner_earnings || (b.total_amount * 0.85) || 0);
+        }, 0);
+
         // Calculate profile completion based on actual data
         const calculateProfileCompletion = (profile: any, user: any): number => {
           const fields = [
@@ -129,8 +162,12 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
           specialties: cleanerProfile?.specialties || [],
           isOnline: cleanerProfile?.is_available || false,
           profileCompletion,
-          weeklyEarnings: cleanerProfile?.total_earnings || 0,
-          todayEarnings: 0,
+          weeklyEarnings: weeklyEarningsCalc,
+          todayEarnings: todayEarningsCalc,
+          verificationStatus: cleanerProfile?.verification_status,
+          onboardingState: cleanerProfile?.user?.cleaner_onboarding_state ?? null,
+          backgroundCheckStatus: (cleanerProfile as any)?.background_check_status ?? null,
+          videoProfileUrl: cleanerProfile?.video_profile_url ?? null,
         };
 
         set({

@@ -74,25 +74,31 @@ const BookingCustomizationScreen: React.FC<Props> = ({ navigation }) => {
     setIsLoading(true);
     try {
       // Get or create default template
-      let currentTemplate = await bookingTemplateService.getActiveTemplate(user.id);
+      const templateResponse = await bookingTemplateService.getActiveTemplate(user.id);
+      let currentTemplate = templateResponse?.data || templateResponse;
       
-      if (!currentTemplate) {
+      if (!currentTemplate || (typeof currentTemplate === 'object' && 'success' in currentTemplate && !currentTemplate.data)) {
         // Create default template
-        currentTemplate = await bookingTemplateService.createTemplate(user.id, {
+        const createResponse = await bookingTemplateService.createTemplate(user.id, {
           name: 'My Booking Flow',
           description: 'Customize questions customers see when booking',
           is_default: true,
         });
+        currentTemplate = createResponse?.data || createResponse;
       }
       
-      if (currentTemplate) {
+      if (currentTemplate && currentTemplate.id) {
         setTemplate(currentTemplate);
         // Load questions for this template
-        const templateQuestions = await bookingTemplateService.getTemplateQuestions(currentTemplate.id);
-        setQuestions(templateQuestions);
+        const questionsResponse = await bookingTemplateService.getTemplateQuestions(currentTemplate.id);
+        const templateQuestions = questionsResponse?.data || questionsResponse || [];
+        setQuestions(Array.isArray(templateQuestions) ? templateQuestions : []);
+      } else {
+        setQuestions([]);
       }
     } catch (error) {
       console.error('Error loading booking customization:', error);
+      setQuestions([]);
     } finally {
       setIsLoading(false);
     }
@@ -237,11 +243,11 @@ const BookingCustomizationScreen: React.FC<Props> = ({ navigation }) => {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Custom Questions</Text>
             <Text style={styles.sectionSubtitle}>
-              {questions.length} question{questions.length !== 1 ? 's' : ''} added
+              {(questions || []).length} question{(questions || []).length !== 1 ? 's' : ''} added
             </Text>
           </View>
 
-          {questions.length === 0 ? (
+          {!questions || questions.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="help-circle-outline" size={48} color="#D1D5DB" />
               <Text style={styles.emptyTitle}>No custom questions yet</Text>
@@ -250,7 +256,7 @@ const BookingCustomizationScreen: React.FC<Props> = ({ navigation }) => {
               </Text>
             </View>
           ) : (
-            questions.map((question, index) => (
+            (questions || []).map((question, index) => (
               <View key={question.id} style={styles.questionCard}>
                 <View style={styles.questionHeader}>
                   <View style={styles.questionNumber}>

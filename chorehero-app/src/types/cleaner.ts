@@ -18,6 +18,10 @@ export interface Cleaner {
   profileCompletion: number; // 0-1
   weeklyEarnings: number;
   todayEarnings: number;
+  verificationStatus?: 'pending' | 'verified' | 'rejected';
+  onboardingState?: string | null;
+  backgroundCheckStatus?: string | null;
+  videoProfileUrl?: string | null;
 }
 
 // ============================================================================
@@ -50,6 +54,12 @@ export interface Booking {
   totalPrice: number; // customer paid
   hasSpecialRequests: boolean;
   specialRequestText?: string;
+  bedrooms?: number;
+  bathrooms?: number;
+  squareFeet?: number;
+  hasPets?: boolean | null;
+  petDetails?: string | null;
+  accessInstructions?: string | null;
 }
 
 // ============================================================================

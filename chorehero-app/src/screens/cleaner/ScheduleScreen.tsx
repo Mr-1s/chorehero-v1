@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Linking,
+  Platform,
 } from 'react-native';
 import { useToast } from '../../components/Toast';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -222,6 +224,27 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
     );
   };
 
+  const handleStartNavigation = (address: string) => {
+    if (!address || address.trim().length === 0) {
+      Alert.alert('No Address', 'This booking does not have an address to navigate to.');
+      return;
+    }
+
+    const encodedAddress = encodeURIComponent(address);
+    
+    // Open in maps app
+    if (Platform.OS === 'ios') {
+      // Apple Maps with directions
+      Linking.openURL(`http://maps.apple.com/?daddr=${encodedAddress}`);
+    } else {
+      // Google Maps navigation mode on Android
+      Linking.openURL(`google.navigation:q=${encodedAddress}`).catch(() => {
+        // Fallback to Google Maps web if app not installed
+        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodedAddress}`);
+      });
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'confirmed': return '#F59E0B';
@@ -363,7 +386,10 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
                   )}
 
                   {booking.status === 'confirmed' && (
-                    <TouchableOpacity style={styles.navigateButton}>
+                    <TouchableOpacity 
+                      style={styles.navigateButton}
+                      onPress={() => handleStartNavigation(booking.address)}
+                    >
                       <Ionicons name="navigation" size={16} color="#F59E0B" />
                       <Text style={styles.navigateText}>Start Navigation</Text>
                     </TouchableOpacity>

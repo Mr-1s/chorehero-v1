@@ -20,6 +20,7 @@ import { supabase } from '../../services/supabase';
 import { userStatsService } from '../../services/userStatsService';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import FloatingNavigation from '../../components/FloatingNavigation';
@@ -96,42 +97,46 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   });
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+  const [isLastProFavorite, setIsLastProFavorite] = useState(false);
 
-  // Quick Actions Data
-  const quickActions = [
-    {
-      id: 'book-now',
-      title: 'Book Now',
-      subtitle: 'Quick 60s booking',
-      icon: 'add',
-      color: ['#3ad3db', '#1ca7b7'] as const,
-      onPress: () => navigation.navigate('BookingFlow', {}),
-    },
-    {
-      id: 'browse-cleaners',
-      title: 'Browse Cleaners',
-      subtitle: 'View profiles & videos',
-      icon: 'people',
-      color: ['#3B82F6', '#1D4ED8'] as const,
-      onPress: () => navigation.navigate('Content'),
-    },
-    {
-      id: 'emergency',
-      title: 'Emergency Clean',
-      subtitle: 'ASAP booking',
-      icon: 'flash',
-      color: ['#F59E0B', '#F97316'] as const,
-      onPress: () => navigation.navigate('BookingFlow', {}),
-    },
-    {
-      id: 'favorites',
-      title: 'My Favorites',
-      subtitle: 'Saved cleaners',
-      icon: 'heart',
-      color: ['#EC4899', '#BE185D'] as const,
-      onPress: () => Alert.alert('Favorites', 'Feature coming soon!'),
-    },
-  ];
+  const lastProBooking = recentBookings[0] || upcomingBookings[0];
+  const lastProName = lastProBooking?.cleaner?.name?.trim();
+  const hasLastPro = Boolean(lastProName);
+  const lastProId = lastProBooking?.cleaner?.id;
+
+  useEffect(() => {
+    const loadFavorites = async () => {
+      if (!lastProId) {
+        setIsLastProFavorite(false);
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem('favorite_cleaners');
+        const list: string[] = raw ? JSON.parse(raw) : [];
+        setIsLastProFavorite(list.includes(lastProId));
+      } catch {
+        setIsLastProFavorite(false);
+      }
+    };
+    loadFavorites();
+  }, [lastProId]);
+
+  const toggleLastProFavorite = async () => {
+    if (!lastProId) return;
+    try {
+      const raw = await AsyncStorage.getItem('favorite_cleaners');
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      let next: string[];
+      if (list.includes(lastProId)) {
+        next = list.filter(id => id !== lastProId);
+        setIsLastProFavorite(false);
+      } else {
+        next = [...list, lastProId];
+        setIsLastProFavorite(true);
+      }
+      await AsyncStorage.setItem('favorite_cleaners', JSON.stringify(next));
+    } catch {}
+  };
 
   useEffect(() => {
     loadProfileData();
@@ -289,8 +294,12 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
               )}
             </TouchableOpacity>
             <View style={styles.profileDetails}>
-              <Text style={styles.profileName}>{user?.name || 'Guest User'}</Text>
-              <Text style={styles.profileEmail}>{user?.email || 'guest@chorehero.com'}</Text>
+              <Text style={styles.profileName}>
+                {user?.name?.trim() || user?.email?.split('@')[0] || 'User'}
+              </Text>
+              <Text style={styles.profileEmail}>
+                {user?.username ? `@${user.username}` : (user?.email || 'guest@chorehero.com')}
+              </Text>
               <View style={styles.memberSince}>
                 <Ionicons name="calendar-outline" size={12} color="#6B7280" />
                 <Text style={styles.memberSinceText}>
@@ -314,49 +323,124 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   );
 
   const renderUserStats = () => (
-    <View style={styles.statsContainer}>
-      <View style={styles.statItem}>
-        <Text style={styles.statNumber}>{userStats.totalBookings}</Text>
-        <Text style={styles.statLabel}>Total Bookings</Text>
-      </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statNumber}>${userStats.totalSpent.toFixed(0)}</Text>
-        <Text style={styles.statLabel}>Total Spent</Text>
-      </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statNumber}>{userStats.favoriteCleaners}</Text>
-        <Text style={styles.statLabel}>Favorites</Text>
+    <View style={styles.performanceSection}>
+      <Text style={styles.performanceTitle}>Performance</Text>
+      <View style={styles.performanceRow}>
+        <View style={styles.performanceItem}>
+          <Text style={styles.performanceNumber}>{userStats.totalBookings}</Text>
+          <Text style={styles.performanceLabel}>Total Bookings</Text>
+        </View>
+        <View style={styles.performanceDivider} />
+        <View style={styles.performanceItem}>
+          <Text style={styles.performanceNumber}>${userStats.totalSpent.toFixed(0)}</Text>
+          <Text style={styles.performanceLabel}>Total Spent</Text>
+        </View>
       </View>
     </View>
   );
 
-  const renderQuickActions = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Quick Actions</Text>
-      <View style={styles.quickActionsGrid}>
-        {quickActions.map((action) => (
+  const renderQuickActions = () => {
+    const primaryAction = {
+      id: 'emergency',
+      title: 'Emergency Clean',
+      subtitle: 'ASAP booking',
+      icon: 'flash',
+      onPress: () => navigation.navigate('BookingFlow', {}),
+    };
+    const secondaryActions = [
+      hasLastPro
+        ? {
+            id: 'rebook',
+            title: `Rebook ${lastProName}`,
+            subtitle: 'Repeat your last service',
+            icon: 'repeat',
+            onPress: () =>
+              navigation.navigate('BookingFlow', { cleanerId: lastProBooking?.cleaner?.id }),
+          }
+        : {
+            id: 'refer',
+            title: 'Refer a Friend',
+            subtitle: 'Get $20 for each Hero referral',
+            icon: 'gift',
+            onPress: () => Alert.alert('Refer a Friend', 'Invite link coming soon!'),
+          },
+      {
+        id: 'service-history',
+        title: 'Service History',
+        subtitle: 'Past appointments',
+        icon: 'time',
+        onPress: () => navigation.navigate('Bookings'),
+      },
+      ...(hasLastPro
+        ? [
+            {
+              id: 'refer',
+              title: 'Refer a Friend',
+              subtitle: 'Get $20 for each Hero referral',
+              icon: 'gift',
+              onPress: () => Alert.alert('Refer a Friend', 'Invite link coming soon!'),
+            },
+          ]
+        : []),
+      {
+        id: 'favorites',
+        title: 'My Favorites',
+        subtitle: 'Saved cleaners',
+        icon: 'heart',
+        onPress: () => Alert.alert('Favorites', 'Feature coming soon!'),
+      },
+    ];
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.quickActionsGrid}>
           <TouchableOpacity
-            key={action.id}
-            style={styles.quickActionCard}
-            onPress={action.onPress}
+            key={primaryAction.id}
+            style={[styles.quickActionCard, styles.quickActionPrimary]}
+            onPress={primaryAction.onPress}
           >
-            <LinearGradient
-              colors={action.color}
-              style={styles.quickActionGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Ionicons name={action.icon as any} size={24} color="#FFFFFF" />
-              <Text style={styles.quickActionTitle}>{action.title}</Text>
-              <Text style={styles.quickActionSubtitle}>{action.subtitle}</Text>
-            </LinearGradient>
+            <View style={styles.quickActionContent}>
+              <Ionicons name={primaryAction.icon as any} size={22} color="#26B7C9" />
+              <View style={styles.quickActionTextStack}>
+                <Text style={styles.quickActionTitle}>{primaryAction.title}</Text>
+                <Text style={styles.quickActionSubtitle}>{primaryAction.subtitle}</Text>
+              </View>
+            </View>
           </TouchableOpacity>
-        ))}
+          <View style={styles.quickActionsRow}>
+            {secondaryActions.map((action) => (
+              <TouchableOpacity
+                key={action.id}
+                style={[styles.quickActionCard, styles.quickActionSecondary]}
+                onPress={action.onPress}
+              >
+                {action.id === 'rebook' && hasLastPro && (
+                  <TouchableOpacity
+                    style={styles.favoriteToggle}
+                    onPress={toggleLastProFavorite}
+                    accessibilityLabel="Toggle favorite cleaner"
+                  >
+                    <Ionicons
+                      name={isLastProFavorite ? 'heart' : 'heart-outline'}
+                      size={16}
+                      color="#26B7C9"
+                    />
+                  </TouchableOpacity>
+                )}
+                <View style={styles.quickActionContent}>
+                  <Ionicons name={action.icon as any} size={20} color="#26B7C9" />
+                  <View style={styles.quickActionTextStack}>
+                    <Text style={styles.quickActionTitle}>{action.title}</Text>
+                    <Text style={styles.quickActionSubtitle}>{action.subtitle}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderBookingCard = (booking: Booking) => (
     <TouchableOpacity
@@ -681,7 +765,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Stats
+  // Performance
+  performanceSection: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 20,
+    marginTop: -15,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+    marginBottom: 20,
+  },
+  performanceTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 10,
+  },
+  performanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  performanceItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  performanceNumber: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  performanceLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  performanceDivider: {
+    width: 1,
+    backgroundColor: '#E5E7EB',
+    alignSelf: 'stretch',
+    marginHorizontal: 8,
+  },
   statsContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
@@ -742,41 +871,64 @@ const styles = StyleSheet.create({
 
   // Quick Actions
   quickActionsGrid: {
+    gap: 12,
+  },
+  quickActionCard: {
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  quickActionPrimary: {
+    width: '100%',
+    minHeight: 96,
+  },
+  quickActionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
   },
-  quickActionCard: {
+  quickActionSecondary: {
     width: (width - 56) / 2,
-    height: 110,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 10,
+    minHeight: 96,
   },
-  quickActionGradient: {
-    flex: 1,
-    padding: 16,
-    justifyContent: 'center',
+  quickActionContent: {
+    padding: 14,
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    gap: 8,
+  },
+  quickActionTextStack: {
+    gap: 4,
+  },
+  favoriteToggle: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    borderRadius: 20,
-    overflow: 'hidden',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 2,
   },
   quickActionTitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginTop: 8,
-    marginBottom: 2,
-    textAlign: 'center',
+    fontWeight: '700',
+    color: '#1F2937',
   },
   quickActionSubtitle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
+    color: '#6B7280',
   },
 
   // Booking Cards

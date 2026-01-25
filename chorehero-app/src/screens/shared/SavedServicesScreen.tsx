@@ -317,7 +317,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
             </Text>
             <TouchableOpacity
               style={styles.exploreButton}
-              onPress={() => navigation.navigate('Home')}
+              onPress={() => navigation.navigate('MainTabs')}
             >
               <Text style={styles.exploreButtonText}>Explore Services</Text>
             </TouchableOpacity>

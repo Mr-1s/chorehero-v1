@@ -63,7 +63,7 @@ class CategoryServiceClass {
   }
 
   // Get services by category/room type
-  async getServicesByCategory(category: string): Promise<ApiResponse<CategoryService[]>> {
+  async getServicesByCategory(category?: string): Promise<ApiResponse<CategoryService[]>> {
     try {
       let query = supabase
         .from('services')
@@ -71,7 +71,7 @@ class CategoryServiceClass {
         .eq('is_active', true);
 
       // Handle special case for 'Featured' - get most popular across all categories
-      if (category.toLowerCase() === 'featured') {
+      if (!category || category.toLowerCase() === 'featured') {
         // For featured, we'll get a mix of popular services from different rooms
         query = query.in('room_type', ['kitchen', 'bathroom', 'living_room']);
       } else {
@@ -114,12 +114,12 @@ class CategoryServiceClass {
   }
 
   // Get cleaners by specialty matching the selected category
-  async getCleanersBySpecialty(category: string): Promise<ApiResponse<CategoryCleaner[]>> {
+  async getCleanersBySpecialty(category?: string): Promise<ApiResponse<CategoryCleaner[]>> {
     try {
       let specialtyFilter: string[];
 
       // Handle special case for 'Featured' - get top-rated cleaners across all specialties
-      if (category.toLowerCase() === 'featured') {
+      if (!category || category.toLowerCase() === 'featured') {
         specialtyFilter = ['Kitchen', 'Bathroom', 'Living Room', 'Bedroom', 'Outdoors'];
       } else {
         specialtyFilter = [category];

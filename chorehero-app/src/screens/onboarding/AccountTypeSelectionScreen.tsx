@@ -9,16 +9,22 @@ import {
   Image,
   Animated,
   Alert,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../services/supabase';
 
 type StackParamList = {
   AccountTypeSelection: undefined;
   CustomerOnboarding: undefined;
   CleanerOnboarding: undefined;
+  LocationLock: undefined;
   AuthScreen: undefined;
 };
 
@@ -29,6 +35,14 @@ interface AccountTypeSelectionProps {
 }
 
 const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navigation }) => {
+  const { height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isCompact = screenHeight < 700;
+  const cardPadding = isCompact ? 18 : 28;
+  const titleSize = isCompact ? 22 : 26;
+  const subtitleSize = isCompact ? 14 : 16;
+  const badgeSize = isCompact ? 11 : 12;
+  const iconSize = isCompact ? 28 : 32;
   const { signOut, authUser } = useAuth();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -165,7 +179,7 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
 
   const handleCardPress = (type: 'customer' | 'cleaner') => {
     const targetScale = type === 'customer' ? card1Scale : card2Scale;
-    
+
     Animated.sequence([
       Animated.timing(targetScale, {
         toValue: 0.95,
@@ -178,35 +192,80 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
         useNativeDriver: true,
       }),
     ]).start(() => {
-      if (type === 'customer') {
-        navigation.navigate('CustomerOnboarding');
-      } else {
-        navigation.navigate('CleanerOnboarding');
+      const currentRole = authUser?.user?.role;
+      if (currentRole && currentRole !== type) {
+        Alert.alert(
+          'Role Locked',
+          'Your account role is locked once onboarding begins. Please use a new account to switch roles.'
+        );
+        return;
       }
+
+      const userId = authUser?.user?.id;
+      AsyncStorage.setItem('pending_auth_role', type).catch(() => {});
+      if (userId) {
+        const updates =
+          type === 'customer'
+            ? { role: 'customer', customer_onboarding_state: 'IDENTITY_PENDING', customer_onboarding_step: 1 }
+            : { role: 'cleaner', cleaner_onboarding_state: 'APPLICANT', cleaner_onboarding_step: 1 };
+        const profilePayload = {
+          id: userId,
+          email: authUser?.user?.email || null,
+          name: authUser?.user?.name || null,
+          phone: authUser?.user?.phone || null,
+          ...updates,
+        };
+        supabase
+          .from('users')
+          .upsert(profilePayload, { onConflict: 'id' })
+          .select()
+          .single()
+          .then(({ error }) => {
+            if (error) {
+              console.warn('Failed to persist onboarding state:', error);
+            }
+          });
+      }
+
+      if (type === 'customer') {
+        navigation.navigate('LocationLock');
+        return;
+      }
+
+      if (!authUser?.user?.id) {
+        Alert.alert('Sign In Required', 'Create or sign in to start a cleaner profile.', [
+          { text: 'Sign In', onPress: () => navigation.navigate('AuthScreen') },
+          { text: 'Cancel', style: 'cancel' },
+        ]);
+        return;
+      }
+
+      navigation.navigate('CleanerOnboarding');
     });
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" />
+      <StatusBar barStyle="light-content" backgroundColor="#26B7C9" />
       
-      <LinearGradient
-        colors={['#06b6d4', '#0891b2']}
-        style={styles.gradient}
-      >
-        {/* Safe Area Spacer */}
-        <SafeAreaView style={styles.safeAreaSpacer} />
-        
-        {/* Consolidated Header */}
-        <Animated.View 
-          style={[
-            styles.consolidatedHeader,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
+      <LinearGradient colors={['#06b6d4', '#0891b2']} style={styles.gradient}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
+          {/* Safe Area Spacer */}
+          <SafeAreaView style={styles.safeAreaSpacer} />
+          
+          {/* Consolidated Header */}
+          <Animated.View 
+            style={[
+              styles.consolidatedHeader,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
           <TouchableOpacity 
             style={styles.backButton} 
             onPress={() => navigation.navigate('AuthScreen')}
@@ -225,17 +284,18 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
           </View>
           
           <View style={styles.headerSpacer} />
-        </Animated.View>
+          </Animated.View>
 
-        {/* RADICAL MODERN: Floating Cards with Gradients */}
-        <View style={[styles.radicalContainer, { marginTop: 25 }]}>
+          {/* RADICAL MODERN: Floating Cards with Gradients */}
+          <View style={[styles.radicalContainer, { marginTop: isCompact ? 12 : 25 }]}>
           {/* Floating Background Shapes */}
           <View style={styles.floatingShape1} />
           <View style={styles.floatingShape2} />
           
           <Animated.View style={{ 
             transform: [{ scale: Animated.multiply(card1Scale, breathe1) }, { rotate: '-3deg' }],
-            marginRight: 30,
+            marginRight: isCompact ? 12 : 30,
+            marginBottom: 24,
           }}>
             <TouchableOpacity
               style={styles.radicalCard1}
@@ -253,19 +313,23 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
-                <View style={styles.radicalContentRow}>
+                <View style={[styles.radicalContentRow, { padding: cardPadding }]}>
                   <View style={styles.radicalText}>
-                    <Text style={styles.radicalTitle}>Find a{"\n"}ChoreHero</Text>
-                    <Text style={styles.radicalSubtitle}>Connect instantly</Text>
+                    <Text style={[styles.radicalTitle, { fontSize: titleSize, lineHeight: titleSize + 4 }]}>
+                      Find a{"\n"}ChoreHero
+                    </Text>
+                    <Text style={[styles.radicalSubtitle, { fontSize: subtitleSize, marginBottom: isCompact ? 12 : 20 }]}>
+                      Connect instantly
+                    </Text>
                     <View style={styles.radicalBadges}>
-                      <Text style={styles.badge}>⚡ Same-day</Text>
-                      <Text style={styles.badge}>🏆 Verified</Text>
-                      <Text style={styles.badge}>💳 Secure</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>⚡ Same-day</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>🏆 Verified</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>💳 Secure</Text>
                     </View>
                   </View>
                   <View style={styles.radicalIcon}>
-                    <View style={styles.glassIcon}>
-                      <Ionicons name="home" size={32} color="#ffffff" />
+                    <View style={[styles.glassIcon, isCompact && { width: 58, height: 58, borderRadius: 18 }]}>
+                      <Ionicons name="home" size={iconSize} color="#ffffff" />
                     </View>
                     <View style={styles.floatingSparkle}>
                       <Ionicons name="sparkles" size={18} color="#FFD700" />
@@ -278,8 +342,8 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
 
           <Animated.View style={{ 
             transform: [{ scale: Animated.multiply(card2Scale, breathe2) }, { rotate: '3deg' }],
-            marginLeft: 30,
-            marginTop: -20,
+            marginLeft: isCompact ? 12 : 30,
+            marginTop: 0,
           }}>
             <TouchableOpacity
               style={styles.radicalCard2}
@@ -297,19 +361,23 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                 />
-                <View style={styles.radicalContentRow}>
+                <View style={[styles.radicalContentRow, { padding: cardPadding }]}>
                   <View style={styles.radicalText}>
-                    <Text style={styles.radicalTitle}>Become a{"\n"}ChoreHero</Text>
-                    <Text style={styles.radicalSubtitle}>Earn heroically</Text>
+                    <Text style={[styles.radicalTitle, { fontSize: titleSize, lineHeight: titleSize + 4 }]}>
+                      Become a{"\n"}ChoreHero
+                    </Text>
+                    <Text style={[styles.radicalSubtitle, { fontSize: subtitleSize, marginBottom: isCompact ? 12 : 20 }]}>
+                      Earn heroically
+                    </Text>
                     <View style={styles.radicalBadges}>
-                      <Text style={styles.badge}>💰 Your rates</Text>
-                      <Text style={styles.badge}>📅 Your time</Text>
-                      <Text style={styles.badge}>⭐ Your rep</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>💰 Your rates</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>📅 Your time</Text>
+                      <Text style={[styles.badge, { fontSize: badgeSize }]}>⭐ Your rep</Text>
                     </View>
                   </View>
                   <View style={styles.radicalIcon}>
-                    <View style={styles.glassIcon}>
-                      <Ionicons name="briefcase" size={32} color="#ffffff" />
+                    <View style={[styles.glassIcon, isCompact && { width: 58, height: 58, borderRadius: 18 }]}>
+                      <Ionicons name="briefcase" size={iconSize} color="#ffffff" />
                     </View>
                     <View style={styles.floatingStar}>
                       <Ionicons name="star" size={18} color="#FFD700" />
@@ -345,19 +413,19 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
           ]}
         >
           <Image
-            source={require('../../../assets/app-icon.png')}
+            source={require('../../../assets/app-logo.png')}
             style={styles.backgroundLogoImage}
             resizeMode="contain"
           />
         </Animated.View>
 
-        {/* Bottom Section */}
-        <Animated.View
-          style={[
-            styles.bottomSection,
-            { opacity: fadeAnim }
-          ]}
-        >
+          {/* Bottom Section */}
+          <Animated.View
+            style={[
+              styles.bottomSection,
+              { opacity: fadeAnim, paddingBottom: insets.bottom + 24 }
+            ]}
+          >
           <Text style={styles.taglineText}>Ready to get started? ✨</Text>
           
           {/* Use Different Account link */}
@@ -368,8 +436,8 @@ const AccountTypeSelectionScreen: React.FC<AccountTypeSelectionProps> = ({ navig
             <Ionicons name="swap-horizontal" size={16} color="rgba(255, 255, 255, 0.7)" />
             <Text style={styles.differentAccountText}>Use Different Account</Text>
           </TouchableOpacity>
-        </Animated.View>
-
+          </Animated.View>
+        </ScrollView>
       </LinearGradient>
     </View>
   );
@@ -381,6 +449,10 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
   },
   safeAreaSpacer: {
     backgroundColor: 'transparent',
@@ -494,17 +566,16 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     opacity: 0.85,
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
   bottomSection: {
-    position: 'absolute',
-    bottom: 25,
-    left: 0,
-    right: 0,
+    position: 'relative',
     alignItems: 'center',
+    marginTop: 24,
+    paddingBottom: 16,
   },
   taglineText: {
     fontSize: 16,
@@ -620,7 +691,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderLeftWidth: 3,
-    borderLeftColor: '#3ad3db',
+    borderLeftColor: '#26B7C9',
   },
   benefitText: {
     fontSize: 14,
@@ -645,7 +716,6 @@ const styles = StyleSheet.create({
   },
   // RADICAL MODERN STYLES
   radicalContainer: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingVertical: 30,
     position: 'relative',
@@ -673,10 +743,9 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   radicalCard1: {
-    height: 260,
     borderRadius: 32,
     marginBottom: 30,
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 16 },
     shadowOpacity: 0.4,
     shadowRadius: 32,
@@ -686,7 +755,6 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   radicalCard2: {
-    height: 260,
     borderRadius: 32,
     shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 16 },

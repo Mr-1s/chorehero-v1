@@ -13,15 +13,21 @@ import {
   Switch,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import MapView, { Circle } from 'react-native-maps';
+import * as Location from 'expo-location';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
 import { milestoneNotificationService } from '../../services/milestoneNotificationService';
+import { zipLookupService } from '../../services/zipLookupService';
+import { setCleanerOnboardingOverride } from '../../utils/onboardingOverride';
+import { useToast } from '../../components/Toast';
 
 type StackParamList = {
   CleanerOnboarding: undefined;
@@ -54,6 +60,7 @@ interface CleanerOnboardingData {
   
   // Step 3: Service Area & Availability
   serviceRadius: string;
+  serviceZip: string;
   availableDays: string[];
   availableHours: string;
   serviceTypes: string[];
@@ -73,6 +80,7 @@ interface CleanerOnboardingData {
   timeManagement: number;
   portfolioPhotos: string[];
   workSamples: string;
+  auditionVideo: string;
   
   // Step 6: Legal & Verification
   hasWorkAuthorization: boolean;
@@ -87,8 +95,110 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const hasAutoExited = useRef(false);
   const totalSteps = 6;
   const { refreshSession, refreshUser, authUser } = useAuth();
+  const { showToast } = useToast();
+
+  const getCleanerStateForStep = (step: number) => {
+    if (step >= totalSteps) return 'STAGING';
+    if (step >= 5) return 'STAGING';
+    if (step >= 3) return 'SERVICE_DEFINED';
+    if (step >= 2) return 'UNDER_REVIEW';
+    return 'APPLICANT';
+  };
+
+  const resolveUserId = async () => {
+    if (authUser?.user?.id) return authUser.user.id as string;
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id;
+  };
+
+  const persistProgress = async (step: number) => {
+    const userId = await resolveUserId();
+    if (!userId) return;
+    const state = getCleanerStateForStep(step);
+    const { error } = await supabase
+      .from('users')
+      .update({
+        cleaner_onboarding_state: state,
+        cleaner_onboarding_step: step,
+      })
+      .eq('id', userId);
+    if (error) {
+      console.warn('Failed to persist onboarding progress:', error);
+    }
+  };
+
+  useEffect(() => {
+    const loadProgress = async () => {
+      const userId = await resolveUserId();
+      if (!userId) return;
+      const { data, error } = await supabase
+        .from('users')
+        .select('cleaner_onboarding_step, cleaner_onboarding_state, role')
+        .eq('id', userId)
+        .single();
+      if (error) return;
+      if (data?.role && data.role !== 'cleaner') return;
+      if (data?.cleaner_onboarding_step) {
+        const step = Math.min(Math.max(data.cleaner_onboarding_step, 1), totalSteps);
+        setCurrentStep(step);
+      } else {
+        await persistProgress(1);
+      }
+    };
+    loadProgress();
+  }, [authUser?.user?.id]);
+
+  useEffect(() => {
+    const resolveZip = async () => {
+      const zip = (data?.serviceZip || '').trim();
+      if (!zip || zip.length !== 5) return;
+      try {
+        setIsResolvingZip(true);
+        const resolved = await zipLookupService.lookup(zip);
+        const query = resolved ? `${resolved.city}, ${resolved.state}` : zip;
+        const results = await Location.geocodeAsync(query);
+        if (results?.[0]) {
+          setServiceMapCenter({
+            latitude: results[0].latitude,
+            longitude: results[0].longitude,
+          });
+        }
+      } catch {
+        // no-op
+      } finally {
+        setIsResolvingZip(false);
+      }
+    };
+    resolveZip();
+  }, [data?.serviceZip]);
+
+  useEffect(() => {
+    const stepValue = authUser?.user?.cleaner_onboarding_step ?? 0;
+    const stateValue = authUser?.user?.cleaner_onboarding_state;
+    const shouldExit =
+      authUser?.user?.role === 'cleaner' &&
+      currentStep >= totalSteps &&
+      (stateValue === 'STAGING' || stateValue === 'LIVE' || stepValue >= totalSteps);
+
+    if (shouldExit && !hasAutoExited.current) {
+      hasAutoExited.current = true;
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
+    }
+  }, [
+    authUser?.user?.role,
+    authUser?.user?.cleaner_onboarding_state,
+    authUser?.user?.cleaner_onboarding_step,
+    currentStep,
+    navigation,
+    totalSteps,
+  ]);
 
   const [data, setData] = useState<CleanerOnboardingData>({
     firstName: '',
@@ -105,6 +215,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     hasTransportation: true,
     transportationDetails: '',
     serviceRadius: '',
+    serviceZip: '',
     availableDays: [],
     availableHours: '',
     serviceTypes: [],
@@ -120,6 +231,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     timeManagement: 0,
     portfolioPhotos: [],
     workSamples: '',
+    auditionVideo: '',
     hasWorkAuthorization: false,
     socialSecurityNumber: '',
     driversLicense: '',
@@ -129,6 +241,12 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   });
 
   const scrollRef = useRef<ScrollView>(null);
+  const confettiOpacity = useRef(new Animated.Value(0)).current;
+  const [serviceMapCenter, setServiceMapCenter] = useState({
+    latitude: 37.7749,
+    longitude: -122.4194,
+  });
+  const [isResolvingZip, setIsResolvingZip] = useState(false);
 
   // Prefill from provider
   useEffect(() => {
@@ -176,6 +294,8 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           return 'Please specify your service area and types';
         }
         break;
+      case 5:
+        break;
       case 6:
         if (!data.hasWorkAuthorization || !data.emergencyContact || !data.backgroundCheckConsent) {
           return 'Legal verification and consent are required';
@@ -195,16 +315,45 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     }
 
     if (currentStep < totalSteps) {
-      setCurrentStep(currentStep + 1);
+      const nextStep = currentStep + 1;
+      setCurrentStep(nextStep);
+      persistProgress(nextStep);
     } else {
       handleComplete();
     }
   };
 
-  const handleBack = () => {
+  const handleBack = async () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+      const prevStep = currentStep - 1;
+      setCurrentStep(prevStep);
+      persistProgress(prevStep);
+      return;
     }
+    try {
+      await AsyncStorage.multiRemove([
+        'last_route',
+        'guest_user_role',
+        'pending_auth_role',
+        'cleaner_onboarding_complete',
+      ]);
+      setCleanerOnboardingOverride(false);
+    } catch {
+      // no-op
+    }
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'AuthScreen' as any }],
+    });
+  };
+
+  const withTimeout = async <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
   };
 
   const handleComplete = async () => {
@@ -221,7 +370,11 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       let userId: string | undefined;
       let userEmail: string | undefined;
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          8000,
+          'Get session'
+        );
         if (session?.user) {
           userId = session.user.id;
           userEmail = session.user.email || undefined;
@@ -233,7 +386,11 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       }
       if (!userId) {
         await refreshSession();
-        const { data: { session: session2 } } = await supabase.auth.getSession();
+        const { data: { session: session2 } } = await withTimeout(
+          supabase.auth.getSession(),
+          8000,
+          'Get session'
+        );
         if (session2?.user) {
           userId = session2.user.id;
           userEmail = session2.user.email || undefined;
@@ -243,87 +400,140 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       console.log('Cleaner onboarding completion - resolved user:', userId, userEmail);
       
       if (userId) {
-        // First, ensure user record exists in our database
-        const { data: existingUser, error: checkError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('id', userId)
-          .single();
-
-        if (checkError && checkError.code === 'PGRST116') {
-          // User doesn't exist, create the record
-          console.log('User record not found, creating...');
-          const { error: createUserError } = await supabase
-            .from('users')
-            .insert([{
-              id: userId,
-              phone: data.phone,
-              email: userEmail,
-              name: `${data.firstName} ${data.lastName}`,
-              role: 'cleaner',
-            }]);
-          
-          if (createUserError) {
-            console.error('Error creating user record:', createUserError);
-            throw new Error('Failed to create user record: ' + createUserError.message);
-          }
-        } else if (checkError) {
-          console.error('Error checking user existence:', checkError);
-          throw new Error('Database error: ' + checkError.message);
-        } else {
-          // User exists, update it
-          const { error: userError } = await supabase
-            .from('users')
-            .update({
-              name: `${data.firstName} ${data.lastName}`,
-              phone: data.phone,
-              role: 'cleaner',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', userId);
-
-          if (userError) {
-            console.error('Error updating user profile:', userError);
-            throw new Error('Failed to update user record: ' + userError.message);
+        // Upsert user record (avoids a separate read that can hang)
+        let upsertUserError: any = null;
+        try {
+          const result = await withTimeout(
+            supabase
+              .from('users')
+              .upsert([{
+                id: userId,
+                phone: data.phone,
+                email: userEmail,
+                name: `${data.firstName} ${data.lastName}`,
+                role: 'cleaner',
+                updated_at: new Date().toISOString(),
+                cleaner_onboarding_state: 'STAGING',
+                cleaner_onboarding_step: totalSteps,
+              }], { onConflict: 'id' }),
+            45000,
+            'Upsert user record'
+          );
+          upsertUserError = result.error;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          if (message.includes('timed out')) {
+            console.warn('Upsert timed out, continuing and retrying in background');
+            supabase
+              .from('users')
+              .upsert([{
+                id: userId,
+                phone: data.phone,
+                email: userEmail,
+                name: `${data.firstName} ${data.lastName}`,
+                role: 'cleaner',
+                updated_at: new Date().toISOString(),
+                cleaner_onboarding_state: 'STAGING',
+                cleaner_onboarding_step: totalSteps,
+              }], { onConflict: 'id' })
+              .then(() => {})
+              .catch(() => {});
+            upsertUserError = null;
+          } else {
+            throw error;
           }
         }
+
+        if (upsertUserError) {
+          console.error('Error upserting user record:', upsertUserError);
+          throw new Error('Failed to save user record: ' + upsertUserError.message);
+        }
+
+        const serviceRadiusMiles = Number.parseInt((data.serviceRadius || '').replace(/\D+/g, ''), 10);
+        const computedRadius = Number.isFinite(serviceRadiusMiles) ? serviceRadiusMiles : 10;
+        const availabilitySummary = data.availableDays.length
+          ? `${data.availableDays.join(', ')} • ${data.availableHours || 'Flexible'}`
+          : 'Flexible';
+        const bioSummary = [
+          `Experience: ${data.yearsExperience || 'N/A'}`,
+          `Services: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}`,
+          `Transportation: ${data.hasTransportation ? 'Yes' : 'No'}`,
+          `Availability: ${availabilitySummary}`,
+          `Service Radius: ${computedRadius} miles`,
+          data.workSamples ? `Work Samples: ${data.workSamples}` : null,
+          `Authorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}`,
+          `Emergency Contact: ${data.emergencyContact} (${data.emergencyPhone})`,
+          `Background Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
+        ]
+          .filter(Boolean)
+          .join('\n');
 
         // Create cleaner profile with available fields
-        const { error: cleanerError } = await supabase
-          .from('cleaner_profiles')
-          .insert([{
-            user_id: userId,
-            hourly_rate: parseFloat(data.hourlyRate) || 25.00,
-            bio: `${data.bio || ''}\n\nExperience: ${data.experienceYears} years\nServices: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}\nTransportation: ${data.transportation}\nAvailability: ${Object.entries(data.availability || {}).filter(([day, available]) => available).map(([day]) => day).join(', ')}\nService Radius: ${data.serviceRadius} miles\n\nSkills:\n- Cleaning Knowledge: ${data.cleaningKnowledge}/5\n- Customer Service: ${data.customerService}/5\n- Time Management: ${data.timeManagement}/5\n\nWork Samples: ${data.workSamples || 'None provided'}\n\nAuthorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}\nEmergency Contact: ${data.emergencyContact} (${data.emergencyPhone})\nBackground Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
-            years_experience: parseInt(data.experienceYears) || 0,
-            specialties: data.serviceTypes || ['standard_cleaning'],
-            service_radius_km: Math.round((parseInt(data.serviceRadius) || 10) * 1.60934), // Convert miles to km
-            verification_status: 'pending',
-            is_available: false, // Will be activated after verification
-          }]);
-
-        // Also create an address record for the cleaner
-        if (!cleanerError) {
-          const { error: addressError } = await supabase
-            .from('addresses')
+        const { error: cleanerError } = await withTimeout(
+          supabase
+            .from('cleaner_profiles')
             .insert([{
               user_id: userId,
-              street: data.address,
-              city: data.city,
-              state: data.state,
-              zip_code: data.zipCode,
-              is_default: true,
-              nickname: 'Service Address',
-            }]);
+              hourly_rate: Number.parseFloat(data.hourlyRate) || 25.00,
+              bio: bioSummary,
+              years_experience: Number.parseInt(data.yearsExperience || '0', 10) || 0,
+              specialties: data.serviceTypes?.length ? data.serviceTypes : ['standard_cleaning'],
+              service_radius_km: Math.round(computedRadius * 1.60934), // Convert miles to km
+              verification_status: 'pending',
+              background_check_status: 'pending',
+              is_available: false, // Will be activated after verification
+            }]),
+          15000,
+          'Create cleaner profile'
+        );
 
-          if (addressError) {
-            console.error('Error creating cleaner address:', addressError);
+        // Also create an address record for the cleaner if complete
+        if (!cleanerError) {
+          const hasAddress =
+            Boolean(data.address?.trim()) &&
+            Boolean(data.city?.trim()) &&
+            Boolean(data.state?.trim()) &&
+            Boolean(data.zipCode?.trim());
+
+          if (hasAddress) {
+            const { error: addressError } = await withTimeout(
+              supabase
+                .from('addresses')
+                .insert([{
+                  user_id: userId,
+                  street: data.address?.trim(),
+                  city: data.city?.trim(),
+                  state: data.state?.trim(),
+                  zip_code: data.zipCode?.trim(),
+                  is_default: true,
+                  nickname: 'Service Address',
+                }]),
+              15000,
+              'Create address'
+            );
+
+            if (addressError) {
+              console.error('Error creating cleaner address:', addressError);
+            }
+          } else {
+            console.warn('Skipping cleaner address insert due to missing fields');
           }
         }
 
-        if (cleanerError) {
+        if (cleanerError && cleanerError.code !== '23505') {
           console.error('Error creating cleaner profile:', cleanerError);
           throw new Error('Failed to create cleaner profile: ' + cleanerError.message);
+        }
+
+        // Keep auth metadata in sync so the UI can show a name immediately
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              full_name: `${data.firstName} ${data.lastName}`,
+            },
+          });
+        } catch (metadataError) {
+          console.warn('⚠️ Failed to update auth metadata:', metadataError);
         }
 
         // Send welcome message and profile completion milestone
@@ -337,27 +547,42 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         }
 
         console.log('Cleaner onboarding completed successfully for real user');
-        Alert.alert(
-          'Application Submitted!',
-          'Your cleaner application has been submitted. We\'ll review your information and run a background check. You\'ll hear from us within 24-48 hours.',
-          [
-            {
-              text: 'Got it',
-              onPress: async () => {
-                try {
-                  // Refresh user data - App.tsx will auto-navigate when role is detected
-                  console.log('🔄 Refreshing user data after onboarding...');
-                  await refreshUser();
-                  // Navigation is handled by App.tsx useEffect watching user.role
-                } catch (error) {
-                  console.error('Error refreshing user:', error);
-                  // Fallback: manually navigate if refresh fails
-                  navigation.navigate('MainTabs');
-                }
-              }
-            }
-          ]
-        );
+        setShowConfetti(true);
+        Animated.timing(confettiOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }).start(() => {
+          setTimeout(() => {
+            Animated.timing(confettiOpacity, {
+              toValue: 0,
+              duration: 350,
+              useNativeDriver: true,
+            }).start(() => setShowConfetti(false));
+          }, 1200);
+        });
+        try {
+          await AsyncStorage.setItem('last_route', JSON.stringify({ name: 'MainTabs' }));
+          await AsyncStorage.setItem('cleaner_onboarding_complete', 'true');
+          setCleanerOnboardingOverride(true);
+        } catch {}
+        showToast({
+          type: 'success',
+          message:
+            'Hero launch confirmed! We’ll review your information and run a background check within 24–48 hours.',
+        });
+        try {
+          // Refresh user data - App.tsx will auto-navigate when role is detected
+          console.log('🔄 Refreshing user data after onboarding...');
+          await withTimeout(refreshUser(), 8000, 'Refresh user');
+        } catch (error) {
+          console.error('Error refreshing user:', error);
+        }
+        // Ensure we leave onboarding even if role propagation is delayed
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs' }],
+        });
       } else {
         Alert.alert('Authentication required', 'Please sign in again to complete setup.');
       }
@@ -389,7 +614,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           <Switch
             value={bypassMode}
             onValueChange={setBypassMode}
-            trackColor={{ false: '#767577', true: '#3ad3db' }}
+            trackColor={{ false: '#767577', true: '#26B7C9' }}
             thumbColor={bypassMode ? '#ffffff' : '#f4f3f4'}
           />
         </View>
@@ -549,7 +774,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Switch
           value={data.hasInsurance}
           onValueChange={(value) => updateData('hasInsurance', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasInsurance ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -574,44 +799,123 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Switch
           value={data.hasTransportation}
           onValueChange={(value) => updateData('hasTransportation', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasTransportation ? '#ffffff' : '#f4f3f4'}
         />
       </View>
     </ScrollView>
   );
 
-  const renderStep3 = () => (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.stepContainer}
-      contentContainerStyle={{ paddingBottom: 140 }}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.stepTitle}>Service Area & Availability</Text>
-      <Text style={styles.stepSubtitle}>Where and when do you want to work?</Text>
+  const renderStep3 = () => {
+    const radiusMiles = data.serviceRadius.includes('5')
+      ? 5
+      : data.serviceRadius.includes('10')
+        ? 10
+        : data.serviceRadius.includes('20')
+          ? 20
+          : 10;
+    const radiusMeters = radiusMiles * 1609.34;
 
-      <Text style={styles.inputLabel}>Service Radius *</Text>
-      <View style={styles.optionRow}>
-        {['5 miles', '10 miles', '15 miles', '20+ miles'].map((option) => (
-          <TouchableOpacity
-            key={option}
-            style={[
-              styles.optionButton,
-              data.serviceRadius === option && styles.selectedOption
-            ]}
-            onPress={() => updateData('serviceRadius', option)}
-          >
-            <Text style={[
-              styles.optionText,
-              data.serviceRadius === option && styles.selectedOptionText
-            ]}>
-              {option}
-            </Text>
+    const handleUseCurrentLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Location Access', 'Please enable location permissions.');
+          return;
+        }
+        const coords = await Location.getCurrentPositionAsync({});
+        setServiceMapCenter({
+          latitude: coords.coords.latitude,
+          longitude: coords.coords.longitude,
+        });
+        const results = await Location.reverseGeocodeAsync({
+          latitude: coords.coords.latitude,
+          longitude: coords.coords.longitude,
+        });
+        const place = results[0];
+        if (place?.postalCode) {
+          updateData('serviceZip', place.postalCode);
+        }
+      } catch {
+        Alert.alert('Location', 'Unable to use current location.');
+      }
+    };
+
+    return (
+      <ScrollView
+        ref={scrollRef}
+        style={styles.stepContainer}
+        contentContainerStyle={{ paddingBottom: 140 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.stepTitle}>Service Area & Availability</Text>
+        <Text style={styles.stepSubtitle}>Where and when do you want to work?</Text>
+
+        <Text style={styles.inputLabel}>Service Radius *</Text>
+        <View style={styles.optionRow}>
+          {['5 miles', '10 miles', '20 miles'].map((option) => (
+            <TouchableOpacity
+              key={option}
+              style={[
+                styles.optionButton,
+                data.serviceRadius === option && styles.selectedOption
+              ]}
+              onPress={() => updateData('serviceRadius', option)}
+            >
+              <Text style={[
+                styles.optionText,
+                data.serviceRadius === option && styles.selectedOptionText
+              ]}>
+                {option}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.serviceLocationRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.inputLabel}>Service ZIP (optional)</Text>
+            <TextInput
+              style={styles.textInput}
+              value={data?.serviceZip ?? ''}
+              onChangeText={(text) => updateData('serviceZip', text.replace(/\D/g, '').slice(0, 5))}
+              placeholder="94110"
+              keyboardType="number-pad"
+            />
+          </View>
+          <TouchableOpacity style={styles.locationButton} onPress={handleUseCurrentLocation}>
+            <Ionicons name="locate" size={18} color="#26B7C9" />
+            <Text style={styles.locationButtonText}>Use GPS</Text>
           </TouchableOpacity>
-        ))}
-      </View>
+        </View>
+
+        <View style={styles.mapPreview}>
+          <MapView
+            style={styles.mapView}
+            region={{
+              latitude: serviceMapCenter.latitude,
+              longitude: serviceMapCenter.longitude,
+              latitudeDelta: 0.12,
+              longitudeDelta: 0.12,
+            }}
+            onPress={(event) => {
+              const { latitude, longitude } = event.nativeEvent.coordinate;
+              setServiceMapCenter({ latitude, longitude });
+            }}
+          >
+            <Circle
+              center={serviceMapCenter}
+              radius={radiusMeters}
+              fillColor="rgba(38, 183, 201, 0.15)"
+              strokeColor="rgba(38, 183, 201, 0.7)"
+              strokeWidth={2}
+            />
+          </MapView>
+          <Text style={styles.mapHint}>
+            {isResolvingZip ? 'Updating map from ZIP...' : 'Tap the map or use GPS to set your service area.'}
+          </Text>
+        </View>
 
       <Text style={styles.inputLabel}>Available Days</Text>
       <View style={styles.optionGrid}>
@@ -696,8 +1000,9 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           </TouchableOpacity>
         ))}
       </View>
-    </ScrollView>
-  );
+      </ScrollView>
+    );
+  };
 
   const renderStep4 = () => (
     <ScrollView
@@ -718,7 +1023,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Switch
           value={data.providesEquipment}
           onValueChange={(value) => updateData('providesEquipment', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.providesEquipment ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -731,13 +1036,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Switch
           value={data.providesSupplies}
           onValueChange={(value) => updateData('providesSupplies', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.providesSupplies ? '#ffffff' : '#f4f3f4'}
         />
       </View>
 
-      <Text style={styles.inputLabel}>Hourly Rate ($)</Text>
-      <View style={styles.inputRow}>
+      <Text style={styles.inputLabel}>Earnings Calculator</Text>
+      <View style={styles.earningsRow}>
         <View style={styles.inputHalf}>
           <TextInput
             style={styles.textInput}
@@ -746,11 +1051,26 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             placeholder="45"
             keyboardType="numeric"
           />
+          <Text style={styles.rateHelperText}>Hourly rate</Text>
         </View>
-        <View style={styles.rateHelper}>
+        <View style={styles.earningsBreakdown}>
+          <Text style={styles.earningsLine}>Rate - 20% fee = Your pay</Text>
+          <Text style={styles.earningsValue}>
+            {data.hourlyRate
+              ? `$${((Number.parseFloat(data.hourlyRate) || 0) * 0.8).toFixed(0)}/hr take-home`
+              : '$0/hr take-home'}
+          </Text>
           <Text style={styles.rateHelperText}>Local average: $35-65/hr</Text>
         </View>
       </View>
+      {Number.parseFloat(data.hourlyRate) > 100 && (
+        <View style={styles.rateWarning}>
+          <Ionicons name="alert-circle" size={16} color="#F97316" />
+          <Text style={styles.rateWarningText}>
+            This is significantly higher than the local average. High rates may lead to fewer bookings.
+          </Text>
+        </View>
+      )}
 
       <Text style={styles.inputLabel}>Minimum Booking (hours)</Text>
       <View style={styles.optionRow}>
@@ -786,25 +1106,35 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
   );
 
   const renderStep5 = () => {
-    const renderSkillRating = (skill: string, value: number, field: keyof CleanerOnboardingData) => (
-      <View style={styles.skillContainer}>
-        <Text style={styles.skillLabel}>{skill}</Text>
-        <View style={styles.starsContainer}>
-          {[1, 2, 3, 4, 5].map((star) => (
-            <TouchableOpacity
-              key={star}
-              onPress={() => updateData(field, star)}
-            >
-              <Ionicons
-                name={star <= value ? 'star' : 'star-outline'}
-                size={32}
-                color={star <= value ? '#FFD700' : '#D1D5DB'}
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    );
+    const handleRecordVideo = async () => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow camera access to record your audition.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: 30,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        updateData('auditionVideo', result.assets[0].uri);
+      }
+    };
+
+    const handleUploadVideo = async () => {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow photo access to upload your audition.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: 30,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        updateData('auditionVideo', result.assets[0].uri);
+      }
+    };
 
     return (
       <ScrollView
@@ -814,30 +1144,38 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.stepTitle}>Skills Assessment</Text>
-        <Text style={styles.stepSubtitle}>Rate your abilities (optional but recommended)</Text>
+        <Text style={styles.stepTitle}>Hero Audition</Text>
+        <Text style={styles.stepSubtitle}>Record a 15-30 second intro video</Text>
 
-        {renderSkillRating('Cleaning Knowledge', data.cleaningKnowledge, 'cleaningKnowledge')}
-        {renderSkillRating('Customer Service', data.customerService, 'customerService')}
-        {renderSkillRating('Time Management', data.timeManagement, 'timeManagement')}
+        <View style={styles.videoAuditionCard}>
+          <Ionicons name="videocam" size={28} color="#26B7C9" />
+          <Text style={styles.videoAuditionTitle}>Video Audition</Text>
+          <Text style={styles.videoAuditionText}>
+            Share your vibe and specialty. Short and authentic wins.
+          </Text>
+          {data.auditionVideo ? (
+            <View style={styles.videoUploaded}>
+              <Ionicons name="checkmark-circle" size={18} color="#26B7C9" />
+              <Text style={styles.videoUploadedText}>Video ready to submit</Text>
+            </View>
+          ) : null}
+          <View style={styles.videoActionRow}>
+            <TouchableOpacity style={styles.primaryButton} onPress={handleRecordVideo}>
+              <Ionicons name="camera" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>Record</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={handleUploadVideo}>
+              <Ionicons name="cloud-upload" size={18} color="#26B7C9" />
+              <Text style={styles.secondaryButtonText}>Upload</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-        <Text style={styles.inputLabel}>Work Samples/Portfolio</Text>
-        <TextInput
-          style={[styles.textInput, styles.textArea]}
-          value={data.workSamples}
-          onChangeText={(text) => updateData('workSamples', text)}
-          placeholder="Describe your best work or provide links to photos of completed jobs..."
-          multiline
-          numberOfLines={4}
-          onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 350, animated: true }), 150)}
-        />
-
-        <View style={styles.portfolioSection}>
-          <Text style={styles.inputLabel}>Add Photos (Coming Soon)</Text>
-          <TouchableOpacity style={styles.photoUploadButton}>
-            <Ionicons name="camera" size={24} color="#3ad3db" />
-            <Text style={styles.photoUploadText}>Upload Before/After Photos</Text>
-          </TouchableOpacity>
+        <View style={styles.tipsCard}>
+          <Text style={styles.tipsTitle}>Recording Tips</Text>
+          <Text style={styles.tipsText}>1. Find good lighting.</Text>
+          <Text style={styles.tipsText}>2. Smile!</Text>
+          <Text style={styles.tipsText}>3. Mention your specialty.</Text>
         </View>
       </ScrollView>
     );
@@ -855,12 +1193,37 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       <Text style={styles.stepSubtitle}>Final step to complete your application</Text>
 
       <View style={styles.verificationSection}>
-        <Ionicons name="shield-checkmark" size={24} color="#3ad3db" />
+        <Ionicons name="shield-checkmark" size={24} color="#26B7C9" />
         <Text style={styles.verificationTitle}>Background Check Required</Text>
         <Text style={styles.verificationDescription}>
           All cleaners must pass a background check for customer safety and trust.
         </Text>
       </View>
+
+      <View style={styles.lockedLabelRow}>
+        <Ionicons name="lock-closed" size={16} color="#26B7C9" />
+        <Text style={styles.inputLabel}>SSN (Last 4) *</Text>
+      </View>
+      <TextInput
+        style={styles.textInput}
+        value={data.socialSecurityNumber}
+        onChangeText={(text) => updateData('socialSecurityNumber', text)}
+        placeholder="1234"
+        keyboardType="number-pad"
+        secureTextEntry
+      />
+
+      <View style={styles.lockedLabelRow}>
+        <Ionicons name="lock-closed" size={16} color="#26B7C9" />
+        <Text style={styles.inputLabel}>Driver's License *</Text>
+      </View>
+      <TextInput
+        style={styles.textInput}
+        value={data.driversLicense}
+        onChangeText={(text) => updateData('driversLicense', text)}
+        placeholder="A1234567"
+        autoCapitalize="characters"
+      />
 
       <View style={styles.switchRow}>
         <View style={styles.switchInfo}>
@@ -870,7 +1233,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Switch
           value={data.hasWorkAuthorization}
           onValueChange={(value) => updateData('hasWorkAuthorization', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.hasWorkAuthorization ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -894,13 +1257,16 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
 
       <View style={styles.switchRow}>
         <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>I consent to a background check *</Text>
+          <View style={styles.lockedInline}>
+            <Ionicons name="lock-closed" size={14} color="#26B7C9" />
+            <Text style={styles.switchLabel}>I consent to a background check *</Text>
+          </View>
           <Text style={styles.switchDescription}>Required to join ChoreHero</Text>
         </View>
         <Switch
           value={data.backgroundCheckConsent}
           onValueChange={(value) => updateData('backgroundCheckConsent', value)}
-          trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
           thumbColor={data.backgroundCheckConsent ? '#ffffff' : '#f4f3f4'}
         />
       </View>
@@ -936,11 +1302,9 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       
       {/* Header */}
       <View style={styles.header}>
-        {currentStep > 1 && (
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={24} color="#1F2937" />
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Become a Cleaner</Text>
         <View style={styles.placeholder} />
       </View>
@@ -961,11 +1325,15 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             disabled={isLoading}
           >
             <LinearGradient
-              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#26B7C9', '#26B7C9']}
               style={styles.continueButtonGradient}
             >
               <Text style={styles.continueButtonText}>
-                {isLoading ? 'Submitting Application...' : currentStep === totalSteps ? 'Submit Application' : 'Continue'}
+                {isLoading
+                  ? 'Launching...'
+                  : currentStep === totalSteps
+                    ? 'Launch My Hero Career'
+                    : 'Continue'}
               </Text>
               {!isLoading && currentStep < totalSteps && (
                 <Ionicons name="arrow-forward" size={20} color="#ffffff" />
@@ -974,6 +1342,19 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+      {showConfetti && (
+        <Animated.View style={[styles.confettiOverlay, { opacity: confettiOpacity }]}>
+          {Array.from({ length: 12 }).map((_, index) => (
+            <View
+              key={`confetti-${index}`}
+              style={[
+                styles.confettiDot,
+                { left: 20 + index * 24, top: 80 + (index % 4) * 24 }
+              ]}
+            />
+          ))}
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 };
@@ -998,7 +1379,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#1F2937',
   },
   placeholder: {
@@ -1026,15 +1407,20 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   progressBar: {
-    height: 4,
+    height: 6,
     backgroundColor: '#E5E7EB',
-    borderRadius: 2,
-    marginBottom: 8,
+    borderRadius: 999,
+    marginBottom: 10,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3ad3db',
-    borderRadius: 2,
+    backgroundColor: '#26B7C9',
+    borderRadius: 999,
+    shadowColor: '#26B7C9',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 6,
   },
   progressText: {
     fontSize: 14,
@@ -1051,7 +1437,7 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#1F2937',
     marginBottom: 8,
   },
@@ -1077,7 +1463,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -1122,11 +1508,88 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontStyle: 'italic',
   },
+  earningsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  earningsBreakdown: {
+    flex: 1,
+    paddingTop: 6,
+  },
+  earningsLine: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 6,
+  },
+  earningsValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  rateWarning: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(249, 115, 22, 0.12)',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 12,
+  },
+  rateWarningText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#9A3412',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 8,
+  },
+  serviceLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+    marginTop: 4,
+  },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#26B7C9',
+    backgroundColor: '#F0FDFA',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    height: 48,
+  },
+  locationButtonText: {
+    color: '#26B7C9',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  mapPreview: {
+    marginTop: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  mapView: {
+    height: 160,
+    width: '100%',
+  },
+  mapHint: {
+    fontSize: 12,
+    color: '#6B7280',
+    padding: 10,
+    textAlign: 'center',
   },
   optionGrid: {
     flexDirection: 'row',
@@ -1167,8 +1630,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   selectedOption: {
-    borderColor: '#3ad3db',
-    backgroundColor: '#F0FDFA',
+    borderColor: '#26B7C9',
+    backgroundColor: '#26B7C9',
   },
   optionText: {
     fontSize: 14,
@@ -1177,7 +1640,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   selectedOptionText: {
-    color: '#3ad3db',
+    color: '#FFFFFF',
   },
   switchRow: {
     flexDirection: 'row',
@@ -1201,6 +1664,103 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
   },
+  lockedLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  lockedInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  videoAuditionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  videoAuditionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 8,
+  },
+  videoAuditionText: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  videoUploaded: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  videoUploadedText: {
+    fontSize: 12,
+    color: '#26B7C9',
+    fontWeight: '600',
+  },
+  videoActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#26B7C9',
+    borderRadius: 10,
+    paddingVertical: 12,
+    flex: 1,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#26B7C9',
+    borderRadius: 10,
+    paddingVertical: 12,
+    flex: 1,
+    backgroundColor: '#F0FDFA',
+  },
+  secondaryButtonText: {
+    color: '#26B7C9',
+    fontWeight: '700',
+  },
+  tipsCard: {
+    marginTop: 16,
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    padding: 16,
+  },
+  tipsTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  tipsText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
+    marginBottom: 4,
+  },
   skillContainer: {
     marginBottom: 24,
   },
@@ -1223,7 +1783,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 20,
     borderWidth: 2,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     borderStyle: 'dashed',
     borderRadius: 8,
     backgroundColor: '#F0FDFA',
@@ -1232,7 +1792,7 @@ const styles = StyleSheet.create({
   photoUploadText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   verificationSection: {
     alignItems: 'center',
@@ -1267,8 +1827,24 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   linkText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontWeight: '600',
+  },
+  confettiOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    pointerEvents: 'none',
+  },
+  confettiDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#26B7C9',
+    opacity: 0.85,
   },
   bottomContainer: {
     paddingHorizontal: 20,

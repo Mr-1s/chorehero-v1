@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -33,6 +34,10 @@ interface UserProfile {
   emergencyContactName?: string;
   emergencyContactPhone?: string;
   specialPreferences?: string;
+  // Cleaner-specific fields
+  bio?: string;
+  coverageArea?: string;
+  hourlyRate?: string;
 }
 
 const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => {
@@ -46,6 +51,10 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
     emergencyContactName: '',
     emergencyContactPhone: '',
     specialPreferences: '',
+    // Cleaner fields
+    bio: '',
+    coverageArea: '',
+    hourlyRate: '',
   });
 
   useEffect(() => {
@@ -67,6 +76,8 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
 
       // Get customer profile if customer
       let customerData = null;
+      let cleanerData = null;
+      
       if (user.role === 'customer') {
         const { data, error } = await supabase
           .from('customer_profiles')
@@ -81,6 +92,21 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
         }
       }
 
+      // Get cleaner profile if cleaner
+      if (user.role === 'cleaner') {
+        const { data, error } = await supabase
+          .from('cleaner_profiles')
+          .select('bio, coverage_area, hourly_rate')
+          .eq('user_id', user.id)
+          .single();
+
+        if (error && error.code !== 'PGRST116') {
+          console.warn('Error loading cleaner profile:', error);
+        } else {
+          cleanerData = data;
+        }
+      }
+
       setProfile({
         name: userData.name || '',
         email: userData.email || '',
@@ -88,6 +114,9 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
         emergencyContactName: customerData?.emergency_contact_name || '',
         emergencyContactPhone: customerData?.emergency_contact_phone || '',
         specialPreferences: customerData?.special_preferences || '',
+        bio: cleanerData?.bio || '',
+        coverageArea: cleanerData?.coverage_area || '',
+        hourlyRate: cleanerData?.hourly_rate?.toString() || '',
       });
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -143,6 +172,21 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
           });
 
         if (customerError) throw customerError;
+      }
+
+      // Update cleaner profile if cleaner
+      if (user.role === 'cleaner') {
+        const { error: cleanerError } = await supabase
+          .from('cleaner_profiles')
+          .upsert({
+            user_id: user.id,
+            bio: profile.bio?.trim() || null,
+            coverage_area: profile.coverageArea?.trim() || null,
+            hourly_rate: profile.hourlyRate ? parseFloat(profile.hourlyRate) : null,
+            updated_at: new Date().toISOString(),
+          });
+
+        if (cleanerError) throw cleanerError;
       }
 
       Alert.alert(
@@ -224,9 +268,19 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Basic Information */}
-        <View style={styles.section}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Basic Information */}
+          <View style={styles.section}>
           <Text style={styles.sectionTitle}>Basic Information</Text>
           
           {renderInput(
@@ -283,7 +337,39 @@ const EditProfileScreen: React.FC<EditProfileScreenProps> = ({ navigation }) => 
             )}
           </View>
         )}
-      </ScrollView>
+
+        {/* Cleaner-specific fields */}
+        {user?.role === 'cleaner' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Professional Information</Text>
+            
+            {renderInput(
+              'Service Area/Location *',
+              profile.coverageArea || '',
+              (text) => setProfile(prev => ({ ...prev, coverageArea: text })),
+              'e.g., Downtown Atlanta, Buckhead, Midtown'
+            )}
+
+            {renderInput(
+              'Hourly Rate ($)',
+              profile.hourlyRate || '',
+              (text) => setProfile(prev => ({ ...prev, hourlyRate: text.replace(/[^0-9.]/g, '') })),
+              'e.g., 35',
+              'phone-pad'
+            )}
+
+            {renderInput(
+              'Bio/Description *',
+              profile.bio || '',
+              (text) => setProfile(prev => ({ ...prev, bio: text })),
+              'Tell customers about yourself, your experience, and services...',
+              'default',
+              true
+            )}
+          </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -340,8 +426,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   section: {
     backgroundColor: '#FFFFFF',

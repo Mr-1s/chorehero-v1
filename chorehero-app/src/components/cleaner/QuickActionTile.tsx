@@ -6,15 +6,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-// spacing.xl = 20px padding each side (40px total), spacing.md = 12px gap
-const TILE_WIDTH = (SCREEN_WIDTH - 40 - 12) / 2;
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
+// Match customer quick action sizing
+const TILE_WIDTH = (SCREEN_WIDTH - 56) / 2;
 import { cleanerTheme } from '../../utils/theme';
 import PressableScale from './PressableScale';
 
@@ -23,6 +19,9 @@ const { colors, typography, spacing, radii, shadows } = cleanerTheme;
 interface QuickActionTileProps {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  gradientColors?: readonly [string, string];
+  iconColor?: string;
+  labelColor?: string;
   onPress: () => void;
   style?: ViewStyle;
 }
@@ -30,41 +29,50 @@ interface QuickActionTileProps {
 const QuickActionTile: React.FC<QuickActionTileProps> = ({
   icon,
   label,
+  gradientColors,
+  iconColor,
+  labelColor,
   onPress,
   style,
 }) => {
-  const glowOpacity = useSharedValue(0);
+  const useGradient = !!gradientColors;
 
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
-  }));
-
-  const handlePressIn = () => {
-    glowOpacity.value = withSpring(1, { damping: 15 });
-  };
-
-  const handlePressOut = () => {
-    glowOpacity.value = withSpring(0, { damping: 15 });
-  };
+  const Container = useGradient ? LinearGradient : View;
+  const containerProps = useGradient
+    ? {
+        colors: gradientColors as [string, string],
+        start: { x: 0, y: 0 },
+        end: { x: 1, y: 1 },
+      }
+    : {};
 
   return (
     <PressableScale 
       onPress={onPress} 
-      style={[styles.container, style]}
+      style={styles.container}
       scaleValue={0.95}
     >
-      <View style={styles.tile}>
+      <Container
+        {...containerProps}
+        style={[styles.tile, useGradient && styles.tileGradientContainer, style]}
+      >
         <View style={styles.iconContainer}>
-          {/* Orange glow on press */}
-          <Animated.View style={[styles.iconGlow, glowStyle]} />
-          <View style={styles.iconCircle}>
-            <Ionicons name={icon} size={22} color={colors.primary} />
+          <View style={[styles.iconCircle, useGradient && styles.iconCircleOnGradient]}>
+            <Ionicons
+              name={icon}
+              size={24}
+              color={useGradient ? '#FFFFFF' : iconColor || colors.primary}
+            />
           </View>
         </View>
-        <Text style={styles.label} numberOfLines={2}>
+        <Text style={[
+          styles.label,
+          useGradient && styles.labelOnGradient,
+          !useGradient && labelColor ? { color: labelColor } : null,
+        ]} numberOfLines={2}>
           {label}
         </Text>
-      </View>
+      </Container>
     </PressableScale>
   );
 };
@@ -75,40 +83,48 @@ const styles = StyleSheet.create({
   },
   tile: {
     backgroundColor: colors.cardBg,
-    borderRadius: radii.xl,
-    padding: spacing.lg,
+    borderRadius: 20,
+    padding: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 100,
-    ...shadows.soft,
+    minHeight: 110,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  tileGradientContainer: {
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   iconContainer: {
     position: 'relative',
-    marginBottom: spacing.sm,
-  },
-  iconGlow: {
-    position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.primarySoft,
-    top: -4,
-    left: -4,
+    marginBottom: 8,
   },
   iconCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  iconCircleOnGradient: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
+  },
   label: {
-    fontSize: typography.labelSmall.fontSize,
-    fontWeight: typography.label.fontWeight,
+    fontSize: 14,
+    fontWeight: '600',
     color: colors.textPrimary,
     textAlign: 'center',
-    lineHeight: 16,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  labelOnGradient: {
+    color: '#FFFFFF',
   },
 });
 

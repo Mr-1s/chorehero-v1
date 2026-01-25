@@ -160,7 +160,9 @@ class UserService {
         .single();
 
       if (error) {
-        console.error('Error fetching user:', error);
+        if (error.code !== 'PGRST116') {
+          console.error('Error fetching user:', error);
+        }
         return null;
       }
 

@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../services/supabase';
 
 // Theme colors
 const THEMES = {
@@ -234,6 +235,16 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         saveCard: true,
       });
       
+      if (user?.id && user.role === 'customer') {
+        await supabase
+          .from('users')
+          .update({
+            customer_onboarding_state: 'TRANSACTION_READY',
+            customer_onboarding_step: 5,
+          })
+          .eq('id', user.id);
+      }
+
       Alert.alert('Success', 'Payment method added successfully');
     } catch (error) {
       Alert.alert('Error', 'Failed to add payment method');

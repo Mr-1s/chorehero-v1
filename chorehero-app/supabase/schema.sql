@@ -17,11 +17,11 @@ CREATE TYPE payment_status AS ENUM ('pending', 'processing', 'succeeded', 'faile
 -- Users table (extends Supabase auth.users)
 CREATE TABLE public.users (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-  phone VARCHAR(20) NOT NULL UNIQUE,
+  phone VARCHAR(20) UNIQUE,
   email VARCHAR(255),
-  name VARCHAR(100) NOT NULL,
+  name VARCHAR(100),
   avatar_url TEXT,
-  role user_role NOT NULL,
+  role user_role,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -140,6 +140,11 @@ CREATE TABLE public.bookings (
   actual_end_time TIMESTAMP WITH TIME ZONE,
   special_instructions TEXT,
   access_instructions TEXT,
+  bedrooms INTEGER,
+  bathrooms DECIMAL(3,1),
+  square_feet INTEGER,
+  has_pets BOOLEAN,
+  pet_details TEXT,
   
   -- Pricing
   service_base_price DECIMAL(8,2) NOT NULL,
@@ -201,20 +206,20 @@ CREATE TABLE public.location_updates (
 -- Chat threads table
 CREATE TABLE public.chat_threads (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  conversation_id TEXT UNIQUE,
   booking_id UUID REFERENCES public.bookings(id) ON DELETE CASCADE,
   customer_id UUID REFERENCES public.users(id) NOT NULL,
   cleaner_id UUID REFERENCES public.users(id) NOT NULL,
   last_message_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(booking_id)
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Chat messages table
 CREATE TABLE public.chat_messages (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   thread_id UUID REFERENCES public.chat_threads(id) ON DELETE CASCADE,
-  sender_id UUID REFERENCES public.users(id) NOT NULL,
+  sender_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   message_type message_type DEFAULT 'text',
   content TEXT NOT NULL,
   metadata JSONB, -- For storing image URLs, location data, etc.

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { StyleSheet, View, Text, useWindowDimensions, AccessibilityInfo, Image } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedProps,
   withTiming,
   runOnJS,
   interpolate,
@@ -14,11 +15,38 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { easeOutCubic, easeOutBack } from '../lib/easing';
 
+const TAGLINE = "Every chore needs a hero.";
+
 type SplashHeroProps = {
   onDone?: () => void;
 };
 
-const LOGO_SOURCE = require('../../assets/logo/chorehero-logo.png');
+// Typewriter text component
+type TypewriterTextProps = {
+  text: string;
+  visibleChars: Animated.SharedValue<number>;
+  style: any;
+};
+
+const TypewriterText: React.FC<TypewriterTextProps> = ({ text, visibleChars, style }) => {
+  const [displayText, setDisplayText] = useState('');
+  
+  // Update display text when visibleChars changes
+  useDerivedValue(() => {
+    const chars = visibleChars.value;
+    runOnJS(setDisplayText)(text.slice(0, chars));
+    return chars;
+  });
+
+  return (
+    <Text style={style}>
+      {displayText}
+      <Text style={{ opacity: 0 }}>{text.slice(displayText.length)}</Text>
+    </Text>
+  );
+};
+
+const LOGO_SOURCE = require('../../assets/app-logo.png');
 
 const SplashHero: React.FC<SplashHeroProps> = ({ onDone }) => {
   const { width, height } = useWindowDimensions();
@@ -123,15 +151,33 @@ const SplashHero: React.FC<SplashHeroProps> = ({ onDone }) => {
     };
   });
 
-  // 4. Tagline Animation (1300 - 1800ms)
-  const taglineStyle = useAnimatedStyle(() => {
-    const progress = interpolate(time.value, [1300, 1800], [0, 1], Extrapolation.CLAMP);
+  // 4. Tagline Typewriter Animation (1300 - 2800ms)
+  // Calculate visible characters based on time
+  const visibleChars = useDerivedValue(() => {
+    // Start typing at 1300ms, finish by 2800ms (1500ms for full text)
+    const typeProgress = interpolate(time.value, [1300, 2800], [0, 1], Extrapolation.CLAMP);
+    return Math.floor(typeProgress * TAGLINE.length);
+  });
+
+  const taglineContainerStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(time.value, [1300, 1400], [0, 1], Extrapolation.CLAMP);
+    return {
+      opacity,
+      transform: [
+        { translateY: interpolate(time.value, [1300, 1500], [8, 0], Extrapolation.CLAMP) },
+      ],
+    };
+  });
+
+  // Cursor blink animation
+  const cursorStyle = useAnimatedStyle(() => {
+    const showCursor = time.value >= 1300 && time.value < 3000;
+    // Blink every 500ms
+    const blinkPhase = Math.floor(time.value / 500) % 2;
+    const isTyping = time.value < 2800;
     
     return {
-      opacity: progress,
-      transform: [
-        { translateY: interpolate(progress, [0, 1], [8, 0]) },
-      ],
+      opacity: showCursor ? (isTyping ? 1 : blinkPhase) : 0,
     };
   });
 
@@ -179,9 +225,14 @@ const SplashHero: React.FC<SplashHeroProps> = ({ onDone }) => {
           <Text style={styles.choreText}>Chore</Text>
           <Text style={styles.heroText}>Hero</Text>
         </Animated.View>
-        <Animated.Text style={[styles.tagline, taglineStyle]}>
-          Every chore needs a hero.
-        </Animated.Text>
+        <Animated.View style={[styles.taglineContainer, taglineContainerStyle]}>
+          <TypewriterText 
+            text={TAGLINE} 
+            visibleChars={visibleChars} 
+            style={styles.tagline}
+          />
+          <Animated.View style={[styles.cursor, cursorStyle]} />
+        </Animated.View>
       </View>
 
       {/* Exit Overlay */}
@@ -248,6 +299,18 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     color: 'rgba(255,255,255,0.9)',
     textAlign: 'center',
+  },
+  taglineContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cursor: {
+    width: 2,
+    height: 18,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    marginLeft: 2,
+    borderRadius: 1,
   },
 });
 

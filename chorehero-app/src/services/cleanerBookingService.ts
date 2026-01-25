@@ -19,10 +19,16 @@ interface RawBooking {
   scheduled_time: string;
   estimated_duration: number;
   special_instructions: string | null;
+  access_instructions: string | null;
   total_amount: number;
   cleaner_earnings: number | null;
   created_at: string;
   address: string | null; // Text field with full address
+  bedrooms: number | null;
+  bathrooms: number | null;
+  square_feet: number | null;
+  has_pets: boolean | null;
+  pet_details: string | null;
   customer: {
     id: string;
     name: string;
@@ -31,6 +37,34 @@ interface RawBooking {
 }
 
 class CleanerBookingService {
+  private buildBookingSelect(includePets: boolean): string {
+    const petFields = includePets ? 'has_pets,\n      pet_details,\n      ' : '';
+    return `
+      id,
+      customer_id,
+      cleaner_id,
+      service_type,
+      status,
+      scheduled_time,
+      estimated_duration,
+      special_instructions,
+      access_instructions,
+      total_amount,
+      cleaner_earnings,
+      created_at,
+      address,
+      bedrooms,
+      bathrooms,
+      square_feet,
+      ${petFields}
+      customer:users!customer_id(
+        id,
+        name,
+        avatar_url
+      )
+    `;
+  }
+
   /**
    * Transform raw database booking to app Booking type
    */
@@ -55,7 +89,23 @@ class CleanerBookingService {
       payoutToCleaner: parseFloat(String(raw.cleaner_earnings)) || parseFloat(String(raw.total_amount)) * 0.7,
       isInstant: false, // TODO: Add instant booking flag
       createdAt: raw.created_at,
+      bedrooms: raw.bedrooms || undefined,
+      bathrooms: raw.bathrooms || undefined,
+      squareFeet: raw.square_feet || undefined,
+      hasPets: raw.has_pets ?? this.extractHasPets(raw.special_instructions),
+      petDetails: raw.pet_details || null,
+      accessInstructions: raw.access_instructions || null,
     };
+  }
+
+  private extractHasPets(note: string | null): boolean | null {
+    if (!note) return null;
+    const match = note.match(/Pets:\s*([A-Za-z0-9\s-]+)/i);
+    if (!match) return null;
+    const value = match[1].trim().toLowerCase();
+    if (value.startsWith('no')) return false;
+    if (value.startsWith('yes')) return true;
+    return true;
   }
 
   /**
@@ -103,32 +153,21 @@ class CleanerBookingService {
       // Fetch pending bookings:
       // 1. Bookings directly assigned to this cleaner with 'pending' status
       // 2. OR open bookings with no cleaner assigned (marketplace mode)
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          customer_id,
-          cleaner_id,
-          service_type,
-          status,
-          scheduled_time,
-          estimated_duration,
-          special_instructions,
-          total_amount,
-          cleaner_earnings,
-          created_at,
-          address,
-          customer:users!customer_id(
-            id,
-            name,
-            avatar_url
-          )
-        `)
-        .or(`cleaner_id.eq.${cleanerId},cleaner_id.is.null`)
-        .eq('status', 'pending')
-        .gte('scheduled_time', new Date().toISOString())
-        .order('scheduled_time', { ascending: true })
-        .limit(20);
+      const runQuery = async (includePets: boolean) => (
+        supabase
+          .from('bookings')
+          .select(this.buildBookingSelect(includePets))
+          .or(`cleaner_id.eq.${cleanerId},cleaner_id.is.null`)
+          .eq('status', 'pending')
+          .gte('scheduled_time', new Date().toISOString())
+          .order('scheduled_time', { ascending: true })
+          .limit(20)
+      );
+
+      let { data, error } = await runQuery(true);
+      if (error?.code === '42703') {
+        ({ data, error } = await runQuery(false));
+      }
 
       if (error) {
         console.error('❌ Error fetching available bookings:', error);
@@ -148,30 +187,19 @@ class CleanerBookingService {
    */
   async getActiveBookings(cleanerId: string): Promise<Booking[]> {
     try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          customer_id,
-          cleaner_id,
-          service_type,
-          status,
-          scheduled_time,
-          estimated_duration,
-          special_instructions,
-          total_amount,
-          cleaner_earnings,
-          created_at,
-          address,
-          customer:users!customer_id(
-            id,
-            name,
-            avatar_url
-          )
-        `)
-        .eq('cleaner_id', cleanerId)
-        .in('status', ['confirmed', 'cleaner_assigned', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
-        .order('scheduled_time', { ascending: true });
+      const runQuery = async (includePets: boolean) => (
+        supabase
+          .from('bookings')
+          .select(this.buildBookingSelect(includePets))
+          .eq('cleaner_id', cleanerId)
+          .in('status', ['confirmed', 'cleaner_assigned', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
+          .order('scheduled_time', { ascending: true })
+      );
+
+      let { data, error } = await runQuery(true);
+      if (error?.code === '42703') {
+        ({ data, error } = await runQuery(false));
+      }
 
       if (error) {
         console.error('❌ Error fetching active bookings:', error);
@@ -190,31 +218,20 @@ class CleanerBookingService {
    */
   async getPastBookings(cleanerId: string): Promise<Booking[]> {
     try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select(`
-          id,
-          customer_id,
-          cleaner_id,
-          service_type,
-          status,
-          scheduled_time,
-          estimated_duration,
-          special_instructions,
-          total_amount,
-          cleaner_earnings,
-          created_at,
-          address,
-          customer:users!customer_id(
-            id,
-            name,
-            avatar_url
-          )
-        `)
-        .eq('cleaner_id', cleanerId)
-        .in('status', ['completed', 'cancelled'])
-        .order('scheduled_time', { ascending: false })
-        .limit(50);
+      const runQuery = async (includePets: boolean) => (
+        supabase
+          .from('bookings')
+          .select(this.buildBookingSelect(includePets))
+          .eq('cleaner_id', cleanerId)
+          .in('status', ['completed', 'cancelled'])
+          .order('scheduled_time', { ascending: false })
+          .limit(50)
+      );
+
+      let { data, error } = await runQuery(true);
+      if (error?.code === '42703') {
+        ({ data, error } = await runQuery(false));
+      }
 
       if (error) {
         console.error('❌ Error fetching past bookings:', error);

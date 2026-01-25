@@ -4,6 +4,8 @@ import { authService, onAuthStateChange } from '../services/auth';
 import { AuthUser, User } from '../types/user';
 import { Alert } from 'react-native';
 import { supabase } from '../services/supabase';
+import { getOrCreateGuestId, migrateGuestInteractions } from '../utils/guestSession';
+import { applyPendingActionToInteractions, consumePendingAuthAction } from '../utils/authPendingAction';
 
 
 interface AuthContextType {
@@ -37,11 +39,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const getPendingRole = async (): Promise<'customer' | 'cleaner' | null> => {
+    try {
+      const pendingRole = await AsyncStorage.getItem('pending_auth_role');
+      if (pendingRole === 'customer' || pendingRole === 'cleaner') {
+        return pendingRole;
+      }
+    } catch (error) {
+      console.warn('Failed to load pending role:', error);
+    }
+    return null;
+  };
+
+  const clearPendingRole = async (): Promise<void> => {
+    try {
+      await AsyncStorage.removeItem('pending_auth_role');
+    } catch (error) {
+      console.warn('Failed to clear pending role:', error);
+    }
+  };
 
   useEffect(() => {
     // Check for existing session on app start
     const checkSession = async () => {
       try {
+        await getOrCreateGuestId();
         const { data: { session }, error } = await supabase.auth.getSession();
 
         if (error) {
@@ -63,10 +85,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
+            await clearPendingRole();
           } else {
             // Profile doesn't exist yet - this is normal for new signups
             // Don't sign out, just set a minimal auth user so onboarding can proceed
             console.log('ℹ️ No user profile yet - likely a new signup, allowing onboarding to proceed');
+            const pendingRole = await getPendingRole();
             setAuthUser({
               user: {
                 id: session.user.id,
@@ -74,11 +98,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 name: session.user.user_metadata?.full_name || '',
                 phone: session.user.phone || '',
                 created_at: session.user.created_at || new Date().toISOString(),
-                role: undefined,
+                role: pendingRole || undefined,
                 is_active: true,
               },
               session: session,
             });
+          }
+          const givenName = session.user.user_metadata?.given_name;
+          const familyName = session.user.user_metadata?.family_name;
+          const fullName = session.user.user_metadata?.full_name;
+          const email = session.user.email;
+          const nameCandidate = fullName || [givenName, familyName].filter(Boolean).join(' ');
+          if (nameCandidate || email) {
+            const payload: any = { id: session.user.id };
+            if (nameCandidate) payload.name = nameCandidate;
+            if (email) payload.email = email;
+            supabase
+              .from('users')
+              .upsert(payload, { onConflict: 'id' })
+              .then(() => {})
+              .catch(() => {});
+          }
+          const guestId = await getOrCreateGuestId();
+          await migrateGuestInteractions(guestId, session.user.id);
+          const pending = await consumePendingAuthAction();
+          if (pending) {
+            await applyPendingActionToInteractions(session.user.id, pending);
           }
         } else {
           setAuthUser(null);
@@ -103,9 +148,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
+            await clearPendingRole();
           } else {
             // Profile doesn't exist yet - normal for new signups
             console.log('ℹ️ SIGNED_IN: No profile yet, setting minimal auth user for onboarding');
+            const pendingRole = await getPendingRole();
             setAuthUser({
               user: {
                 id: session.user.id,
@@ -113,7 +160,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 name: session.user.user_metadata?.full_name || '',
                 phone: session.user.phone || '',
                 created_at: session.user.created_at || new Date().toISOString(),
-                role: undefined,
+                role: pendingRole || undefined,
                 is_active: true,
               },
               session: session,
@@ -132,6 +179,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
+            await clearPendingRole();
           }
         } catch (error) {
           console.error('Error loading user profile after token refresh:', error);
@@ -188,6 +236,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       // Clear auth state
       setAuthUser(null);
+      try {
+        await AsyncStorage.multiRemove([
+          'interface_role_override',
+          'guest_user_role',
+          'pending_auth_role',
+          'cleaner_onboarding_complete',
+          'last_route',
+        ]);
+      } catch {
+        // no-op
+      }
       
     } catch (error) {
       console.error('Sign out error:', error);

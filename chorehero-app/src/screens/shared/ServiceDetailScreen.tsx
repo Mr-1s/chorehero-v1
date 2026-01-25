@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { guestModeService, GuestCleaner } from '../../services/guestModeService';
+import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
 
 type RootStackParamList = {
   ServiceDetail: {
@@ -79,10 +80,27 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
   const loadCleaners = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Loading cleaners for category:', category);
-      const cleanersData = await guestModeService.getCleanersForCategory(category);
-      setCleaners(cleanersData);
-      console.log(`✅ Loaded ${cleanersData.length} cleaners`);
+      const resolvedCategory = category || 'featured';
+      console.log('🔍 Loading cleaners for category:', resolvedCategory);
+      const realResponse = await serviceDiscoveryService.getCleanersForCategory(resolvedCategory);
+      if (realResponse.success && realResponse.data && realResponse.data.length > 0) {
+        const realCleaners: GuestCleaner[] = realResponse.data.map(cleaner => ({
+          id: cleaner.id,
+          name: cleaner.name,
+          avatar_url: cleaner.avatar_url,
+          rating: cleaner.rating_average,
+          total_jobs: cleaner.total_jobs,
+          hourly_rate: cleaner.hourly_rate,
+          specialties: cleaner.specialties,
+          bio: cleaner.bio,
+        }));
+        setCleaners(realCleaners);
+        console.log(`✅ Loaded ${realCleaners.length} real cleaners`);
+      } else {
+        const cleanersData = await guestModeService.getCleanersForCategory(resolvedCategory);
+        setCleaners(cleanersData);
+        console.log(`✅ Loaded ${cleanersData.length} guest cleaners`);
+      }
     } catch (error) {
       console.error('❌ Error loading cleaners:', error);
       setCleaners([]);
@@ -177,10 +195,13 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
           url: 'https://images.unsplash.com/photo-1585421514738-01798e348999?w=400&h=300&fit=crop&auto=format&q=80'
         }
       ];
-      
-      // Use cleaner ID to consistently assign media
-      const index = parseInt(cleaner.id.slice(-1)) % mediaOptions.length;
-      return mediaOptions[index];
+      const fallback = mediaOptions[0];
+      if (!cleaner?.id) return fallback;
+
+      // Use a stable hash to map any ID (UUID-safe) to an index
+      const hash = Array.from(cleaner.id).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const index = hash % mediaOptions.length;
+      return mediaOptions[index] || fallback;
     };
 
     const media = getCleanerMedia();

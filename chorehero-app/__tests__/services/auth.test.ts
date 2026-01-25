@@ -251,11 +251,6 @@ describe('AuthService', () => {
         expires_at: Date.now() + 3600000,
       };
 
-      (supabase.auth.getUser as jest.Mock).mockResolvedValue({
-        data: { user: { id: 'user-123' } },
-        error: null,
-      });
-
       (supabase.auth.getSession as jest.Mock).mockResolvedValue({
         data: { session: mockSession },
         error: null,
@@ -277,16 +272,43 @@ describe('AuthService', () => {
       expect(result.data?.session).toEqual(mockSession);
     });
 
-    it('should handle no authenticated user', async () => {
-      (supabase.auth.getUser as jest.Mock).mockResolvedValue({
-        data: { user: null },
+    it('should handle no authenticated session', async () => {
+      (supabase.auth.getSession as jest.Mock).mockResolvedValue({
+        data: { session: null },
         error: null,
       });
 
       const result = await authService.getCurrentUser();
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('No authenticated user');
+      expect(result.success).toBe(true);
+      expect(result.data).toBeNull();
+    });
+
+    it('should handle missing profile for authenticated user', async () => {
+      const mockSession = {
+        access_token: 'token-123',
+        refresh_token: 'refresh-123',
+        expires_at: Date.now() + 3600000,
+      };
+
+      (supabase.auth.getSession as jest.Mock).mockResolvedValue({
+        data: { session: mockSession },
+        error: null,
+      });
+
+      (supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { code: 'PGRST116', message: 'No rows found' },
+        }),
+      });
+
+      const result = await authService.getCurrentUser();
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeNull();
     });
   });
 });

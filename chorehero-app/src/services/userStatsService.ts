@@ -197,10 +197,7 @@ class UserStatsService {
           scheduled_time,
           actual_end_time,
           service_type,
-          cleaner:users!cleaner_id (
-            name,
-            avatar_url
-          )
+          cleaner_id
         `)
         .eq('customer_id', customerId)
         .order('created_at', { ascending: false })
@@ -209,8 +206,25 @@ class UserStatsService {
       if (error) {
         throw error;
       }
-
-      return { success: true, data: recentBookings || [] };
+      const cleanerIds = Array.from(
+        new Set((recentBookings || []).map((b: any) => b.cleaner_id).filter(Boolean))
+      );
+      let cleanerMap: Record<string, any> = {};
+      if (cleanerIds.length > 0) {
+        const { data: cleaners } = await supabase
+          .from('users')
+          .select('id, name, avatar_url')
+          .in('id', cleanerIds);
+        cleanerMap = (cleaners || []).reduce((acc: any, c: any) => {
+          acc[c.id] = c;
+          return acc;
+        }, {});
+      }
+      const hydrated = (recentBookings || []).map((booking: any) => ({
+        ...booking,
+        cleaner: booking.cleaner_id ? cleanerMap[booking.cleaner_id] || null : null,
+      }));
+      return { success: true, data: hydrated };
     } catch (error) {
       console.error('❌ Error getting recent activity:', error);
       return {
@@ -234,11 +248,7 @@ class UserStatsService {
           scheduled_time,
           service_type,
           special_instructions,
-          cleaner:users!cleaner_id (
-            name,
-            avatar_url,
-            phone
-          )
+          cleaner_id
         `)
         .eq('customer_id', customerId)
         .in('status', ['confirmed', 'in_progress'])
@@ -248,8 +258,25 @@ class UserStatsService {
       if (error) {
         throw error;
       }
-
-      return { success: true, data: upcomingBookings || [] };
+      const cleanerIds = Array.from(
+        new Set((upcomingBookings || []).map((b: any) => b.cleaner_id).filter(Boolean))
+      );
+      let cleanerMap: Record<string, any> = {};
+      if (cleanerIds.length > 0) {
+        const { data: cleaners } = await supabase
+          .from('users')
+          .select('id, name, avatar_url, phone')
+          .in('id', cleanerIds);
+        cleanerMap = (cleaners || []).reduce((acc: any, c: any) => {
+          acc[c.id] = c;
+          return acc;
+        }, {});
+      }
+      const hydrated = (upcomingBookings || []).map((booking: any) => ({
+        ...booking,
+        cleaner: booking.cleaner_id ? cleanerMap[booking.cleaner_id] || null : null,
+      }));
+      return { success: true, data: hydrated };
     } catch (error) {
       console.error('❌ Error getting upcoming bookings:', error);
       return {

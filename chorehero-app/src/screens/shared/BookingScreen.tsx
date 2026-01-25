@@ -111,11 +111,13 @@ interface Booking {
   date: string;
   time: string;
   duration: string;
+  scheduledAt: string;
   status: 'upcoming' | 'active' | 'completed';
   progress: number;
   eta: string;
   address: string;
   price: number;
+  hasReview?: boolean;
   location: {
     latitude: number;
     longitude: number;
@@ -161,6 +163,14 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   const [loading, setLoading] = useState(true);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Load real bookings from database
   const loadBookings = useCallback(async () => {
@@ -181,21 +191,29 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           scheduled_time,
           estimated_duration,
           total_amount,
-          address,
           special_requests,
           created_at,
           cleaner_id,
-          cleaner:users!bookings_cleaner_id_fkey(
-            id,
-            name,
-            avatar_url,
-            phone
-          )
+          address:addresses(street, city, state, zip_code)
         `)
         .eq('customer_id', user.id)
         .order('scheduled_time', { ascending: false });
 
-      // Fetch cleaner profiles separately for ratings
+      const bookingIds = (rawBookings || []).map((booking: any) => booking.id).filter(Boolean);
+      const reviewMap = new Set<string>();
+      if (bookingIds.length > 0) {
+        const { data: reviews, error: reviewError } = await supabase
+          .from('reviews')
+          .select('booking_id')
+          .in('booking_id', bookingIds);
+        if (!reviewError && reviews) {
+          reviews.forEach((review: any) => {
+            if (review?.booking_id) reviewMap.add(review.booking_id);
+          });
+        }
+      }
+
+      // Fetch cleaner profiles separately for ratings + user info
       const cleanerIds = [...new Set((rawBookings || []).map((b: any) => b.cleaner_id).filter(Boolean))];
       const { data: profiles } = cleanerIds.length > 0 
         ? await supabase
@@ -203,8 +221,15 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
             .select('user_id, rating_average')
             .in('user_id', cleanerIds)
         : { data: [] };
+      const { data: cleaners } = cleanerIds.length > 0
+        ? await supabase
+            .from('users')
+            .select('id, name, avatar_url, phone')
+            .in('id', cleanerIds)
+        : { data: [] };
       
       const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
+      const cleanerMap = new Map((cleaners || []).map((c: any) => [c.id, c]));
 
       if (error) {
         console.error('❌ Error fetching bookings:', error);
@@ -244,6 +269,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         const cleanerProfile = profileMap.get(booking.cleaner_id);
 
         // Generate milestones based on status
+        const cleaner = booking.cleaner_id ? cleanerMap.get(booking.cleaner_id) || null : null;
         const milestones: Milestone[] = [
           {
             id: '1',
@@ -256,7 +282,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           {
             id: '2',
             title: 'Cleaner En Route',
-            description: `${booking.cleaner?.name || 'Cleaner'} is on the way`,
+            description: `${cleaner?.name || 'Cleaner'} is on the way`,
             completed: ['cleaner_en_route', 'cleaner_arrived', 'in_progress', 'completed'].includes(booking.status),
             icon: 'car',
           },
@@ -276,25 +302,38 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           },
         ];
 
+        const addressData = (booking as any).address;
+        const formattedAddress = addressData
+          ? [addressData.street, addressData.city, addressData.state, addressData.zip_code]
+              .filter(Boolean)
+              .join(', ')
+          : 'Address pending';
+        const resolvedAddress =
+          ['confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress', 'completed'].includes(booking.status) && addressData
+            ? formattedAddress
+            : 'Address pending';
+
         return {
           id: booking.id,
           service: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 
                    formatServiceType(booking.service_type),
           provider: {
-            id: booking.cleaner?.id || '',
-            name: booking.cleaner?.name || 'Pending Assignment',
-            avatar: booking.cleaner?.avatar_url || '',
+            id: cleaner?.id || '',
+            name: cleaner?.name || 'Pending Assignment',
+            avatar: cleaner?.avatar_url || '',
             rating: cleanerProfile?.rating_average || 0,
-            phone: booking.cleaner?.phone || '',
+            phone: cleaner?.phone || '',
           },
           date: dateLabel,
           time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           duration: `${Math.floor((booking.estimated_duration || 120) / 60)} hours`,
+          scheduledAt: booking.scheduled_time,
           status: uiStatus,
           progress,
           eta: uiStatus === 'active' ? 'In Progress' : uiStatus === 'completed' ? 'Completed' : 'Scheduled',
-          address: booking.address || 'Address pending',
+          address: resolvedAddress,
           price: booking.total_amount || 0,
+          hasReview: reviewMap.has(booking.id),
           location: {
             latitude: 37.7749,
             longitude: -122.4194,
@@ -385,7 +424,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   };
 
   const handleTrackLocation = (booking: Booking) => {
-    console.log('Tracking location for booking:', booking.id);
+    navigation.navigate('LiveTracking', { bookingId: booking.id });
   };
 
   const handleRateAndTip = (booking: Booking) => {
@@ -411,6 +450,13 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       serviceId: booking.id,
       basePrice: booking.price,
     });
+  };
+
+  const handleViewReceipt = (booking: Booking) => {
+    Alert.alert(
+      'Receipt',
+      `Your receipt for ${booking.service} is being prepared.`
+    );
   };
 
   const handleCancelBooking = (booking: Booking) => {
@@ -612,7 +658,17 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
     </View>
   );
 
-  const renderBookingCard = (booking: Booking) => (
+  const getLiveCountdown = (booking: Booking) => {
+    const scheduled = new Date(booking.scheduledAt);
+    const diffMinutes = Math.ceil((scheduled.getTime() - now.getTime()) / 60000);
+    if (diffMinutes < 0 || diffMinutes > 60) return null;
+    return `Starts in ${diffMinutes}m`;
+  };
+
+  const renderBookingCard = (booking: Booking) => {
+    const liveCountdown = getLiveCountdown(booking);
+
+    return (
     <View key={booking.id} style={styles.bookingCard}>
       {/* Message Icon - Positioned in top-right corner */}
       <TouchableOpacity
@@ -629,6 +685,11 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           <View style={styles.serviceDetails}>
             <Text style={styles.serviceDate}>{booking.date}</Text>
             <Text style={styles.serviceTime}> • {booking.time}</Text>
+            {liveCountdown && (
+              <View style={styles.liveBadge}>
+                <Text style={styles.liveBadgeText}>{liveCountdown}</Text>
+              </View>
+            )}
             <Text style={styles.serviceDuration}> • {booking.duration}</Text>
           </View>
         </View>
@@ -706,25 +767,36 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         )}
         {booking.status === 'completed' && (
           <>
+            {booking.hasReview ? (
+              <TouchableOpacity 
+                style={styles.outlineButton}
+                onPress={() => handleViewReceipt(booking)}
+              >
+                <Ionicons name="receipt" size={16} color="#26B7C9" />
+                <Text style={styles.outlineButtonText}>View Receipt</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={styles.primaryButton}
+                onPress={() => handleRateAndTip(booking)}
+              >
+                <Ionicons name="star" size={16} color="#ffffff" />
+                <Text style={styles.primaryButtonText}>Rate & Tip</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity 
               style={styles.outlineButton}
-              onPress={() => handleRateAndTip(booking)}
-            >
-              <Ionicons name="star" size={16} color="#3ad3db" />
-              <Text style={styles.outlineButtonText}>Rate & Tip</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.primaryButton}
               onPress={() => handleQuickRebook(booking)}
             >
-              <Ionicons name="refresh" size={16} color="#ffffff" />
-              <Text style={styles.primaryButtonText}>Book Again</Text>
+              <Ionicons name="refresh" size={16} color="#26B7C9" />
+              <Text style={styles.outlineButtonText}>Book Again</Text>
             </TouchableOpacity>
           </>
         )}
       </View>
     </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -1115,6 +1187,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666666',
   },
+  liveBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    backgroundColor: '#EF4444',
+  },
+  liveBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   serviceDuration: {
     fontSize: 14,
     color: '#666666',
@@ -1368,14 +1452,14 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
   },
   outlineButtonText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1400,7 +1484,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',

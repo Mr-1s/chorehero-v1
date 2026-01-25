@@ -16,10 +16,14 @@ import {
   Alert,
   ActionSheetIOS,
   Platform,
+  Modal,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { NavigationProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { useLocationContext } from '../../context/LocationContext';
@@ -28,11 +32,13 @@ import { categoryService, CategoryService, CategoryCleaner } from '../../service
 import { contentService } from '../../services/contentService';
 import { guestModeService, GuestService } from '../../services/guestModeService';
 import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
+import { exploreService, ExploreProviderRow, ExploreSortOrder } from '../../services/exploreService';
 import { TutorialOverlay } from '../../components/TutorialOverlay';
 import { useTutorial } from '../../hooks/useTutorial';
 import { ServiceCard } from '../../components/ServiceCard';
 import { serviceCardService } from '../../services/serviceCardService';
 import { ServiceCardData } from '../../types/serviceCard';
+import { zipLookupService } from '../../services/zipLookupService';
 
 
 
@@ -84,6 +90,17 @@ interface Cleaner {
   specialty: string;
 }
 
+interface SearchState {
+  query_buffer: string;
+  active_filters: {
+    service_tags?: string[];
+    price_range?: [number, number];
+    distance_miles?: number;
+  };
+  sort_order: ExploreSortOrder;
+  result_cache: string[];
+}
+
 interface DatabaseCleaner {
   id: string;
   name: string;
@@ -114,6 +131,14 @@ interface VideoContent {
 const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [selectedCategory, setSelectedCategory] = useState('Featured');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchState, setSearchState] = useState<SearchState>({
+    query_buffer: '',
+    active_filters: {},
+    sort_order: 'rating',
+    result_cache: [],
+  });
+  const [searchResults, setSearchResults] = useState<ExploreProviderRow[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const [trendingCleaners, setTrendingCleaners] = useState<CategoryCleaner[]>([]);
   const [popularServices, setPopularServices] = useState<CategoryService[]>([]);
   const [recommendedServices, setRecommendedServices] = useState<CategoryService[]>([]);
@@ -130,6 +155,12 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [useMockData, setUseMockData] = useState(false); // Always use real data
   // Demo mode removed
   const [locationText, setLocationText] = useState('Getting location...');
+  const [storedCity, setStoredCity] = useState<string | null>(null);
+  const [storedState, setStoredState] = useState<string | null>(null);
+  const [storedZip, setStoredZip] = useState<string | null>(null);
+  const [zipModalVisible, setZipModalVisible] = useState(false);
+  const [zipInput, setZipInput] = useState('');
+  const [isResolvingZip, setIsResolvingZip] = useState(false);
 
   // Animation values for micro-interactions
   const cardScaleAnim = new Animated.Value(1);
@@ -197,6 +228,61 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     startClaimButtonAnimation();
   }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchState(prev => ({ ...prev, query_buffer: searchQuery }));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (!searchState.query_buffer && !searchState.active_filters.service_tags) {
+      setSearchResults([]);
+      setSearchState(prev => ({ ...prev, result_cache: [] }));
+      return;
+    }
+
+    const runSearch = async () => {
+      setIsSearching(true);
+      const response = await exploreService.searchProviders({
+        query: searchState.query_buffer,
+        filters: {
+          service_tags: searchState.active_filters.service_tags,
+          price_range: searchState.active_filters.price_range,
+        },
+        sort_by: searchState.sort_order,
+        limit: 30,
+      });
+      if (response.success && response.data) {
+        setSearchResults(response.data);
+        setSearchState(prev => ({
+          ...prev,
+          result_cache: response.data.map(row => row.provider_id),
+        }));
+      } else {
+        setSearchResults([]);
+      }
+      setIsSearching(false);
+    };
+
+    runSearch();
+  }, [searchState.query_buffer, searchState.active_filters.service_tags, searchState.active_filters.price_range, searchState.sort_order]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('blur', () => {
+      setSearchQuery('');
+      setSearchResults([]);
+      setSearchState({
+        query_buffer: '',
+        active_filters: {},
+        sort_order: 'rating',
+        result_cache: [],
+      });
+      setZipModalVisible(false);
+    });
+    return unsubscribe;
+  }, [navigation]);
+
   // Load data when category changes
   useEffect(() => {
     if (selectedCategory) {
@@ -210,30 +296,64 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     loadServiceCategories();
   }, [useMockData]);
 
+  useEffect(() => {
+    const loadStoredLocation = async () => {
+      try {
+        const city = await AsyncStorage.getItem('guest_city');
+        const state = await AsyncStorage.getItem('guest_state');
+        const zip = await AsyncStorage.getItem('guest_zip');
+        setStoredCity(city);
+        setStoredState(state);
+        setStoredZip(zip);
+      } catch {
+        setStoredCity(null);
+        setStoredState(null);
+        setStoredZip(null);
+      }
+    };
+    loadStoredLocation();
+  }, []);
+
   // Update location text when location changes
   useEffect(() => {
-    if (location) {
-      // For demo purposes, we'll use a reverse geocoding simulation
-      // In production, you'd use a real reverse geocoding service
-      const simulateReverseGeocode = () => {
-        const locations = [
-          'San Francisco, CA',
-          'Los Angeles, CA', 
-          'New York, NY',
-          'Austin, TX',
-          'Seattle, WA',
-          'Miami, FL'
-        ];
-        // Use coordinates to pick a consistent location
-        const index = Math.floor((location.latitude + location.longitude) * 1000) % locations.length;
-        return locations[Math.abs(index)];
-      };
-      
-      setLocationText(simulateReverseGeocode());
-    } else {
+    const resolveLocationText = async () => {
+      if (storedZip) {
+        if (storedCity) {
+          setLocationText(`${storedCity}, ${storedZip}`);
+          return;
+        }
+        setLocationText(`ZIP ${storedZip}`);
+        return;
+      }
+      if (location) {
+        try {
+          const result = await Location.reverseGeocodeAsync({
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+          const place = result?.[0];
+          const city = place?.city || place?.subregion;
+          const postalCode = place?.postalCode;
+          if (city && postalCode) {
+            setLocationText(`${city}, ${postalCode}`);
+            return;
+          }
+          if (postalCode) {
+            setLocationText(`ZIP ${postalCode}`);
+            return;
+          }
+          if (city) {
+            setLocationText(city);
+            return;
+          }
+        } catch {
+          // ignore and fallback below
+        }
+      }
       setLocationText('Location unavailable');
-    }
-  }, [location]);
+    };
+    resolveLocationText();
+  }, [location, storedCity, storedZip]);
 
   const loadFeaturedVideos = async (category?: string) => {
     try {
@@ -353,14 +473,18 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           setTrendingCleaners(cleanersResponse.data);
         }
 
-        if (servicesResponse.success) {
+        if (servicesResponse.success && servicesResponse.data.length > 0) {
           setPopularServices(servicesResponse.data);
+        } else {
+          const guestServices = await guestModeService.getGuestServiceCategories();
+          setPopularServices(guestServices);
         }
 
-        if (recommendedResponse.success) {
+        if (recommendedResponse.success && recommendedResponse.data.length > 0) {
           setRecommendedServices(recommendedResponse.data);
-          // TODO: In future implementation, filter recommendations based on liked videos
-          // from the video feed. For now, using category-based recommendations.
+        } else {
+          const guestServices = await guestModeService.getGuestServiceCategories();
+          setRecommendedServices(guestServices.slice(0, 6));
         }
       } else {
         // For production mode, try to load real data but fallback to enhanced mock
@@ -375,12 +499,18 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           setTrendingCleaners(cleanersResponse.data);
         }
 
-        if (servicesResponse.success) {
+        if (servicesResponse.success && servicesResponse.data.length > 0) {
           setPopularServices(servicesResponse.data);
+        } else {
+          const guestServices = await guestModeService.getGuestServiceCategories();
+          setPopularServices(guestServices);
         }
 
-        if (recommendedResponse.success) {
+        if (recommendedResponse.success && recommendedResponse.data.length > 0) {
           setRecommendedServices(recommendedResponse.data);
+        } else {
+          const guestServices = await guestModeService.getGuestServiceCategories();
+          setRecommendedServices(guestServices.slice(0, 6));
         }
       }
 
@@ -446,70 +576,95 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     ]).start();
   };
 
-  // Available service areas (expand as you grow)
-  const serviceAreas = [
-    'Atlanta, GA',
-    'Los Angeles, CA',
-    'San Francisco, CA',
-    'New York, NY',
-    'Miami, FL',
-    'Chicago, IL',
-    'Houston, TX',
-    'Dallas, TX',
-    'Seattle, WA',
-    'Denver, CO',
-  ];
+  const persistZipLocation = async (zip: string, city?: string | null, state?: string | null) => {
+    await AsyncStorage.multiSet([
+      ['guest_zip', zip],
+      ['guest_city', city || ''],
+      ['guest_state', state || ''],
+    ]);
+    setStoredZip(zip);
+    setStoredCity(city || null);
+    setStoredState(state || null);
+    setLocationText(city ? `${city}, ${zip}` : `ZIP ${zip}`);
+    loadCategoryData(selectedCategory);
+  };
+
+  const handleZipSubmit = async () => {
+    const zip = zipInput.trim().replace(/\D/g, '').slice(0, 5);
+    if (zip.length !== 5) {
+      Alert.alert('Zip Code Required', 'Enter a valid 5-digit ZIP.');
+      return;
+    }
+    setIsResolvingZip(true);
+    try {
+      const resolved = await zipLookupService.lookup(zip);
+      await persistZipLocation(zip, resolved?.city || null, resolved?.state || null);
+      setZipModalVisible(false);
+    } catch {
+      await persistZipLocation(zip, null, null);
+      setZipModalVisible(false);
+    } finally {
+      setIsResolvingZip(false);
+    }
+  };
+
+  const handleUseMyLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Services', 'Please enable location services in your device settings.');
+        return;
+      }
+      const coords = await Location.getCurrentPositionAsync({});
+      const results = await Location.reverseGeocodeAsync({
+        latitude: coords.coords.latitude,
+        longitude: coords.coords.longitude,
+      });
+      const place = results[0];
+      if (!place?.postalCode) {
+        Alert.alert('Location', 'Unable to resolve your ZIP code.');
+        return;
+      }
+      await persistZipLocation(place.postalCode, place?.city || null, place?.region || null);
+    } catch {
+      Alert.alert('Location', 'Unable to use current location.');
+    }
+  };
 
   // Handle location picker press
   const handleLocationPress = () => {
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Use My Location', ...serviceAreas, 'Cancel'],
-          cancelButtonIndex: serviceAreas.length + 1,
-          title: 'Select Your Location',
-          message: 'Choose where you want to find ChoreHeroes',
+          options: ['Use My Location', 'Enter ZIP Code', 'Cancel'],
+          cancelButtonIndex: 2,
+          title: 'Set your service ZIP',
+          message: 'Use your current location or enter a ZIP code.',
         },
         (buttonIndex) => {
           if (buttonIndex === 0) {
-            // Use current location
-            if (location) {
-              setLocationText('Current Location');
-              checkCleanersInArea('current');
-            } else {
-              Alert.alert(
-                'Location Services',
-                'Please enable location services in your device settings.',
-                [{ text: 'OK' }]
-              );
-            }
-          } else if (buttonIndex <= serviceAreas.length) {
-            const selectedCity = serviceAreas[buttonIndex - 1];
-            setLocationText(selectedCity);
-            checkCleanersInArea(selectedCity);
+            handleUseMyLocation();
+          } else if (buttonIndex === 1) {
+            setZipInput(storedZip || '');
+            setZipModalVisible(true);
           }
         }
       );
     } else {
-      // Android - show first set of options
       Alert.alert(
-        'Select Your Location',
-        'Choose where you want to find ChoreHeroes',
+        'Set your service ZIP',
+        'Use your current location or enter a ZIP code.',
         [
           {
             text: 'Use My Location',
-            onPress: () => {
-              if (location) {
-                setLocationText('Current Location');
-                checkCleanersInArea('current');
-              } else {
-                Alert.alert('Location Services', 'Please enable location services in your device settings.');
-              }
-            },
+            onPress: handleUseMyLocation,
           },
           {
-            text: 'Choose City',
-            onPress: () => showCitySelector(),
+            text: 'Enter ZIP Code',
+            onPress: () => {
+              setZipInput(storedZip || '');
+              setZipModalVisible(true);
+            },
           },
           { text: 'Cancel', style: 'cancel' },
         ]
@@ -517,34 +672,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     }
   };
 
-  // Show city selector for Android (split into groups due to button limits)
-  const showCitySelector = () => {
-    Alert.alert(
-      'Select a City',
-      'Choose from available service areas:',
-      [
-        { text: 'Atlanta, GA', onPress: () => { setLocationText('Atlanta, GA'); checkCleanersInArea('Atlanta, GA'); } },
-        { text: 'Los Angeles, CA', onPress: () => { setLocationText('Los Angeles, CA'); checkCleanersInArea('Los Angeles, CA'); } },
-        { text: 'New York, NY', onPress: () => { setLocationText('New York, NY'); checkCleanersInArea('New York, NY'); } },
-        { text: 'More Cities...', onPress: () => showMoreCities() },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
-
-  const showMoreCities = () => {
-    Alert.alert(
-      'More Cities',
-      'Choose from available service areas:',
-      [
-        { text: 'Miami, FL', onPress: () => { setLocationText('Miami, FL'); checkCleanersInArea('Miami, FL'); } },
-        { text: 'Chicago, IL', onPress: () => { setLocationText('Chicago, IL'); checkCleanersInArea('Chicago, IL'); } },
-        { text: 'Houston, TX', onPress: () => { setLocationText('Houston, TX'); checkCleanersInArea('Houston, TX'); } },
-        { text: 'Seattle, WA', onPress: () => { setLocationText('Seattle, WA'); checkCleanersInArea('Seattle, WA'); } },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
-  };
+  const showCitySelector = () => {};
+  const showMoreCities = () => {};
 
   // Check if there are cleaners in the selected area
   const checkCleanersInArea = async (area: string) => {
@@ -615,7 +744,17 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         styles.categoryTab,
         selectedCategory === category && styles.categoryTabActive,
       ]}
-      onPress={() => setSelectedCategory(category)}
+      onPress={() => {
+        setSelectedCategory(category);
+        const tag = category === 'Featured' ? undefined : category.toLowerCase().replace(/\s+/g, '_');
+        setSearchState(prev => ({
+          ...prev,
+          active_filters: {
+            ...prev.active_filters,
+            service_tags: tag ? [tag] : undefined,
+          },
+        }));
+      }}
       activeOpacity={0.7}
     >
       <Text style={[
@@ -747,12 +886,45 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         data={videoCardData}
         variant="video"
         onPress={(data) => handleVideoPress(data)}
-        style={{ marginRight: 16 }}
+        style={styles.featuredVideoCard}
       />
     );
   };
 
   const renderServiceCategoryCard = (service: GuestService) => {
+  const renderSearchResult = ({ item }: { item: ExploreProviderRow }) => {
+    return (
+      <TouchableOpacity
+        style={styles.searchResultCard}
+        onPress={() => navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
+        activeOpacity={0.7}
+      >
+        <View style={styles.searchResultHeader}>
+          <View style={styles.searchResultIdentity}>
+            {item.provider_avatar_url ? (
+              <Image source={{ uri: item.provider_avatar_url }} style={styles.searchResultAvatar} />
+            ) : (
+              <View style={styles.searchResultAvatarFallback}>
+                <Text style={styles.searchResultAvatarText}>
+                  {item.provider_name?.charAt(0)?.toUpperCase() || 'C'}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.searchResultTitle}>{item.provider_name || 'Cleaner'}</Text>
+          </View>
+          <View style={styles.searchResultRating}>
+            <Ionicons name="star" size={14} color="#FFC93C" />
+            <Text style={styles.searchResultRatingText}>
+              {item.avg_rating ? Number(item.avg_rating).toFixed(1) : 'New'}
+            </Text>
+          </View>
+        </View>
+        <Text style={styles.searchResultMeta}>
+          {item.price_tiers?.length ? `Price tiers: ${item.price_tiers.join(', ')}` : 'Pricing not set'}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
     // Transform guest service to standardized service card format
     const serviceCategoryCardData = serviceCardService.createServiceCard({
       id: service.id,
@@ -778,7 +950,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F9F9F9" />
       
       {/* Top Bar */}
@@ -835,7 +1007,38 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        disallowInterruption={false}
+      >
+        {searchState.query_buffer || searchState.active_filters.service_tags ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Search Results</Text>
+            {isSearching ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color="#3ad3db" />
+                <Text style={styles.loadingText}>Searching...</Text>
+              </View>
+            ) : searchResults.length > 0 ? (
+              <FlatList
+                data={searchResults}
+                keyExtractor={(item) => item.provider_id}
+                renderItem={renderSearchResult}
+                scrollEnabled={false}
+              />
+            ) : (
+              <EmptyState
+                {...EmptyStateConfigs.savedCleaners}
+                title="No providers found"
+                subtitle="Try adjusting your search or filters."
+                showFeatures={false}
+                actions={[]}
+              />
+            )}
+          </View>
+        ) : null}
         {/* Filter Tabs */}
         <View style={styles.filterSection}>
           <ScrollView
@@ -958,7 +1161,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
               actions={[
                 {
                   label: 'Watch Videos',
-                  onPress: () => navigation.navigate('Home'),
+                  onPress: () => navigation.navigate('MainTabs'),
                   icon: 'videocam',
                   primary: true,
                 }
@@ -1011,10 +1214,44 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         {/* Bottom spacing for navigation */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
+
+      <Modal transparent visible={zipModalVisible} animationType="fade" onRequestClose={() => setZipModalVisible(false)}>
+        <View style={styles.zipModalOverlay} pointerEvents={zipModalVisible ? 'auto' : 'none'}>
+          <View style={styles.zipModalCard}>
+            <Text style={styles.zipModalTitle}>Enter your ZIP code</Text>
+            <TextInput
+              style={styles.zipModalInput}
+              value={zipInput}
+              onChangeText={(text) => setZipInput(text.replace(/\D/g, '').slice(0, 5))}
+              keyboardType="number-pad"
+              placeholder="94110"
+              maxLength={5}
+            />
+            <View style={styles.zipModalActions}>
+              <TouchableOpacity
+                style={styles.zipModalSecondary}
+                onPress={() => setZipModalVisible(false)}
+                disabled={isResolvingZip}
+              >
+                <Text style={styles.zipModalSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.zipModalPrimary}
+                onPress={handleZipSubmit}
+                disabled={isResolvingZip}
+              >
+                <Text style={styles.zipModalPrimaryText}>
+                  {isResolvingZip ? 'Saving...' : 'Save ZIP'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       
       {/* Floating Navigation */}
       <FloatingNavigation navigation={navigation} currentScreen="Discover" />
-    </View>
+    </GestureHandlerRootView>
   );
 };
 
@@ -1078,6 +1315,15 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  featuredVideoCard: {
+    marginRight: 16,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
   locationIconContainer: {
     position: 'relative',
     marginRight: 6,
@@ -1101,6 +1347,61 @@ const styles = StyleSheet.create({
     color: '#1C1C1E',
     fontWeight: '600',
     marginRight: 4,
+  },
+  zipModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  zipModalCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 20,
+  },
+  zipModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  zipModalInput: {
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  zipModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  zipModalSecondary: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6',
+  },
+  zipModalSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  zipModalPrimary: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+  },
+  zipModalPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   headerControls: {
     alignItems: 'flex-start',
@@ -1150,6 +1451,9 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 90,
   },
   filterSection: {
     paddingTop: 8,
@@ -1390,6 +1694,66 @@ const styles = StyleSheet.create({
   offerSection: {
     marginBottom: 20,
     marginTop: 12,
+  },
+  searchResultCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  searchResultHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  searchResultIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchResultAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  searchResultAvatarFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchResultAvatarText: {
+    color: '#374151',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  searchResultTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  searchResultRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  searchResultRatingText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontWeight: '600',
+  },
+  searchResultMeta: {
+    fontSize: 13,
+    color: '#6B7280',
   },
   specialOfferCard: {
     marginHorizontal: 20,

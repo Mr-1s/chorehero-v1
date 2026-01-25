@@ -82,10 +82,10 @@ export function getVideoFeedLayout(device: DeviceInfo) {
   // Normalize bottom overlays relative to screen height and safe area
   const safeBottom = device.safeAreaBottom > 0 ? Math.min(device.safeAreaBottom, 12) : 0;
   const bookingHeight = device.isSmall ? 50 : 60;
-  const bookingBottom = 110 + safeBottom;
+  const bookingBottom = 152 + safeBottom;
 
   // Place action rail just above the booking section with consistent spacing
-  const actionRailBottom = 180 + safeBottom;
+  const actionRailBottom = 220 + safeBottom;
 
   // Horizontal padding scales slightly with width and bumps on tablets
   const horizontalPadding = device.isTablet
@@ -100,7 +100,7 @@ export function getVideoFeedLayout(device: DeviceInfo) {
     },
     actionRail: {
       bottom: actionRailBottom,
-      right: device.isTablet ? 24 : 20,
+      right: 16,
       buttonSize: device.isSmall ? 36 : 40,
     },
     bookingSection: {

@@ -370,7 +370,7 @@ export const cleanerTheme = {
     primarySoft: 'rgba(255, 165, 47, 0.15)',
     
     // Secondary accents
-    accentTeal: '#3AD3DB', // Same teal as customer side - for verification only
+    accentTeal: '#26B7C9', // Brand teal accent for cleaner UI
     success: '#10B981',
     successLight: '#D1FAE5',
     error: '#EF4444',

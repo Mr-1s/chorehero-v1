@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getConversationId } from '../utils/conversationId';
 
 export interface ChatMessage {
   id: string;
@@ -21,6 +22,7 @@ export interface ChatThread {
   customer_id: string;
   cleaner_id: string;
   booking_id: string | null;
+  conversation_id: string | null;
   last_message_at: string | null;
   created_at: string;
   updated_at: string;
@@ -32,7 +34,7 @@ export type ChatRoom = ChatThread;
 export interface CreateChatRoomParams {
   customer_id: string;
   cleaner_id: string;
-  booking_id: string;
+  booking_id?: string;
 }
 
 export interface SendMessageParams {
@@ -49,14 +51,15 @@ class MessageService {
   async createOrGetChatRoom(params: CreateChatRoomParams): Promise<{ success: boolean; data?: ChatThread; error?: string }> {
     try {
       const { customer_id, cleaner_id, booking_id } = params;
+      const conversationId = getConversationId(customer_id, cleaner_id);
       
       console.log('🏠 Creating/getting chat thread between:', customer_id, 'and', cleaner_id);
       
-      // Check if thread already exists for this booking
+      // Check if thread already exists for this conversation
       const { data: existingThread, error: findError } = await supabase
         .from('chat_threads')
         .select('*')
-        .eq('booking_id', booking_id)
+        .eq('conversation_id', conversationId)
         .single();
 
       if (findError && findError.code !== 'PGRST116') {
@@ -72,16 +75,37 @@ class MessageService {
 
       if (existingThread) {
         console.log('✅ Found existing chat thread:', existingThread.id);
+        if (booking_id && !existingThread.booking_id) {
+          await supabase
+            .from('chat_threads')
+            .update({ booking_id })
+            .eq('id', existingThread.id);
+        }
         return { success: true, data: existingThread };
+      }
+
+      const { data: legacyThread } = await supabase
+        .from('chat_threads')
+        .select('*')
+        .or(`and(customer_id.eq.${customer_id},cleaner_id.eq.${cleaner_id}),and(customer_id.eq.${cleaner_id},cleaner_id.eq.${customer_id})`)
+        .maybeSingle();
+
+      if (legacyThread) {
+        await supabase
+          .from('chat_threads')
+          .update({ conversation_id: conversationId, booking_id: booking_id || legacyThread.booking_id })
+          .eq('id', legacyThread.id);
+        return { success: true, data: { ...legacyThread, conversation_id: conversationId } };
       }
 
       // Create new chat thread
       const { data: newThread, error: createError } = await supabase
         .from('chat_threads')
         .insert({
+          conversation_id: conversationId,
           customer_id,
           cleaner_id,
-          booking_id,
+          booking_id: booking_id || null,
           last_message_at: null
         })
         .select()
@@ -225,6 +249,29 @@ class MessageService {
   }
 
   /**
+   * Delete a message (only sender can delete)
+   */
+  async deleteMessage(messageId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('id', messageId)
+        .eq('sender_id', userId);
+
+      if (error) throw error;
+
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Delete message error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to delete message'
+      };
+    }
+  }
+
+  /**
    * Get chat threads for a user
    */
   async getChatRooms(userId: string): Promise<{ success: boolean; data?: ChatThread[]; error?: string }> {
@@ -242,8 +289,17 @@ class MessageService {
         throw error;
       }
 
-      console.log(`✅ Got ${threads?.length || 0} chat threads`);
-      return { success: true, data: threads || [] };
+      const deduped = new Map<string, ChatThread>();
+      (threads || []).forEach(thread => {
+        const conversationId = thread.conversation_id || getConversationId(thread.customer_id, thread.cleaner_id);
+        const existing = deduped.get(conversationId);
+        if (!existing || (thread.last_message_at || '') > (existing.last_message_at || '')) {
+          deduped.set(conversationId, { ...thread, conversation_id: conversationId });
+        }
+      });
+
+      console.log(`✅ Got ${deduped.size} chat threads`);
+      return { success: true, data: Array.from(deduped.values()) };
       
     } catch (error) {
       console.error('❌ Get chat threads error:', error);

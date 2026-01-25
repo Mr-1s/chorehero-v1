@@ -26,12 +26,16 @@ export const routeToMessage = async ({ participant, bookingId, navigation, curre
     // Enable real messaging for authenticated users
     if (currentUserId && !currentUserId.startsWith('demo_')) {
       console.log('💬 Creating/getting chat room for real users');
+
+      const isParticipantCleaner = participant.role === 'cleaner' || !participant.role;
+      const customerId = isParticipantCleaner ? currentUserId : participant.id;
+      const cleanerId = isParticipantCleaner ? participant.id : currentUserId;
       
       // Create or get existing chat room
       const response = await messageService.createOrGetChatRoom({
-        participant1Id: currentUserId,
-        participant2Id: participant.id,
-        bookingId
+        customer_id: customerId,
+        cleaner_id: cleanerId,
+        booking_id: bookingId
       });
 
       if (response.success && response.data) {

@@ -352,6 +352,39 @@ class ContentService {
     return posts;
   }
 
+  private async enrichPostsWithProfiles(posts: any[]): Promise<any[]> {
+    if (!posts || posts.length === 0) return [];
+    const userIds = Array.from(new Set(posts.map((post: any) => post.user_id).filter(Boolean)));
+    if (userIds.length === 0) return posts;
+
+    const { data: users } = await supabase
+      .from('users')
+      .select('id, name, avatar_url, role, username, cleaner_onboarding_state')
+      .in('id', userIds);
+
+    const { data: cleanerProfiles } = await supabase
+      .from('cleaner_profiles')
+      .select('user_id, hourly_rate, rating_average, total_jobs, verification_status')
+      .in('user_id', userIds);
+
+    const userMap = new Map((users || []).map((user: any) => [user.id, user]));
+    const profileMap = new Map((cleanerProfiles || []).map((profile: any) => [profile.user_id, profile]));
+
+    return posts.map((post: any) => {
+      const user = userMap.get(post.user_id);
+      const cleanerProfile = profileMap.get(post.user_id);
+      return {
+        ...post,
+        user: user
+          ? {
+              ...user,
+              cleaner_profiles: cleanerProfile || null,
+            }
+          : null,
+      };
+    });
+  }
+
   /**
    * Get content feed with filters and pagination
    */
@@ -364,13 +397,22 @@ class ContentService {
         cursor
       } = params;
 
-      let query = supabase
-        .from('content_posts')
-        .select(`
-          *,
-          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
-        `)
-        .eq('status', 'published');
+      const buildQuery = (includeUserJoin: boolean) => {
+        const base = supabase
+          .from('content_posts')
+          .select(
+            includeUserJoin
+              ? `
+                *,
+                user:users(id, name, avatar_url, role, cleaner_onboarding_state, cleaner_profiles(hourly_rate, rating_average, total_jobs))
+              `
+              : '*'
+          )
+          .eq('status', 'published');
+        return base;
+      };
+
+      let query = buildQuery(true);
 
       // Apply filters
       if (filters.content_type) {
@@ -436,9 +478,19 @@ class ContentService {
 
       query = query.limit(limit + 1); // Get one extra to check if there are more
 
-      const { data: posts, error } = await query;
+      let { data: posts, error } = await query;
+      if (error && error.code === 'PGRST200') {
+        const fallbackQuery = buildQuery(false);
+        const fallbackResult = await fallbackQuery;
+        posts = fallbackResult.data || [];
+        error = fallbackResult.error;
+      }
       
       if (error) throw error;
+
+      if (posts.length > 0 && !posts[0]?.user) {
+        posts = await this.enrichPostsWithProfiles(posts);
+      }
 
       const hasMore = posts.length > limit;
       const resultPosts = hasMore ? posts.slice(0, limit) : posts;
@@ -447,12 +499,20 @@ class ContentService {
       // Validate that video files still exist in storage
       console.log('🔍 Validating video URLs for', resultPosts.length, 'posts...');
       const validatedPosts = await this.validateVideoUrls(resultPosts);
+      const livePosts = validatedPosts.filter((post: any) => {
+        const onboardingState = post?.user?.cleaner_onboarding_state;
+        if (!onboardingState) {
+          // Reason: keep published posts even if user join is blocked by RLS.
+          return true;
+        }
+        return onboardingState === 'LIVE';
+      });
       console.log('✅ After validation:', validatedPosts.length, 'valid posts');
 
       // Get user interaction data for each post if viewer is provided
-      let enrichedPosts = validatedPosts;
+      let enrichedPosts = livePosts;
       if (viewerId) {
-        enrichedPosts = await this.enrichPostsWithUserData(validatedPosts, viewerId);
+        enrichedPosts = await this.enrichPostsWithUserData(livePosts, viewerId);
       }
 
       return {
@@ -479,16 +539,23 @@ class ContentService {
     try {
       // For now, implement basic text search
       // In production, you'd use full-text search or external search service
-      let supabaseQuery = supabase
-        .from('content_posts')
-        .select(`
-          *,
-          user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
-        `)
-        .eq('status', 'published')
-        .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      const buildSearchQuery = (includeUserJoin: boolean) =>
+        supabase
+          .from('content_posts')
+          .select(
+            includeUserJoin
+              ? `
+                *,
+                user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))
+              `
+              : '*'
+          )
+          .eq('status', 'published')
+          .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+      let supabaseQuery = buildSearchQuery(true);
 
       // Apply additional filters
       if (filters.content_type) {
@@ -499,9 +566,19 @@ class ContentService {
         supabaseQuery = supabaseQuery.overlaps('tags', filters.tags);
       }
 
-      const { data: posts, error } = await supabaseQuery;
+      let { data: posts, error } = await supabaseQuery;
+      if (error && error.code === 'PGRST200') {
+        const fallbackQuery = buildSearchQuery(false);
+        const fallbackResult = await fallbackQuery;
+        posts = fallbackResult.data || [];
+        error = fallbackResult.error;
+      }
       
       if (error) throw error;
+
+      if (posts.length > 0 && !posts[0]?.user) {
+        posts = await this.enrichPostsWithProfiles(posts);
+      }
 
       // Enrich with user data if viewer provided
       let enrichedPosts = posts;

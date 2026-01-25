@@ -57,8 +57,8 @@ class AccountDeletionService {
         .select(`
           *,
           booking_add_ons(*),
-          customer:users!customer_id(name, email),
-          cleaner:users!cleaner_id(name, email)
+          customer:users!bookings_customer_id_fkey(name, email),
+          cleaner:users!bookings_cleaner_id_fkey(name, email)
         `)
         .or(`customer_id.eq.${userId},cleaner_id.eq.${userId}`);
 

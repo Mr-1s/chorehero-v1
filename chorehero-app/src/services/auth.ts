@@ -270,7 +270,15 @@ class AuthService {
         .eq('id', session.user.id)
         .single();
       
-      if (profileError) throw profileError;
+      if (profileError) {
+        if (profileError.code === 'PGRST116') {
+          return {
+            success: true,
+            data: null,
+          };
+        }
+        throw profileError;
+      }
 
       return {
         success: true,
@@ -655,16 +663,23 @@ export const onAuthStateChange = (callback: (user: AuthUser | null) => void) => 
     if (event === 'SIGNED_IN' && session?.user) {
       try {
         const { data: userProfile, error: profileError } = await supabase
-        .from('users')
-        .select(`
-          *,
-          customer_profiles(*),
-          cleaner_profiles(*)
-        `)
-        .eq('id', session.user.id)
-        .single();
+          .from('users')
+          .select(`
+            *,
+            customer_profiles(*),
+            cleaner_profiles(*)
+          `)
+          .eq('id', session.user.id)
+          .single();
       
-      if (profileError) throw profileError;
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            console.log('ℹ️ User profile not found - needs onboarding');
+            callback(null);
+            return;
+          }
+          throw profileError;
+        }
         callback({
           user: userProfile as User,
           session: {

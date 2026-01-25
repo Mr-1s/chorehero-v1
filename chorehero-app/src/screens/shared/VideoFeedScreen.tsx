@@ -16,6 +16,7 @@ import {
   Linking,
   Animated,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -26,6 +27,7 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { supabase } from '../../services/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Import components
 import PlayIcon from '../../components/PlayIcon';
@@ -36,16 +38,17 @@ import { TutorialOverlay } from '../../components/TutorialOverlay';
 // Import tutorial hook
 import { useTutorial } from '../../hooks/useTutorial';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
-import { useLocationContext } from '../../context/LocationContext';
-import { notificationService } from '../../services/notificationService';
 import { contentService } from '../../services/contentService';
 import { useAuth } from '../../hooks/useAuth';
-import { locationService } from '../../services/location';
-import { guestModeService } from '../../services/guestModeService';
 import { useDeviceStabilization, getVideoFeedLayout } from '../../utils/deviceStabilization';
 import StabilizedText from '../../components/StabilizedText';
 import CreatorFollowPill from '../../components/CreatorFollowPill';
 import BookingBubble from '../../components/BookingBubble';
+import { useFeedController, FeedItem, ProviderUI } from '../../hooks/useFeedController';
+import AuthModal from '../../components/AuthModal';
+import { getOrCreateGuestId } from '../../utils/guestSession';
+import { setPendingAuthAction, setPostAuthRoute } from '../../utils/authPendingAction';
+import { send_notification } from '../../services/notificationService';
 
 type TabParamList = {
   Home: undefined;
@@ -61,10 +64,11 @@ type TabParamList = {
     videoTitle?: string;
   };
   VideoFeed: {
-    source?: 'main' | 'featured' | 'cleaner';
+    source?: 'main' | 'featured' | 'cleaner' | 'global';
     cleanerId?: string;
     initialVideoId?: string;
     videos?: any[]; // Pre-loaded videos for featured section
+    scrollToTop?: boolean;
   };
 };
 
@@ -74,10 +78,11 @@ interface VideoFeedScreenProps {
   navigation: VideoFeedScreenNavigationProp;
   route?: {
     params?: {
-      source?: 'main' | 'featured' | 'cleaner';
+      source?: 'main' | 'featured' | 'cleaner' | 'global';
       cleanerId?: string;
       initialVideoId?: string;
       videos?: any[];
+      scrollToTop?: boolean;
     };
   };
 }
@@ -167,38 +172,10 @@ const DESIGN_TOKENS = {
   }
 };
 
-interface CleanerProfile {
-  user_id: string;
-  video_profile_url: string | null;
-  rating_average: number;
-  total_jobs: number;
-  hourly_rate: number;
-  bio: string | null;
-  specialties: string[] | null;
-  name: string;
-  avatar_url: string | null;
-  username: string;
-  service_title: string;
-  estimated_duration: string;
-  latitude?: number;
-  longitude?: number;
-  verification_status?: 'verified' | 'pending' | 'rejected';
-}
+const BOOKING_SHEET_HEIGHT = 360;
+const BOOKING_SERVICES = ['Standard Cleaning', 'Deep Cleaning', 'Move In/Out'];
+const BOOKING_TIMES = ['Today 2:00 PM', 'Today 4:00 PM', 'Tomorrow 9:00 AM'];
 
-interface VideoItem {
-  id: string;
-  cleaner: CleanerProfile;
-  video_url: string;
-  title: string;
-  description: string;
-  liked: boolean;
-  saved: boolean;
-  likes: number;
-  comments: number;
-  shares: number;
-  hashtags: string[];
-  contentFit?: 'cover' | 'contain' | 'fill' | 'none' | 'scale-down';
-}
 
 // Simple expo-video player - more stable with Expo
 const ExpoVideoPlayer: React.FC<{
@@ -207,7 +184,8 @@ const ExpoVideoPlayer: React.FC<{
   isPlaying: boolean;
   style: any;
   onTogglePlay: () => void;
-}> = ({ videoUrl, isActive, isPlaying, style, onTogglePlay }) => {
+  onPlaybackError?: () => void;
+}> = ({ videoUrl, isActive, isPlaying, style, onTogglePlay, onPlaybackError }) => {
   const [showFallback, setShowFallback] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [hasSetupListeners, setHasSetupListeners] = useState(false);
@@ -293,6 +271,9 @@ const ExpoVideoPlayer: React.FC<{
       console.log('⏰ Video loading timeout, showing fallback');
       setShowFallback(true);
       setIsReady(false);
+      if (isActive) {
+        onPlaybackError?.();
+      }
     }, 10000);
     
     return () => {
@@ -314,6 +295,18 @@ const ExpoVideoPlayer: React.FC<{
       player.pause();
     }
   }, [isActive, isPlaying, player, isReady, showFallback]);
+
+  useEffect(() => {
+    if (!player || !isReady || showFallback) return;
+    if (!isActive && currentTime > 0) {
+      try {
+        player.pause();
+        player.seekBy(-currentTime);
+      } catch {
+        // no-op
+      }
+    }
+  }, [isActive, player, isReady, showFallback, currentTime]);
 
   // Helper function to format time
   const formatTime = (seconds: number) => {
@@ -366,6 +359,8 @@ const ExpoVideoPlayer: React.FC<{
     );
   }
 
+  const shouldContain = /mixkit\.co|pexels\.com|istockphoto\.com|commondatastorage\.googleapis\.com/.test(videoUrl);
+
   return (
     <TouchableWithoutFeedback onPress={handleVideoTap}>
       <View style={style}>
@@ -374,7 +369,7 @@ const ExpoVideoPlayer: React.FC<{
           player={player}
           allowsFullscreen={false}
           allowsPictureInPicture={false}
-          contentFit="cover"
+          contentFit={shouldContain ? 'contain' : 'cover'}
           nativeControls={false}
           pointerEvents="none"
         />
@@ -442,21 +437,95 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const initialVideoId = route?.params?.initialVideoId;
   const preloadedVideos = route?.params?.videos;
   
-  const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(true);
+
+  // Subscribe to deletions so removed videos disappear from the feed
+  useEffect(() => {
+    const filter =
+      source === 'cleaner' && cleanerIdParam
+        ? `user_id=eq.${cleanerIdParam}`
+        : undefined;
+
+    const channel = supabase
+      .channel('content_posts_delete')
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'content_posts',
+          ...(filter ? { filter } : {}),
+        },
+        (payload: any) => {
+          const deletedProviderId = payload?.old?.user_id;
+          if (deletedProviderId) {
+            setFeedItems(prev => prev.filter(item => item.provider_id !== deletedProviderId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [source, cleanerIdParam]);
+  const {
+    feedItems,
+    providerUiMap,
+    currentIndex,
+    initialIndex,
+    feedState,
+    isPlaying,
+    setIsPlaying,
+    savedProviders,
+    setSavedProviders,
+    followedProviders,
+    setFollowedProviders,
+    setFeedData,
+    setFeedItems,
+    setProviderUiMap,
+    setHasMore,
+    setNextCursor,
+    markPreFetch,
+    markActive,
+    enterInteractedState,
+    updateInteractionState,
+    onViewableIndexChange,
+    resetInitialIndex,
+    restoredIndexRef,
+  } = useFeedController({
+    sourceKey: source,
+    interactionStorageKey,
+    onEmitAction: ({ providerId, actionType }) => {
+      console.log('📣 Feed action emitted:', { providerId, actionType });
+    },
+    fetchMore: async (cursor) => {
+      await loadRealContent(cursor, true);
+    },
+  });
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const [isCardVisible, setIsCardVisible] = useState(true); // Default to visible for better UX
   const [sortPreference, setSortPreference] = useState<'balanced' | 'proximity' | 'engagement' | 'price'>('balanced');
   const [useEnhancedAlgorithm, setUseEnhancedAlgorithm] = useState(false);
   const [showDescriptionCard, setShowDescriptionCard] = useState(false); // Hidden initially
   const descriptionSlideAnim = useRef(new Animated.Value(0)).current;
-  const [likedVideos, setLikedVideos] = useState<Set<string>>(new Set());
-  const [savedVideos, setSavedVideos] = useState<Set<string>>(new Set());
-  const [followedCleaners, setFollowedCleaners] = useState<Set<string>>(new Set());
   const [feedTitle, setFeedTitle] = useState<string | null>(null);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [interactionStorageKey, setInteractionStorageKey] = useState<string | null>(null);
+  const [globalView, setGlobalView] = useState(false);
+  const [guestCity, setGuestCity] = useState<string | null>(null);
+  const [guestState, setGuestState] = useState<string | null>(null);
+  const [bookingSheetVisible, setBookingSheetVisible] = useState(false);
+  const [bookingSheetProvider, setBookingSheetProvider] = useState<FeedItem | null>(null);
+  const bookingSheetTranslate = useRef(new Animated.Value(0)).current;
+  const [selectedService, setSelectedService] = useState('Standard Cleaning');
+  const [selectedTime, setSelectedTime] = useState('Today 2:00 PM');
+  const [isUserPaused, setIsUserPaused] = useState(false);
+  const [suppressAutoPlay, setSuppressAutoPlay] = useState(false);
+  const [commentOverlayVisible, setCommentOverlayVisible] = useState(false);
+  const [commentOverlayProviderId, setCommentOverlayProviderId] = useState<string | null>(null);
+  const autoPlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const insets = useSafeAreaInsets();
   const device = useDeviceStabilization();
   const layout = getVideoFeedLayout(device);
@@ -466,9 +535,112 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const videoFeedRef = useRef<View>(null);
   const actionBubblesRef = useRef<View>(null);
   
-  const { location } = useLocationContext();
   const { user } = useAuth();
   const { showUploadButton, isCleaner } = useRoleFeatures();
+  const handleBookingConfirmation = () => {
+    if (!user?.id) {
+      setAuthModalVisible(true);
+      return;
+    }
+    const hourlyRate = bookingSheetProvider?.provider_metadata?.base_price || 0;
+    navigation.navigate('BookingSummary' as any, {
+      cleanerId: bookingSheetProvider?.provider_id,
+      cleanerName: bookingSheetProvider?.provider_metadata?.name,
+      hourlyRate,
+      selectedService,
+      selectedTime,
+    });
+    setBookingSheetVisible(false);
+  };
+
+  const navigateToDiscover = () => {
+    const routes = (navigation as any)?.getState?.()?.routeNames || [];
+    if (routes.includes('Discover')) {
+      navigation.navigate('Discover' as any);
+      return;
+    }
+    if (routes.includes('MainTabs')) {
+      navigation.navigate('MainTabs' as any, { screen: 'Discover' });
+      return;
+    }
+    navigation.navigate('MainTabs' as any);
+  };
+
+  const safeGoBack = () => {
+    if ((navigation as any)?.canGoBack?.()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('MainTabs' as any);
+  };
+
+  const enterGlobalView = () => {
+    setGlobalView(true);
+    setFeedTitle('Global View');
+  };
+
+  const requireAuth = async (actionType: 'LIKE' | 'SAVE' | 'FOLLOW' | 'BOOK' | 'COMMENT' | 'SHARE', providerId: string) => {
+    await setPostAuthRoute({ name: 'VideoFeed', params: route?.params || { source } });
+    if (['LIKE', 'SAVE', 'FOLLOW', 'BOOK'].includes(actionType)) {
+      await setPendingAuthAction({ type: actionType as any, providerId });
+    }
+    setAuthModalVisible(true);
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const resolveKey = async () => {
+      const key = user?.id || (await getOrCreateGuestId());
+      if (isMounted) setInteractionStorageKey(key);
+    };
+    resolveKey();
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const loadGuestLocation = async () => {
+      try {
+        const city = await AsyncStorage.getItem('guest_city');
+        const state = await AsyncStorage.getItem('guest_state');
+        setGuestCity(city);
+        setGuestState(state);
+      } catch {
+        setGuestCity(null);
+        setGuestState(null);
+      }
+    };
+    loadGuestLocation();
+  }, []);
+
+  useEffect(() => {
+    if (source !== 'main') return;
+    if (!loading && feedItems.length === 0 && !globalView) {
+      setGlobalView(true);
+      setFeedTitle('Global View');
+    }
+  }, [feedItems.length, loading, source, globalView]);
+
+  useEffect(() => {
+    if (source === 'global') {
+      setGlobalView(true);
+      setFeedTitle('Global View');
+    }
+  }, [source]);
+
+  useEffect(() => {
+    Animated.timing(bookingSheetTranslate, {
+      toValue: bookingSheetVisible ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [bookingSheetVisible, bookingSheetTranslate]);
+
+  const openBookingSheet = (item: FeedItem) => {
+    setBookingSheetProvider(item);
+    setBookingSheetVisible(true);
+  };
   
   // Tutorial system
   const { 
@@ -484,6 +656,23 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   useEffect(() => {
     initializeData();
   }, []);
+
+  useEffect(() => {
+    if (restoredIndexRef.current) return;
+    if (feedItems.length > initialIndex && flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index: initialIndex, animated: false });
+      restoredIndexRef.current = true;
+    }
+  }, [feedItems.length, initialIndex]);
+
+  useEffect(() => {
+    if (!route?.params?.scrollToTop) return;
+    if (flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index: 0, animated: true });
+      resetInitialIndex(0);
+    }
+    navigation.setParams?.({ scrollToTop: false } as any);
+  }, [route?.params?.scrollToTop, navigation, resetInitialIndex]);
 
   // Trigger tutorial for video feed when component loads
   useEffect(() => {
@@ -513,6 +702,20 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     }, [])
   );
 
+  useEffect(() => {
+    if (feedState === 'ACTIVE' && isScreenFocused && !isUserPaused && !suppressAutoPlay) {
+      setIsPlaying(true);
+    }
+  }, [feedState, isScreenFocused, isUserPaused, suppressAutoPlay]);
+
+  useEffect(() => {
+    return () => {
+      if (autoPlayTimeoutRef.current) {
+        clearTimeout(autoPlayTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Video play/pause is now handled inline to avoid duplicate function errors
 
   const cleanupOrphanedVideos = async () => {
@@ -534,6 +737,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
 
   const initializeData = async () => {
     setLoading(true);
+    markPreFetch();
     console.log('🚀 VideoFeedScreen: Initializing data...');
     console.log('🚀 Source:', source);
     console.log('🚀 CleanerId:', cleanerIdParam);
@@ -551,21 +755,70 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         console.log('⭐ Loading featured videos...');
         setFeedTitle('Featured');
         await loadFeaturedVideos(preloadedVideos);
+      } else if (source === 'global') {
+        console.log('🌍 Loading global feed...');
+        setFeedTitle('Global View');
+        await loadRealContent();
       } else {
         // Default: load main feed
         console.log('🌐 Loading main feed...');
         setFeedTitle(null);
-        await loadRealContent();
+      await loadRealContent();
       }
       
       console.log('✅ Content loading completed');
     } catch (error) {
       console.error('❌ Error loading content:', error);
-      setVideos([]);
+      setFeedItems([]);
     } finally {
       setLoading(false);
       console.log('✅ VideoFeedScreen: Data initialization complete');
     }
+  };
+
+  const buildFeedItemsFromPosts = (posts: any[]) => {
+    const items: FeedItem[] = [];
+    const uiMap: Record<string, ProviderUI> = {};
+
+    posts.forEach(post => {
+      const providerId = post.user_id;
+      if (!providerId) return;
+
+      const name = post.user?.name || 'Provider';
+      const rating = post.user?.cleaner_profiles?.rating_average || 0;
+      const basePrice = post.user?.cleaner_profiles?.hourly_rate || 0;
+
+      items.push({
+        post_id: post.id,
+        provider_id: providerId,
+        video_source: post.media_url || '',
+        provider_metadata: {
+          name,
+          rating,
+          base_price: basePrice,
+        },
+        interaction_state: {
+          is_liked: false,
+          is_viewed: false,
+        },
+      });
+
+      if (!uiMap[providerId]) {
+        uiMap[providerId] = {
+          name,
+          username: post.user?.username ? `@${post.user.username}` : `@${name.toLowerCase().replace(/\s+/g, '')}`,
+          avatar_url: post.user?.avatar_url || null,
+          rating_average: rating,
+          hourly_rate: basePrice,
+          verification_status: post.user?.cleaner_profiles?.verification_status,
+          service_title: post.title || 'Cleaning Service',
+          description: post.description || 'Professional cleaning service.',
+          estimated_duration: '2-3 hrs',
+        };
+      }
+    });
+
+    return { items, uiMap };
   };
 
   // Load videos for a specific cleaner
@@ -603,26 +856,26 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       if (error) throw error;
 
       if (posts && posts.length > 0) {
-        const transformedVideos = transformPosts(posts);
-        
-        // If initialVideoId is specified, reorder so it's first
-        if (initialVideoId) {
-          const initialIndex = transformedVideos.findIndex(v => v.id === initialVideoId);
-          if (initialIndex > 0) {
-            const [initialVideo] = transformedVideos.splice(initialIndex, 1);
-            transformedVideos.unshift(initialVideo);
+        const initialProviderId = initialVideoId
+          ? posts.find((post: any) => post.id === initialVideoId)?.user_id
+          : undefined;
+        const { items, uiMap } = buildFeedItemsFromPosts(posts);
+        setFeedItems(items);
+        setProviderUiMap(uiMap);
+        if (initialProviderId) {
+          const startIndex = items.findIndex(item => item.provider_id === initialProviderId);
+          if (startIndex >= 0) {
+            resetInitialIndex(startIndex);
           }
         }
-        
-        setVideos(transformedVideos);
-        console.log(`✅ Loaded ${transformedVideos.length} cleaner videos`);
+        console.log(`✅ Loaded ${items.length} cleaner videos`);
       } else {
-        setVideos([]);
+        setFeedItems([]);
         console.log('📭 No videos found for this cleaner');
       }
     } catch (error) {
       console.error('❌ Error loading cleaner videos:', error);
-      setVideos([]);
+      setFeedItems([]);
     }
   };
 
@@ -635,10 +888,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       const videoIds = featuredData.map(v => v.id).filter(Boolean);
       
       if (videoIds.length === 0) {
-        setVideos([]);
+        setFeedItems([]);
         return;
       }
-
+      
       // Fetch full video data from database
       const { data: posts, error } = await supabase
         .from('content_posts')
@@ -669,220 +922,67 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       if (error) throw error;
 
       if (posts && posts.length > 0) {
-        const transformedVideos = transformPosts(posts);
-        
-        // Maintain original order from featured data
-        const orderedVideos = videoIds
-          .map(id => transformedVideos.find(v => v.id === id))
-          .filter(Boolean) as VideoItem[];
-        
-        // If initialVideoId is specified, reorder so it's first
-        if (initialVideoId) {
-          const initialIndex = orderedVideos.findIndex(v => v.id === initialVideoId);
-          if (initialIndex > 0) {
-            const [initialVideo] = orderedVideos.splice(initialIndex, 1);
-            orderedVideos.unshift(initialVideo);
+        const initialProviderId = initialVideoId
+          ? posts.find((post: any) => post.id === initialVideoId)?.user_id
+          : undefined;
+        const { items, uiMap } = buildFeedItemsFromPosts(posts);
+        setFeedItems(items);
+        setProviderUiMap(uiMap);
+        if (initialProviderId) {
+          const startIndex = items.findIndex(item => item.provider_id === initialProviderId);
+          if (startIndex >= 0) {
+            resetInitialIndex(startIndex);
           }
         }
-        
-        setVideos(orderedVideos);
-        console.log(`✅ Loaded ${orderedVideos.length} featured videos`);
+        console.log(`✅ Loaded ${items.length} featured videos`);
       } else {
-        setVideos([]);
+        setFeedItems([]);
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
-      setVideos([]);
+      setFeedItems([]);
     }
-  };
-
-  // Helper to transform posts to VideoItem format
-  const transformPosts = (posts: any[]): VideoItem[] => {
-    return posts.map(post => ({
-      id: post.id,
-      cleaner: {
-        user_id: post.user_id,
-        name: post.user?.name || 'ChoreHero Cleaner',
-        username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
-        rating_average: post.user?.cleaner_profiles?.rating_average || 0,
-        total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
-        hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0,
-        service_title: 'Professional Cleaning',
-        estimated_duration: '2-3 hours',
-        avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
-        bio: post.description || 'Professional cleaning specialist',
-        video_profile_url: post.media_url || '',
-        specialties: post.user?.cleaner_profiles?.specialties || ['Professional Cleaning'],
-        verification_status: post.user?.cleaner_profiles?.verification_status || 'verified',
-        is_available: post.user?.cleaner_profiles?.is_available ?? true,
-        service_radius_km: post.user?.cleaner_profiles?.service_radius_km || 25,
-      },
-      video_url: post.media_url || '',
-      title: post.title,
-      description: post.description || '',
-      liked: false,
-      saved: false,
-      likes: post.like_count || 0,
-      comments: post.comment_count || 0,
-      shares: 0,
-      hashtags: post.tags || [],
-      contentFit: 'cover',
-    } as any));
   };
 
   const loadMockData = async () => {
     console.log('🎬 Demo data loading disabled - implement real video loading here');
     // TODO: Implement real video loading from content service
     // This should load videos from the database using contentService.getFeed()
-    setVideos([]);
+    setFeedItems([]);
   };
 
-  // Feature flag: always show curated cleaning videos when in demo mode
-  const DEMO_MODE = process.env.EXPO_PUBLIC_DEMO_MODE === 'true';
-
-  const loadRealContent = async () => {
+  const loadRealContent = async (cursor?: string, append: boolean = false) => {
     try {
+      markPreFetch();
       console.log('🌐 Loading real content from database...');
-      console.log('👤 Current user:', user ? `${user.name} (${user.role})` : 'No user');
-      
-      // Check if user is a guest - prioritize demo mode for guest users
-      const isGuest = await guestModeService.isGuestUser();
-      console.log('🚪 Is guest user:', isGuest);
-      console.log('👤 Current user object:', user);
-      console.log('🔑 User ID:', user?.id);
-      console.log('📧 User email:', user?.email);
-      
-      // No mock videos - show real content only
-      console.log('🎬 Loading real videos only (no mock data)');
-      
-      // For authenticated users, check if we have any cleaner profiles in the database
-      const { data: cleanerProfiles, error: cleanerError } = await supabase
-        .from('users')
-        .select('id, name')
-        .eq('role', 'cleaner')
-        .limit(1);
-      
-      console.log('📊 Database check - cleaner profiles:', {
-        hasError: !!cleanerError,
-        count: cleanerProfiles?.length || 0,
-        error: cleanerError?.message
-      });
-      
-      // If no cleaners found for authenticated users, show empty state
-      if (cleanerError || !cleanerProfiles || cleanerProfiles.length === 0) {
-        console.log('📭 No cleaners found in database for authenticated user');
-        setVideos([]);
+
+      const response = await contentService.getFeed(
+        { limit: 10, cursor },
+        undefined
+      );
+
+      if (response.success && response.data?.posts && response.data.posts.length > 0) {
+        const { items, uiMap } = buildFeedItemsFromPosts(response.data.posts);
+
+        setFeedData(items, uiMap, {
+          append,
+          nextCursor: response.data.next_cursor,
+          hasMore: Boolean(response.data.has_more),
+        });
         return;
       }
-      
-      // Fetch content posts with cleaner profiles
-      const response = await contentService.getFeed();
-      console.log('📋 Content service response:', response);
-      console.log('📋 Response structure:', {
-        success: response.success,
-        hasData: !!response.data,
-        hasPosts: !!(response.data && response.data.posts),
-        postsLength: response.data && response.data.posts ? response.data.posts.length : 0,
-        error: response.error
-      });
-      
-      if (response.success && response.data && response.data.posts && response.data.posts.length > 0) {
-        // Transform content posts to video items
-        const transformedVideos: VideoItem[] = response.data.posts.map(post => ({
-          id: post.id,
-          cleaner: {
-            user_id: post.user_id,
-            name: post.user?.name || 'ChoreHero Cleaner',
-            username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
-            rating_average: post.user?.cleaner_profiles?.rating_average || 0, // 0 = New cleaner
-            total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
-            hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0, // 0 = Not set
-            service_title: 'Professional Cleaning',
-            estimated_duration: '2-3 hours',
-            avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
-            bio: post.description || 'Professional cleaning specialist',
-            video_profile_url: post.media_url || '',
-            specialties: ['Professional Cleaning'],
-            verification_status: 'verified',
-            is_available: true,
-            service_radius_km: 25,
-          },
-          video_url: post.media_url || '',
-          title: post.title,
-          description: post.description || '',
-          liked: false,
-          saved: false,
-          likes: post.like_count || 0,
-          comments: post.comment_count || 0,
-          shares: 0, // Not implemented yet
-          hashtags: post.tags || [],
-          contentFit: 'cover',
-        } as any));
-        
-        console.log(`✅ Loaded ${transformedVideos.length} real content posts`);
-        setVideos(transformedVideos);
-        return; // Exit early on success
-      } else if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-        // Handle direct array response (fallback)
-        console.log('📋 Handling direct array response format');
-        const transformedVideos: VideoItem[] = response.data.map(post => ({
-          id: post.id,
-          cleaner: {
-            user_id: post.user_id,
-            name: post.user?.name || 'ChoreHero Cleaner',
-            username: `@${post.user?.name?.toLowerCase().replace(/\s+/g, '') || 'cleaner'}`,
-            rating_average: post.user?.cleaner_profiles?.rating_average || 0,
-            total_jobs: post.user?.cleaner_profiles?.total_jobs || 0,
-            hourly_rate: post.user?.cleaner_profiles?.hourly_rate || 0,
-            service_title: 'Professional Cleaning',
-            estimated_duration: '2-3 hours',
-            avatar_url: post.user?.avatar_url || 'https://via.placeholder.com/50',
-            bio: post.description || 'Professional cleaning specialist',
-            video_profile_url: post.media_url || '',
-            specialties: ['Professional Cleaning'],
-            verification_status: 'verified',
-            is_available: true,
-            service_radius_km: 25,
-          },
-          video_url: post.media_url || '',
-          title: post.title,
-          description: post.description || '',
-        liked: false,
-        saved: false,
-          likes: post.like_count || 0,
-          comments: post.comment_count || 0,
-          shares: 0,
-          hashtags: post.tags || [],
-          contentFit: 'cover',
-        } as any));
-        console.log(`✅ Loaded ${transformedVideos.length} real content posts (direct array)`);
-        setVideos(transformedVideos);
-        return; // Exit early on success
-      } else if (response.success && response.data && response.data.posts && response.data.posts.length === 0) {
-        // Explicitly handle empty posts array
-        console.log('📭 Database returned empty posts array');
-        console.log('📭 No videos found - showing empty state');
-        setVideos([]);
-        console.log('✅ Empty posts handled');
-        return;
-      } else if (!response.success) {
-        console.log('❌ Content service returned error:', response.error);
-        console.log('❌ Content service error - showing empty state');
-        setVideos([]);
-        console.log('✅ Service error handled');
-        return;
+
+      if (!append) {
+        setFeedItems([]);
       }
-      
-      // No real content found - show empty state (no mock videos)
-      console.log('📭 No real content found in database — showing empty state');
-      setVideos([]);
-      console.log('✅ Empty state set');
-      
+      setHasMore(false);
+      markActive();
     } catch (error) {
       console.error('❌ Error loading real content:', error);
-      console.log('❌ Loading error - showing empty state');
-      setVideos([]);
-      console.log('✅ Error handled with empty state');
+      if (!append) {
+        setFeedItems([]);
+      }
+      markActive();
     }
   };
 
@@ -915,13 +1015,22 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     }
   };
 
+  const handlePlaybackFailure = (index: number) => {
+    if (index !== currentIndex) return;
+    const nextIndex = Math.min(currentIndex + 1, feedItems.length - 1);
+    if (nextIndex !== currentIndex && flatListRef.current) {
+      flatListRef.current.scrollToIndex({ index: nextIndex, animated: true });
+    }
+  };
+
   const onViewableItemsChanged = ({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
       const newIndex = viewableItems[0].index;
       
       // Only reset if actually changing to a different video
       if (newIndex !== currentIndex) {
-        setCurrentIndex(newIndex);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onViewableIndexChange(newIndex);
         
         // Auto-hide description when switching videos
         if (showDescriptionCard) {
@@ -933,9 +1042,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           }).start();
         }
         
-        // Auto-resume playing when switching to a new video
-        if (isScreenFocused && !isPlaying) {
-          setIsPlaying(true);
+      // Auto-resume playing when switching to a new video
+        if (isScreenFocused && feedState === 'ACTIVE') {
+        setIsUserPaused(false);
+        setIsPlaying(true);
         }
       }
     }
@@ -954,89 +1064,156 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     }).start();
   };
 
+  // Local-only interactions start empty by contract
+
+  const preventAutoResumeIfPaused = () => {
+    if (isPlaying) return;
+    setSuppressAutoPlay(true);
+    if (autoPlayTimeoutRef.current) {
+      clearTimeout(autoPlayTimeoutRef.current);
+    }
+    autoPlayTimeoutRef.current = setTimeout(() => {
+      setSuppressAutoPlay(false);
+    }, 500);
+  };
+
   // Button interaction handlers
-  const handleLike = async (videoId: string, cleanerId: string) => {
+  const handleLike = async (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('LIKE', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
+    const current = feedItems.find(item => item.provider_id === providerId)?.interaction_state.is_liked || false;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const isLiking = !likedVideos.has(videoId);
-    
-    setLikedVideos(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(videoId)) {
-        newSet.delete(videoId);
-      } else {
-        newSet.add(videoId);
+    updateInteractionState(providerId, { is_liked: !current });
+    if (!current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (user.id !== providerId) {
+        try {
+          await send_notification({
+            type: 'like',
+            title: 'New Like! ❤️',
+            message: `${user.name || 'A customer'} liked your cleaning video`,
+            fromUserId: user.id,
+            fromUserName: user.name || 'A customer',
+            fromUserAvatar: user.avatar_url,
+            toUserId: providerId,
+            relatedId: providerId,
+          });
+        } catch (error) {
+          console.log('Could not send like notification:', error);
+        }
       }
-      return newSet;
+    }
+    enterInteractedState(providerId, 'LIKE');
+  };
+
+  const handleComment = (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('COMMENT', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCommentOverlayProviderId(providerId);
+    setCommentOverlayVisible(true);
+    enterInteractedState(providerId, 'COMMENT');
+  };
+
+  const handleSave = (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('SAVE', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSavedProviders(prev => {
+      const next = new Set(prev);
+      if (next.has(providerId)) next.delete(providerId);
+      else next.add(providerId);
+      return next;
     });
-    
-    // Send like notification to cleaner (only when liking, not unliking)
-    if (isLiking && user && cleanerId && user.id !== cleanerId) {
+    enterInteractedState(providerId, 'SAVE');
+  };
+
+  const handleFollow = (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('FOLLOW', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setFollowedProviders(prev => {
+      const next = new Set(prev);
+      if (next.has(providerId)) next.delete(providerId);
+      else next.add(providerId);
+      return next;
+    });
+    enterInteractedState(providerId, 'FOLLOW');
+  };
+
+  const handleViewRatings = async (providerId: string) => {
+    preventAutoResumeIfPaused();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (user?.id && user.id !== providerId) {
       try {
-        await notificationService.sendLikeNotification(
-          videoId,
-          cleanerId,
-          user.id,
-          user.name || 'A customer',
-          user.avatar_url
-        );
-        console.log('💓 Like notification sent to cleaner:', cleanerId);
+        await send_notification({
+          type: 'system',
+          title: 'New Star! ⭐',
+          message: `${user.name || 'A customer'} starred your profile`,
+          fromUserId: user.id,
+          fromUserName: user.name || 'A customer',
+          fromUserAvatar: user.avatar_url,
+          toUserId: providerId,
+          relatedId: providerId,
+        });
       } catch (error) {
-        console.log('Could not send like notification:', error);
+        console.log('Could not send star notification:', error);
       }
+    }
+    // Navigate to cleaner's ratings and reviews
+    if (providerId) {
+      navigation.navigate('CleanerProfile' as any, { cleanerId: providerId, activeTab: 'reviews' });
     }
   };
 
-  const handleSave = (videoId: string) => {
+  const handleShare = (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('SHARE', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSavedVideos(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(videoId)) {
-        newSet.delete(videoId);
-      } else {
-        newSet.add(videoId);
-      }
-      return newSet;
-    });
+    enterInteractedState(providerId, 'SHARE');
   };
 
-  const handleFollow = (cleanerId: string) => {
+  const handleBooking = (providerId: string) => {
+    if (!user?.id) {
+      requireAuth('BOOK', providerId);
+      return;
+    }
+    preventAutoResumeIfPaused();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setFollowedCleaners(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(cleanerId)) {
-        newSet.delete(cleanerId);
-      } else {
-        newSet.add(cleanerId);
-      }
-      return newSet;
-    });
-  };
-
-  const handleComment = (videoId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Navigate to comments or open comment modal
-    Alert.alert('Comments', 'Comments feature coming soon!');
-  };
-
-  const handleShare = (videoId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Share functionality
-    Alert.alert('Share', 'Share feature coming soon!');
-  };
-
-  const handleBooking = (cleanerId: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Navigate to booking flow
-    navigation.navigate('NewBookingFlow', { cleanerId });
+    enterInteractedState(providerId, 'BOOK');
   };
 
 
-  const renderVideoItem = ({ item, index }: { item: VideoItem; index: number }) => {
-    // Check if it's a video or image based on content type or file extension
-    const isVideo = (item as any).content_type === 'video' || 
-                    item.video_url.includes('.mov') || 
-                    item.video_url.includes('.mp4') || 
-                    item.video_url.includes('.avi');
+  const renderVideoItem = ({ item, index }: { item: FeedItem; index: number }) => {
+    const providerUi = providerUiMap[item.provider_id];
+    const isMetadataReady = Boolean(providerUi);
+    const isWithinWindow = Math.abs(index - currentIndex) <= 2;
+    const shouldMountPlayer = Math.abs(index - currentIndex) <= 1 && feedState === 'ACTIVE';
+
+    if (!isWithinWindow) {
+      return <View style={styles.videoContainer} />;
+    }
+
+    // Check if it's a video or image based on file extension
+    const isVideo = item.video_source.includes('.mov') || 
+                    item.video_source.includes('.mp4') || 
+                    item.video_source.includes('.avi') ||
+                    item.video_source.includes('.m3u8');
     
     return (
       <View style={styles.videoContainer}>
@@ -1044,22 +1221,32 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         <View style={styles.videoArea}>
         {isVideo ? (
             <View style={styles.videoFrame}>
+              {shouldMountPlayer ? (
           <ExpoVideoPlayer
-          videoUrl={item.video_url}
+                  videoUrl={item.video_source}
           isActive={index === currentIndex}
-          isPlaying={isPlaying && isScreenFocused}
+                  isPlaying={isPlaying && isScreenFocused && feedState === 'ACTIVE'}
                 style={StyleSheet.absoluteFillObject}
                 onTogglePlay={() => {
                   console.log('🎮 ExpoVideoPlayer onTogglePlay - current state:', isPlaying);
-                  setIsPlaying(!isPlaying);
+                  const nextPlaying = !isPlaying;
+                  setIsPlaying(nextPlaying);
+                  setIsUserPaused(!nextPlaying);
+                  if (nextPlaying) {
+                    setSuppressAutoPlay(false);
+                  }
                 }}
+                  onPlaybackError={() => handlePlaybackFailure(index)}
               />
+              ) : (
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000' }]} />
+              )}
               {/* Old pause overlay removed - now handled by center touch area */}
             </View>
           ) : (
             <View style={styles.videoFrame}>
               <Image 
-                source={{ uri: item.video_url }} 
+                source={{ uri: item.video_source }} 
                 style={StyleSheet.absoluteFillObject}
                 resizeMode="cover"
               />
@@ -1075,7 +1262,12 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           style={styles.videoCenterTouch}
           onPress={() => {
             console.log('🎮 Video center tap - toggling play state from:', isPlaying);
-            setIsPlaying(!isPlaying);
+            const nextPlaying = !isPlaying;
+            setIsPlaying(nextPlaying);
+            setIsUserPaused(!nextPlaying);
+            if (nextPlaying) {
+              setSuppressAutoPlay(false);
+            }
           }}
           activeOpacity={1}
         >
@@ -1105,6 +1297,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         />
 
         {/* Unified Feed Overlay - Modern Single Interface */}
+        {isMetadataReady ? (
         <View
           style={[
             styles.unifiedFeedOverlay,
@@ -1116,13 +1309,13 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         >
           {/* Top Section - Creator pill */}
           <CreatorFollowPill
-            avatarUrl={item.cleaner?.avatar_url}
-            username={item.cleaner?.username || item.cleaner?.name || 'Cleaner'}
-            serviceTitle={item.cleaner?.service_title || 'Professional Cleaning'}
-            verified={item.cleaner?.verification_status === 'verified'}
-            isFollowing={followedCleaners.has(item.cleaner?.user_id || '')}
-            onPressProfile={() => item.cleaner?.user_id && navigation.navigate('CleanerProfile', { cleanerId: item.cleaner.user_id })}
-            onToggleFollow={() => item.cleaner?.user_id && handleFollow(item.cleaner.user_id)}
+            avatarUrl={providerUi?.avatar_url || undefined}
+            username={providerUi?.username || `@${item.provider_metadata.name.toLowerCase().replace(/\s+/g, '')}`}
+            serviceTitle={providerUi?.service_title || 'Cleaning Service'}
+            verified={providerUi?.verification_status === 'verified'}
+            isFollowing={followedProviders.has(item.provider_id)}
+            onPressProfile={() => item.provider_id && navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
+            onToggleFollow={() => item.provider_id && handleFollow(item.provider_id)}
             height={layout.creatorPill.height}
             maxWidth={layout.creatorPill.maxWidth}
           />
@@ -1151,75 +1344,71 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           >
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity 
-                style={[
-                  styles.modernActionBubble,
-                  {
-                    width: layout.actionRail.buttonSize,
-                    height: layout.actionRail.buttonSize,
-                    borderRadius: layout.actionRail.buttonSize / 2,
-                  }
-                ]}
-                onPress={() => handleLike(item.id, item.cleaner?.user_id || '')}
+                style={styles.tikTokActionButton}
+                onPress={() => handleLike(item.provider_id)}
               >
+                <View style={styles.tikTokIconShadow}>
                 <Ionicons 
-                  name={likedVideos.has(item.id) ? "heart" : "heart-outline"} 
-                  size={24} 
-                  color={DESIGN_TOKENS.colors.brand} 
-                />
+                    name={item.interaction_state.is_liked ? "heart" : "heart-outline"} 
+                    size={32} 
+                    color={item.interaction_state.is_liked ? "#FF2D55" : "#FFFFFF"} 
+                  />
+                </View>
+                <Text style={styles.tikTokActionLabel}>Like</Text>
               </TouchableOpacity>
-              {/* count removed for cleaner look */}
         </View>
 
             <View style={styles.actionButtonContainer}>
                     <TouchableOpacity 
-                style={[
-                  styles.modernActionBubble,
-                  {
-                    width: layout.actionRail.buttonSize,
-                    height: layout.actionRail.buttonSize,
-                    borderRadius: layout.actionRail.buttonSize / 2,
-                  }
-                ]}
-                onPress={() => handleComment(item.id)}
-                  >
-                <Ionicons name="chatbubble-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
+                style={styles.tikTokActionButton}
+                onPress={() => handleViewRatings(item.provider_id)}
+              >
+                <View style={styles.tikTokIconShadow}>
+                  <Ionicons name="star" size={32} color="#FFD700" />
+                </View>
+                <Text style={styles.tikTokActionLabel}>
+                  {item.provider_metadata.rating ? item.provider_metadata.rating.toFixed(1) : 'New'}
+                </Text>
                     </TouchableOpacity>
-              {/* count removed for cleaner look */}
                 </View>
                 
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity
-                style={[
-                  styles.modernActionBubble,
-                  {
-                    width: layout.actionRail.buttonSize,
-                    height: layout.actionRail.buttonSize,
-                    borderRadius: layout.actionRail.buttonSize / 2,
-                  }
-                ]}
-                onPress={() => handleSave(item.id)}
+                style={styles.tikTokActionButton}
+                onPress={() => handleComment(item.provider_id)}
               >
+                <View style={styles.tikTokIconShadow}>
+                  <Ionicons name="chatbubble-ellipses" size={30} color="#FFFFFF" />
+                </View>
+                <Text style={styles.tikTokActionLabel}>Comment</Text>
+              </TouchableOpacity>
+            </View>
+                
+            <View style={styles.actionButtonContainer}>
+              <TouchableOpacity
+                style={styles.tikTokActionButton}
+                onPress={() => handleSave(item.provider_id)}
+              >
+                <View style={styles.tikTokIconShadow}>
                 <Ionicons
-                  name={savedVideos.has(item.id) ? "bookmark" : "bookmark-outline"}
-                  size={22}
-                  color={DESIGN_TOKENS.colors.brand}
-                />
+                    name={savedProviders.has(item.provider_id) ? "bookmark" : "bookmark-outline"}
+                    size={30}
+                    color={savedProviders.has(item.provider_id) ? "#3AD3DB" : "#FFFFFF"}
+                  />
+                </View>
+                <Text style={styles.tikTokActionLabel}>Save</Text>
               </TouchableOpacity>
             </View>
 
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity
-                style={[
-                  styles.modernActionBubble,
-                  {
-                    width: layout.actionRail.buttonSize,
-                    height: layout.actionRail.buttonSize,
-                    borderRadius: layout.actionRail.buttonSize / 2,
-                  }
-                ]}
-                onPress={() => handleShare(item.id)}
+                style={styles.tikTokActionButton}
+                onPress={() => handleShare(item.provider_id)}
               >
-                <Ionicons name="share-outline" size={22} color={DESIGN_TOKENS.colors.brand} />
+                <View style={styles.tikTokIconShadow}>
+                  <Ionicons name="arrow-redo" size={30} color="#FFFFFF" />
+                </View>
+                <Text style={styles.tikTokActionLabel}>Share</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -1243,19 +1432,19 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                   <View style={styles.handleBar} />
                 </View>
                 <View style={styles.descriptionHeader}>
-                  <Text style={styles.descriptionTitle} numberOfLines={2}>
-                    {(item as any).title || (item as any).post?.title || item.cleaner?.service_title || 'Cleaning Service'}
-                  </Text>
+                <Text style={styles.descriptionTitle} numberOfLines={2}>
+                    {providerUi?.service_title || 'Cleaning Service'}
+                </Text>
                   <View style={styles.durationBadge}>
                     <Ionicons name="time-outline" size={14} color="#3AD3DB" />
                     <Text style={styles.durationBadgeText}>
-                      {(item as any).estimated_duration || item.cleaner?.estimated_duration || '2-3 hrs'}
+                      {providerUi?.estimated_duration || '2-3 hrs'}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.descriptionDivider} />
                 <Text style={styles.descriptionText} numberOfLines={4}>
-                  {(item as any).description || (item as any).post?.description || item.cleaner?.bio || 'Professional cleaning service with attention to detail and customer satisfaction.'}
+                  {providerUi?.description || 'Professional cleaning service with attention to detail and customer satisfaction.'}
                 </Text>
                 {/* Close Button */}
                 <TouchableOpacity 
@@ -1266,20 +1455,38 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                 </TouchableOpacity>
             </Animated.View>
 
-            {/* Enhanced Booking Section with Even Spacing */}
-            <BookingBubble
-              hourlyRate={(item as any).hourly_rate || item.cleaner?.hourly_rate || 0}
-              rating={(item as any).rating || item.cleaner?.rating_average || 0}
-              duration={(item as any).estimated_duration || item.cleaner?.estimated_duration}
-              isSmall={device.isSmall}
-              onToggleInfo={toggleDescriptionCard}
-              onBook={() => item.cleaner?.user_id && handleBooking(item.cleaner.user_id)}
-              height={layout.bookingSection.height}
-              marginHorizontal={layout.bookingSection.marginHorizontal}
-            />
+            {/* Inline Booking CTA */}
+            <View style={styles.inlineBookingContainer}>
+              <View>
+                <Text style={styles.inlineBookingLabel}>Starting</Text>
+                <Text style={styles.inlineBookingPrice}>
+                  {item.provider_metadata.base_price ? `$${item.provider_metadata.base_price}/hr` : 'Contact'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.inlineBookButton}
+                onPress={() => {
+                  if (!user?.id) {
+                    requireAuth('BOOK', item.provider_id);
+                    return;
+                  }
+                  handleBooking(item.provider_id);
+                  openBookingSheet(item);
+                }}
+              >
+                <Text style={styles.inlineBookButtonText}>Book Now</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
         </View>
+        ) : (
+          <View style={styles.skeletonOverlay}>
+            <View style={styles.skeletonPill} />
+            <View style={styles.skeletonActions} />
+            <View style={styles.skeletonBooking} />
+          </View>
+        )}
       </View>
     );
   };
@@ -1304,7 +1511,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const pulseOpacity = ctaPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0] });
 
   const viewabilityConfig = {
-    itemVisiblePercentThreshold: 50,
+    itemVisiblePercentThreshold: 80,
   };
 
   if (loading) {
@@ -1316,22 +1523,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     );
   }
 
-  // Filter videos by proximity (within 50km)
-  const filteredVideos = location
-    ? videos.filter(v => {
-        const cleaner = v.cleaner;
-        // For mock data, add random lat/lng near user (for demo)
-        // In real app, cleaner would have lat/lng
-        if (!cleaner.latitude || !cleaner.longitude) return true;
-        const dist = locationService.calculateDistance(
-          location.latitude,
-          location.longitude,
-          cleaner.latitude,
-          cleaner.longitude
-        );
-        return dist <= 50;
-      })
-    : videos;
+  const filteredVideos = feedItems;
 
   // FIX: Remove stray comment, fix JSX structure, and correct indentation
   return (
@@ -1342,9 +1534,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       {source !== 'main' && (
         <>
           <View style={styles.sourceHeader}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.sourceBackButton}
-              onPress={() => navigation.goBack()}
+              onPress={safeGoBack}
             >
               <BlurView intensity={80} tint="dark" style={styles.sourceBackBlur}>
                 <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
@@ -1360,6 +1552,14 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           )}
         </>
       )}
+
+      {globalView && filteredVideos.length > 0 && (
+        <View style={[styles.globalBanner, { top: insets.top + 12 }]}>
+          <Text style={styles.globalBannerText}>
+            {`We haven't launched in ${guestCity ? `${guestCity}${guestState ? `, ${guestState}` : ''}` : 'your area'} yet. Browse our top pros from other areas!`}
+          </Text>
+        </View>
+      )}
       
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
@@ -1372,7 +1572,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                 <Ionicons name="videocam-outline" size={64} color="#ffffff" />
               </LinearGradient>
             </View>
-            <Text style={styles.emptyStateTitle}>No cleaning videos yet</Text>
+            <Text style={styles.emptyStateTitle}>Meet our Top Heroes nationwide!</Text>
             <Text style={styles.emptyStateSubtitle}>
               Cleaners in your area will share their work here. Check back soon for amazing transformations!
             </Text>
@@ -1394,7 +1594,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
              )}
             <TouchableOpacity 
               style={styles.exploreButton}
-              onPress={() => navigation.navigate('Discover')}
+              onPress={() => {
+                enterGlobalView();
+                loadRealContent();
+              }}
             >
               <Text style={styles.exploreButtonText}>Explore Cleaners</Text>
               <Ionicons name="arrow-forward" size={20} color="#0891b2" />
@@ -1406,7 +1609,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           ref={flatListRef}
           data={filteredVideos}
           renderItem={renderVideoItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => item.post_id || `${item.provider_id}-${index}`}
           pagingEnabled
           showsVerticalScrollIndicator={false}
           snapToInterval={height}
@@ -1416,6 +1619,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           viewabilityConfig={viewabilityConfig}
           refreshing={refreshing}
           onRefresh={onRefresh}
+          scrollEnabled={feedState !== 'INTERACTED'}
+          initialScrollIndex={filteredVideos.length > 0 ? Math.min(initialIndex, filteredVideos.length - 1) : 0}
+          onScrollToIndexFailed={() => {}}
           getItemLayout={(data, index) => ({
             length: height,
             offset: height * index,
@@ -1426,9 +1632,14 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       
       {/* Floating Navigation - Show appropriate navigation based on effective role */}
       {isCleaner ? (
-        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Heroes" />
+        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Content" />
       ) : (
-        <FloatingNavigation navigation={navigation as any} currentScreen="Content" />
+        <FloatingNavigation
+          navigation={navigation as any}
+          currentScreen="Content"
+          variant="transparent"
+          blurIntensity={0}
+        />
       )}
       
       {/* Tutorial Overlay */}
@@ -1448,6 +1659,133 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           userId={user.id}
         />
       )}
+      <Modal transparent visible={bookingSheetVisible} animationType="none" onRequestClose={() => setBookingSheetVisible(false)}>
+        <View style={styles.sheetBackdrop}>
+          <TouchableWithoutFeedback onPress={() => setBookingSheetVisible(false)}>
+            <View style={StyleSheet.absoluteFillObject} />
+          </TouchableWithoutFeedback>
+          <Animated.View
+            style={[
+              styles.sheetContainer,
+              {
+                transform: [
+                  {
+                    translateY: bookingSheetTranslate.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [BOOKING_SHEET_HEIGHT, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>
+              {`Schedule with ${bookingSheetProvider?.provider_metadata.name || 'Pro'}`}
+            </Text>
+            <Text style={styles.sheetSubtitle}>Pick a service and time</Text>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Service</Text>
+              <View style={styles.sheetOptionsRow}>
+                {BOOKING_SERVICES.map(service => (
+                  <TouchableOpacity
+                    key={service}
+                    style={[
+                      styles.sheetOptionChip,
+                      selectedService === service && styles.sheetOptionChipActive,
+                    ]}
+                    onPress={() => setSelectedService(service)}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetOptionText,
+                        selectedService === service && styles.sheetOptionTextActive,
+                      ]}
+                    >
+                      {service}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.sheetSection}>
+              <Text style={styles.sheetSectionTitle}>Availability</Text>
+              <View style={styles.sheetOptionsRow}>
+                {BOOKING_TIMES.map(time => (
+                  <TouchableOpacity
+                    key={time}
+                    style={[
+                      styles.sheetOptionChip,
+                      selectedTime === time && styles.sheetOptionChipActive,
+                    ]}
+                    onPress={() => setSelectedTime(time)}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetOptionText,
+                        selectedTime === time && styles.sheetOptionTextActive,
+                      ]}
+                    >
+                      {time}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.sheetPrimaryButton}
+              onPress={handleBookingConfirmation}
+            >
+              <Text style={styles.sheetPrimaryButtonText}>Confirm</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+      <Modal
+        transparent
+        visible={commentOverlayVisible}
+        animationType="fade"
+        onRequestClose={() => setCommentOverlayVisible(false)}
+      >
+        <View style={styles.commentOverlayBackdrop} pointerEvents="box-none">
+          <View
+            style={[
+              styles.commentOverlayCard,
+              { marginTop: layout.creatorPill.top + layout.creatorPill.height + 12 },
+            ]}
+          >
+            <View style={styles.commentOverlayHeader}>
+              <Text style={styles.commentOverlayTitle}>Comments</Text>
+              <TouchableOpacity
+                onPress={() => setCommentOverlayVisible(false)}
+                accessibilityLabel="Close comments"
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.commentOverlaySubtitle}>
+              {commentOverlayProviderId
+                ? `Say something nice to ${providerUiMap[commentOverlayProviderId]?.name || 'this pro'}.`
+                : 'Say something nice to this pro.'}
+            </Text>
+            <View style={styles.commentOverlayHint}>
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.commentOverlayHintText}>Quick comments coming soon.</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        onOpenEmail={() => {
+          setAuthModalVisible(false);
+          navigation.navigate('AuthScreen');
+        }}
+      />
       </View>
   );
 };
@@ -1745,6 +2083,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+  },
+  globalBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    zIndex: 30,
+  },
+  globalBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   emptyStateIconContainer: {
     marginBottom: 30,
@@ -2386,6 +2739,187 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, // 20px sides - EXACT match with FloatingNavigation
     zIndex: 10, // Higher than videoTapOverlay (5)
   },
+  skeletonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 100,
+    paddingBottom: 160,
+    zIndex: 10,
+  },
+  skeletonPill: {
+    width: 260,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  skeletonActions: {
+    width: 52,
+    height: 220,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    position: 'absolute',
+    right: 24,
+    top: '30%',
+  },
+  skeletonBooking: {
+    width: '85%',
+    height: 64,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  inlineBookingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 12,
+    marginLeft: 0,
+    alignSelf: 'flex-start',
+  },
+  inlineBookingLabel: {
+    color: '#E5E7EB',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inlineBookingPrice: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  inlineBookButton: {
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  inlineBookButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  sheetContainer: {
+    height: BOOKING_SHEET_HEIGHT,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D1D5DB',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  sheetSection: {
+    marginBottom: 16,
+  },
+  sheetSectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  sheetOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sheetOptionChip: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  sheetOptionChipActive: {
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
+  },
+  sheetOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  sheetOptionTextActive: {
+    color: '#FFFFFF',
+  },
+  sheetPrimaryButton: {
+    marginTop: 8,
+    backgroundColor: '#26B7C9',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  sheetPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  commentOverlayBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    backgroundColor: 'transparent',
+  },
+  commentOverlayCard: {
+    marginHorizontal: 20,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  commentOverlayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  commentOverlayTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  commentOverlaySubtitle: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  commentOverlayHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  commentOverlayHintText: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
 
   // Modern Cleaner Header - Thinner with reduced whitespace
   modernCleanerHeader: {
@@ -2482,15 +3016,15 @@ const styles = StyleSheet.create({
     color: DESIGN_TOKENS.colors.white,
   },
 
-  // Modern Action Section - Lowered buttons without bubble background
+  // Modern Action Section - TikTok style action rail
   modernActionSection: {
     position: 'absolute',
     // Position is provided dynamically via getVideoFeedLayout(device)
     alignItems: 'center',
-    gap: DESIGN_TOKENS.spacing.lg, // Increased spacing for even distribution
+    gap: 4, // Tight spacing like TikTok
     zIndex: 15, // Higher than unifiedFeedOverlay (10) and videoTapOverlay (5)
-    paddingVertical: DESIGN_TOKENS.spacing.sm, // Vertical padding
-    paddingHorizontal: DESIGN_TOKENS.spacing.xs, // Minimal horizontal padding
+    paddingVertical: DESIGN_TOKENS.spacing.md,
+    paddingHorizontal: 0,
   },
   modernActionBubble: {
     alignItems: 'center',
@@ -2502,6 +3036,29 @@ const styles = StyleSheet.create({
     ...DESIGN_TOKENS.shadow.lg, // Match booking/nav shadow strength
     borderWidth: 2, // Match booking/nav border thickness
     borderColor: DESIGN_TOKENS.colors.brandLight, // Match booking/nav border color
+  },
+  // TikTok-style action buttons - clean icons with shadows
+  tikTokActionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    minWidth: 48,
+  },
+  tikTokIconShadow: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  tikTokActionLabel: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 4,
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   actionButtonContainer: {
     alignItems: 'center',

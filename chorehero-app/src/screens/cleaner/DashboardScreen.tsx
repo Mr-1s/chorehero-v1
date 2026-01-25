@@ -821,7 +821,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           actions={[
             {
               label: 'Complete Profile',
-              onPress: () => navigation.navigate('ProfileEdit'),
+              onPress: () => navigation.navigate('EditProfile'),
               icon: 'person'
             },
             {
@@ -906,22 +906,27 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
             <Text style={styles.userName}>{user?.name || 'Professional Cleaner'}! 👋</Text>
             
             {/* Online/Offline Toggle - Moved to header for better hierarchy */}
-            <View style={styles.headerToggle}>
+            <TouchableOpacity
+              style={styles.headerToggle}
+              onPress={toggleOnlineStatus}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={isOnline ? 'Go offline' : 'Go online'}
+              accessibilityHint="Toggle your availability for receiving new jobs"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
               <View style={[styles.statusDot, { backgroundColor: isOnline ? COLORS.success : COLORS.error }]} />
               <Text style={styles.onlineStatusTextSmall}>
-                {isOnline ? 'Ready to Work' : 'Offline'}
+                {isOnline ? 'Available for Jobs' : 'Currently Offline'}
               </Text>
-                              <TouchableOpacity
-                  style={[styles.toggleButtonSmall, { backgroundColor: isOnline ? COLORS.success : COLORS.error }]}
-                  onPress={toggleOnlineStatus}
-                  accessibilityLabel={isOnline ? "Go offline" : "Go online"}
-                  accessibilityHint="Toggle your availability for receiving new jobs"
-                >
+              <View
+                style={[styles.toggleButtonSmall, { backgroundColor: isOnline ? COLORS.success : COLORS.error }]}
+              >
                 <Text style={styles.toggleButtonTextSmall}>
                   {isOnline ? 'Online' : 'Offline'}
                 </Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+            </TouchableOpacity>
           </View>
           
           <View style={styles.headerRight}>
@@ -1025,7 +1030,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       
       <CleanerFloatingNavigation 
         navigation={navigation as any}
-        currentScreen="Home"
+        currentScreen="Dashboard"
       />
 
       {/* Profile Completion Celebration */}
@@ -1406,6 +1411,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
     gap: 8,
+    alignSelf: 'flex-start',
   },
   onlineStatusTextSmall: {
     fontSize: 12,
@@ -1416,7 +1422,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
-    marginLeft: 'auto',
   },
   toggleButtonTextSmall: {
     fontSize: 11,

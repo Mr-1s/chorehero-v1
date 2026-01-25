@@ -6,6 +6,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -22,6 +23,7 @@ interface MetricCardProps {
   label: string;
   icon?: keyof typeof Ionicons.glyphMap;
   iconColor?: string;
+  gradientColors?: readonly [string, string];
   onPress?: () => void;
   delay?: number; // For staggered animation
   style?: ViewStyle;
@@ -33,6 +35,7 @@ const MetricCard: React.FC<MetricCardProps> = ({
   label,
   icon,
   iconColor = colors.primary,
+  gradientColors,
   onPress,
   delay = 0,
   style,
@@ -51,19 +54,45 @@ const MetricCard: React.FC<MetricCardProps> = ({
     opacity: opacity.value,
   }));
 
+  const useGradient = !!gradientColors;
+  const Container = useGradient ? LinearGradient : View;
+  const containerProps = useGradient
+    ? {
+        colors: gradientColors as [string, string],
+        start: { x: 0, y: 0 },
+        end: { x: 1, y: 1 },
+      }
+    : {};
+
   const content = (
     <Animated.View style={[styles.container, compact && styles.containerCompact, style, animatedStyle]}>
-      {icon && (
-        <View style={[styles.iconContainer, { backgroundColor: `${iconColor}15` }]}>
-          <Ionicons name={icon} size={compact ? 18 : 22} color={iconColor} />
-        </View>
-      )}
-      <Text style={[styles.value, compact && styles.valueCompact]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={[styles.label, compact && styles.labelCompact]} numberOfLines={1}>
-        {label}
-      </Text>
+      <Container
+        {...containerProps}
+        style={[styles.inner, useGradient && styles.innerGradient]}
+      >
+        {icon && (
+          <View style={[
+            styles.iconContainer,
+            { backgroundColor: useGradient ? 'transparent' : `${iconColor}15` }
+          ]}>
+            <Ionicons name={icon} size={24} color={useGradient ? '#FFFFFF' : iconColor} />
+          </View>
+        )}
+        <Text style={[
+          styles.value,
+          compact && styles.valueCompact,
+          useGradient && styles.valueOnGradient
+        ]} numberOfLines={1}>
+          {value}
+        </Text>
+        <Text style={[
+          styles.label,
+          compact && styles.labelCompact,
+          useGradient && styles.labelOnGradient
+        ]} numberOfLines={1}>
+          {label}
+        </Text>
+      </Container>
     </Animated.View>
   );
 
@@ -82,15 +111,25 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.cardBg,
     borderRadius: radii.card,
-    padding: spacing.lg,
+    padding: 0,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 110,
     ...shadows.card,
   },
   containerCompact: {
-    padding: spacing.md,
     minHeight: 90,
+  },
+  inner: {
+    flex: 1,
+    width: '100%',
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  innerGradient: {
+    overflow: 'hidden',
   },
   iconContainer: {
     width: 44,
@@ -110,6 +149,9 @@ const styles = StyleSheet.create({
   valueCompact: {
     fontSize: typography.metricMedium.fontSize,
   },
+  valueOnGradient: {
+    color: '#FFFFFF',
+  },
   label: {
     fontSize: typography.labelSmall.fontSize,
     fontWeight: typography.labelSmall.fontWeight,
@@ -118,6 +160,9 @@ const styles = StyleSheet.create({
   },
   labelCompact: {
     fontSize: 11,
+  },
+  labelOnGradient: {
+    color: 'rgba(255,255,255,0.85)',
   },
 });
 

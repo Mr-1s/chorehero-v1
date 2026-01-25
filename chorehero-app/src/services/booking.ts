@@ -216,8 +216,14 @@ class BookingService {
           service_type: request.service_type,
           address_id: request.address_id,
           scheduled_time: request.scheduled_time,
-          estimated_duration: SERVICE_TYPES[request.service_type].estimated_duration,
+          estimated_duration: request.estimated_duration ?? SERVICE_TYPES[request.service_type].estimated_duration,
           special_instructions: request.special_instructions,
+          access_instructions: request.access_instructions,
+          bedrooms: request.bedrooms,
+          bathrooms: request.bathrooms,
+          square_feet: request.square_feet,
+          has_pets: request.has_pets ?? null,
+          pet_details: request.pet_details ?? null,
           service_base_price: pricing.service_base_price,
           add_ons_total: pricing.add_ons_total,
           platform_fee: pricing.platform_fee,
@@ -235,7 +241,10 @@ class BookingService {
         `)
         .single();
 
-      if (bookingError) throw bookingError;
+      if (bookingError) {
+        console.error('❌ Booking insert failed:', bookingError);
+        throw new Error(`${bookingError.code || 'BOOKING_INSERT'}: ${bookingError.message}`);
+      }
 
       // Create booking add-ons
       if (request.add_ons.length > 0) {
@@ -250,7 +259,10 @@ class BookingService {
           .from('booking_add_ons')
           .insert(bookingAddOns);
 
-        if (addOnsError) throw addOnsError;
+        if (addOnsError) {
+          console.error('❌ Booking add-ons insert failed:', addOnsError);
+          throw new Error(`${addOnsError.code || 'BOOKING_ADDONS'}: ${addOnsError.message}`);
+        }
       }
 
       // Create chat thread using chat service
@@ -261,6 +273,7 @@ class BookingService {
       });
 
       if (!chatResult.success) {
+        console.error('❌ Chat thread creation failed:', chatResult.error);
         throw new Error(chatResult.error || 'Failed to create chat thread');
       }
 
@@ -282,6 +295,7 @@ class BookingService {
         },
       };
     } catch (error) {
+      console.error('❌ Booking creation failed:', error);
       return {
         success: false,
         data: null as any,

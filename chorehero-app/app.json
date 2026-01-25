@@ -27,10 +27,7 @@
         "NSPhotoLibraryUsageDescription": "ChoreHero needs photo library access to upload service photos and profile images.",
         "NSContactsUsageDescription": "ChoreHero needs contacts access to help you invite friends and family.",
         "UIBackgroundModes": [
-          "location",
-          "background-processing",
-          "location",
-          "background-processing"
+          "location"
         ]
       },
       "runtimeVersion": "1.1.0"

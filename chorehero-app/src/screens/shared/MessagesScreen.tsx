@@ -22,6 +22,7 @@ import { useMessages, type Conversation } from '../../context/MessageContext';
 import { useRoleFeatures } from '../../components/RoleBasedUI';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { getConversationId } from '../../utils/conversationId';
 
 // Navigation types
 type StackParamList = {
@@ -61,6 +62,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           .from('chat_threads')
           .select(`
             id,
+            conversation_id,
             customer_id,
             cleaner_id,
             booking_id,
@@ -81,9 +83,38 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
         }
 
         if (chatThreads && chatThreads.length > 0) {
+          const activeStatuses = ['confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'];
+          const { data: activeBookings } = await supabase
+            .from('bookings')
+            .select('id, cleaner_id, status')
+            .eq('customer_id', user.id)
+            .in('status', activeStatuses);
+
+          const activeBookingMap = new Map<string, string>();
+          (activeBookings || []).forEach((booking: any) => {
+            if (booking.cleaner_id) {
+              activeBookingMap.set(booking.cleaner_id, booking.id);
+            }
+          });
+
+          const groupedThreads = new Map<string, any>();
+          chatThreads.forEach((thread: any) => {
+            const conversationId = thread.conversation_id || getConversationId(thread.customer_id, thread.cleaner_id);
+            const existing = groupedThreads.get(conversationId);
+            if (!existing) {
+              groupedThreads.set(conversationId, thread);
+              return;
+            }
+            const existingLast = existing.last_message_at || '';
+            const nextLast = thread.last_message_at || '';
+            if (nextLast > existingLast) {
+              groupedThreads.set(conversationId, thread);
+            }
+          });
+
           // Transform chat threads to conversations
           const realConversations: Conversation[] = await Promise.all(
-            chatThreads.map(async (thread) => {
+            Array.from(groupedThreads.values()).map(async (thread) => {
               // Find the other participant (if user is customer, get cleaner and vice versa)
               const otherParticipantId = thread.customer_id === user.id 
                 ? thread.cleaner_id 
@@ -111,8 +142,12 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
                 ? new Date(thread.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : '';
 
+              const conversationId = thread.conversation_id || getConversationId(thread.customer_id, thread.cleaner_id);
+              const activeBookingId = activeBookingMap.get(otherParticipantId) || null;
+
               return {
                 id: thread.id,
+                conversationId,
                 participant: {
                   id: otherUser?.id || otherParticipantId,
                   name: otherUser?.name || 'Unknown User',
@@ -123,6 +158,8 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
                 lastTimestamp,
                 unreadCount,
                 bookingId: thread.booking_id || thread.id,
+                activeBookingId,
+                hasActiveJob: Boolean(activeBookingId),
               };
             })
           );
@@ -162,7 +199,8 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
     <TouchableOpacity
       style={styles.conversationCard}
       onPress={() => navigation.navigate('IndividualChat', {
-        bookingId: item.bookingId,
+        bookingId: item.activeBookingId || item.bookingId,
+        roomId: item.id,
         otherParticipant: {
           id: item.participant.id,
           name: item.participant.name,
@@ -174,17 +212,22 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       <Image source={{ uri: item.participant.avatar }} style={styles.avatar} />
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
-          <Text style={styles.participantName}>{item.participant.name}</Text>
-          <View style={styles.rightSection}>
-            <Text style={styles.timestamp}>{item.lastTimestamp}</Text>
-            {item.unreadCount > 0 && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadCount}>{item.unreadCount}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.participantName}>{item.participant.name}</Text>
+            {item.hasActiveJob && (
+              <View style={styles.activeJobBadge}>
+                <Text style={styles.activeJobText}>Active Job</Text>
               </View>
             )}
           </View>
+          <View style={styles.rightSection}>
+            <Text style={styles.timestamp}>{item.lastTimestamp}</Text>
+            {item.unreadCount > 0 && (
+              <View style={styles.unreadDot} />
+            )}
+          </View>
         </View>
-        <Text style={[styles.lastMessage, item.unreadCount > 0 && styles.unreadMessage]} numberOfLines={1}>
+        <Text style={styles.lastMessage} numberOfLines={1}>
           {item.lastMessage}
         </Text>
       </View>
@@ -236,7 +279,18 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
         <View style={styles.fixedBottomButton}>
           <TouchableOpacity 
             style={styles.findCleanersButton}
-            onPress={() => navigation.navigate('Discover')}
+            onPress={() => {
+              const routes = (navigation as any)?.getState?.()?.routeNames || [];
+              if (routes.includes('Discover')) {
+                navigation.navigate('Discover' as any);
+                return;
+              }
+              if (routes.includes('MainTabs')) {
+                navigation.navigate('MainTabs' as any, { screen: 'Discover' });
+                return;
+              }
+              navigation.navigate('MainTabs' as any);
+            }}
           >
             <Ionicons name="people" size={20} color="#ffffff" />
             <Text style={styles.findCleanersButtonText}>Find Cleaners</Text>
@@ -250,7 +304,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           currentScreen="Messages"
         />
       ) : (
-        <FloatingNavigation navigation={navigation} currentScreen="Messages" />
+      <FloatingNavigation navigation={navigation} currentScreen="Messages" />
       )}
     </SafeAreaView>
   );
@@ -288,10 +342,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    margin: 20,
-    borderRadius: 16,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    marginTop: 12,
+    borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -337,21 +393,17 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   listContent: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
   },
   conversationCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    position: 'relative',
+    backgroundColor: 'transparent',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF2F7',
   },
   avatar: {
     width: 48,
@@ -368,11 +420,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
   participantName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#1F2937',
-    flex: 1,
+  },
+  activeJobBadge: {
+    backgroundColor: '#ECFDF3',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  activeJobText: {
+    color: '#16A34A',
+    fontSize: 11,
+    fontWeight: '600',
   },
   rightSection: {
     alignItems: 'flex-end',
@@ -384,26 +452,15 @@ const styles = StyleSheet.create({
   },
   lastMessage: {
     fontSize: 14,
-    color: '#6B7280',
-    marginTop: 2,
+    color: '#9CA3AF',
+    marginTop: 4,
   },
-  unreadMessage: {
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  unreadBadge: {
-    backgroundColor: '#3ad3db',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  unreadCount: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#26B7C9',
+    marginTop: 6,
   },
   fixedBottomButton: {
     position: 'absolute',

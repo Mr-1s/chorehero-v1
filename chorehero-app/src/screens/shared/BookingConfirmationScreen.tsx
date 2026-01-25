@@ -226,8 +226,8 @@ const BookingConfirmationScreen = (props: any) => {
 
   const handleGoHome = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Navigate back to MainTabs home
-    navigation.navigate('MainTabs', { screen: 'Home' });
+    // Navigate back to MainTabs
+    navigation.navigate('MainTabs');
   };
 
   return (

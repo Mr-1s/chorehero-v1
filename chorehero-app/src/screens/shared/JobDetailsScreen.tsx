@@ -65,6 +65,13 @@ interface JobDetails {
     duration: number;
     estimatedCompletion: string;
   };
+  household: {
+    bedrooms?: number;
+    bathrooms?: number;
+    squareFeet?: number;
+    hasPets?: boolean | null;
+    petDetails?: string | null;
+  };
   payment: {
     total: number;
     cleanerEarnings: number;
@@ -82,6 +89,52 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   const [job, setJob] = useState<JobDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const payoutDetails = useMemo(() => {
+    if (!job) return null;
+    const hours = Math.max(job.schedule.duration / 60, 0.5);
+    const net = job.payment.cleanerEarnings || 0;
+    const gross = net > 0 ? net / 0.8 : 0;
+    const rate = gross > 0 ? gross / hours : 0;
+    const platformFee = gross * 0.2;
+    const payout = net;
+    return { hours, rate, gross, platformFee, payout };
+  }, [job]);
+  const householdDetails = useMemo(() => {
+    if (!job) return null;
+    const rooms =
+      job.household.bedrooms || job.household.bathrooms
+        ? `${job.household.bedrooms ?? 0} bed · ${job.household.bathrooms ?? 0} bath`
+        : 'Not provided';
+    const squareFeet = job.household.squareFeet
+      ? `${job.household.squareFeet} sq ft`
+      : 'Sq ft not set';
+    const pets =
+      job.household.hasPets === null || job.household.hasPets === undefined
+        ? 'Pets: Unknown'
+        : job.household.hasPets
+          ? 'Pets: Yes'
+          : 'Pets: No';
+    return { rooms, squareFeet, pets };
+  }, [job]);
+  const vibeDetails = useMemo(() => {
+    if (!job) return null;
+    const petsNote = job.household.petDetails?.trim();
+    const pets = job.household.hasPets
+      ? petsNote || 'Pets: Yes'
+      : job.household.hasPets === false
+        ? 'Pets: No'
+        : 'Pets: Unknown';
+    const access = job.location.accessInstructions?.trim();
+    const notes = job.service.specialInstructions?.trim();
+    if (!petsNote && !access && !notes && job.household.hasPets === undefined) {
+      return null;
+    }
+    return {
+      pets,
+      access,
+      notes,
+    };
+  }, [job]);
 
   // Get bookings from store to find the actual status
   const { availableBookings, activeBookings, pastBookings } = useCleanerStore();
@@ -155,13 +208,20 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
             latitude: 37.7749,
             longitude: -122.4194,
           },
-          accessInstructions: storeBooking.hasSpecialRequests ? storeBooking.specialRequestText : undefined,
+          accessInstructions: storeBooking.accessInstructions || undefined,
         },
         schedule: {
           date: new Date(storeBooking.scheduledAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
           time: new Date(storeBooking.scheduledAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
           duration: storeBooking.durationMinutes,
           estimatedCompletion: new Date(new Date(storeBooking.scheduledAt).getTime() + storeBooking.durationMinutes * 60000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        },
+        household: {
+          bedrooms: storeBooking.bedrooms,
+          bathrooms: storeBooking.bathrooms,
+          squareFeet: storeBooking.squareFeet,
+          hasPets: storeBooking.hasPets,
+          petDetails: storeBooking.petDetails || null,
         },
         payment: {
           total: storeBooking.totalPrice,
@@ -434,14 +494,32 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
               </View>
             )}
 
-            {job.service.specialInstructions && (
-              <View style={styles.instructionsContainer}>
-                <Text style={styles.instructionsTitle}>Special Instructions:</Text>
-                <Text style={styles.instructionsText}>{job.service.specialInstructions}</Text>
-              </View>
-            )}
           </View>
         </View>
+
+        {vibeDetails && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Vibe & Access</Text>
+            <View style={styles.vibeCard}>
+              <View style={styles.vibeRow}>
+                <Ionicons name="paw-outline" size={18} color="#14B8A6" />
+                <Text style={styles.vibeText}>{vibeDetails.pets}</Text>
+              </View>
+              {vibeDetails.access && (
+                <View style={styles.vibeRow}>
+                  <Ionicons name="key-outline" size={18} color="#14B8A6" />
+                  <Text style={styles.vibeText}>{vibeDetails.access}</Text>
+                </View>
+              )}
+              {vibeDetails.notes && (
+                <View style={styles.vibeRow}>
+                  <Ionicons name="alert-circle-outline" size={18} color="#14B8A6" />
+                  <Text style={styles.vibeText}>{vibeDetails.notes}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Schedule & Location */}
         <View style={styles.section}>
@@ -466,6 +544,32 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
               </View>
             </View>
 
+            {householdDetails && (
+              <View style={styles.householdRow}>
+                <View style={styles.householdItem}>
+                  <Ionicons name="home-outline" size={18} color="#10B981" />
+                  <View style={styles.householdInfo}>
+                    <Text style={styles.householdLabel}>Rooms</Text>
+                    <Text style={styles.householdValue}>{householdDetails.rooms}</Text>
+                  </View>
+                </View>
+                <View style={styles.householdItem}>
+                  <Ionicons name="expand-outline" size={18} color="#10B981" />
+                  <View style={styles.householdInfo}>
+                    <Text style={styles.householdLabel}>Sq Ft</Text>
+                    <Text style={styles.householdValue}>{householdDetails.squareFeet}</Text>
+                  </View>
+                </View>
+                <View style={styles.householdItem}>
+                  <Ionicons name="paw-outline" size={18} color="#10B981" />
+                  <View style={styles.householdInfo}>
+                    <Text style={styles.householdLabel}>Pets</Text>
+                    <Text style={styles.householdValue}>{householdDetails.pets}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             <View style={styles.locationContainer}>
               <View style={styles.locationHeader}>
                 <Ionicons name="location-outline" size={20} color="#F59E0B" />
@@ -478,13 +582,6 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
                 </TouchableOpacity>
               </View>
               <Text style={styles.locationAddress}>{job.location.address}</Text>
-              
-              {job.location.accessInstructions && (
-                <View style={styles.accessInstructions}>
-                  <Text style={styles.accessTitle}>Access Instructions:</Text>
-                  <Text style={styles.accessText}>{job.location.accessInstructions}</Text>
-                </View>
-              )}
             </View>
           </View>
         </View>
@@ -493,18 +590,24 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Payment Details</Text>
           <View style={styles.paymentCard}>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Total Job Value</Text>
-              <Text style={styles.paymentValue}>${job.payment.total.toFixed(2)}</Text>
-            </View>
-            <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Platform Fee</Text>
-              <Text style={styles.paymentValue}>-${job.payment.platformFee.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.paymentRow, styles.paymentRowTotal]}>
-              <Text style={styles.paymentLabelTotal}>Your Earnings</Text>
-              <Text style={styles.paymentValueTotal}>${job.payment.cleanerEarnings.toFixed(2)}</Text>
-            </View>
+            {payoutDetails && (
+              <>
+                <View style={[styles.paymentRow, styles.paymentRowTotal]}>
+                  <Text style={styles.paymentLabelTotal}>Total Payout</Text>
+                  <Text style={styles.paymentValueTotal}>${payoutDetails.payout.toFixed(2)}</Text>
+                </View>
+                <View style={styles.paymentRow}>
+                  <Text style={styles.paymentLabel}>Rate x Hours</Text>
+                  <Text style={styles.paymentValue}>
+                    ${payoutDetails.rate.toFixed(2)}/hr x {payoutDetails.hours.toFixed(1)}h
+                  </Text>
+                </View>
+                <View style={styles.paymentRow}>
+                  <Text style={styles.paymentLabel}>Platform Fee (20%)</Text>
+                  <Text style={styles.paymentValue}>-${payoutDetails.platformFee.toFixed(2)}</Text>
+                </View>
+              </>
+            )}
             <Text style={styles.paymentMethod}>Payment: {job.payment.paymentMethod}</Text>
           </View>
         </View>
@@ -729,21 +832,22 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginLeft: 8,
   },
-  instructionsContainer: {
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 16,
+  vibeCard: {
+    backgroundColor: '#F0FDFA',
+    borderRadius: 12,
+    padding: 16,
   },
-  instructionsTitle: {
-    fontSize: 14,
+  vibeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 10,
+  },
+  vibeText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0F172A',
     fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  instructionsText: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 20,
   },
   scheduleLocationCard: {
     backgroundColor: '#F9FAFB',
@@ -771,6 +875,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  householdRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  householdItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  householdInfo: {
+    marginLeft: 8,
+  },
+  householdLabel: {
+    fontSize: 11,
+    color: '#047857',
+    marginBottom: 2,
+    fontWeight: '600',
+  },
+  householdValue: {
+    fontSize: 12,
+    color: '#0F172A',
+    fontWeight: '600',
   },
   locationContainer: {
     borderTopWidth: 1,
@@ -804,21 +936,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     marginBottom: 12,
-  },
-  accessInstructions: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    padding: 12,
-  },
-  accessTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#92400E',
-    marginBottom: 4,
-  },
-  accessText: {
-    fontSize: 12,
-    color: '#92400E',
   },
   paymentCard: {
     backgroundColor: '#F9FAFB',

@@ -19,9 +19,9 @@ import {
   FlatList,
   RefreshControl,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, { FadeIn } from 'react-native-reanimated';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
 // Store
@@ -40,6 +40,7 @@ import { cleanerTheme } from '../../utils/theme';
 import type { Booking, JobFilter, JobTab } from '../../types/cleaner';
 
 const { colors, typography, spacing, radii, shadows } = cleanerTheme;
+const BRAND_TEAL = '#26B7C9';
 
 type StackParamList = {
   JobsScreen: undefined;
@@ -52,16 +53,9 @@ type JobsScreenProps = {
 };
 
 const TABS: { key: JobTab; label: string }[] = [
-  { key: 'available', label: 'Available' },
-  { key: 'active', label: 'Active' },
+  { key: 'available', label: 'New Requests' },
+  { key: 'active', label: 'Upcoming' },
   { key: 'history', label: 'History' },
-];
-
-const FILTERS: { key: JobFilter; label: string }[] = [
-  { key: 'all', label: 'All Jobs' },
-  { key: 'today', label: 'Today' },
-  { key: 'tomorrow', label: 'Tomorrow' },
-  { key: 'week', label: 'This Week' },
 ];
 
 const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
@@ -84,7 +78,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
 
   // Local state
   const [activeTab, setActiveTab] = useState<JobTab>('available');
-  const [selectedFilter, setSelectedFilter] = useState<JobFilter>('all');
+  const [selectedFilter] = useState<JobFilter>('all');
   const [acceptingJobId, setAcceptingJobId] = useState<string | null>(null);
 
   // Load data on mount
@@ -107,6 +101,11 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
   }, [activeTab, availableBookings, activeBookings, pastBookings, selectedFilter]);
 
   const bookings = getBookingsForTab();
+  const todayActive = activeBookings.find((booking) => {
+    const date = new Date(booking.scheduledAt);
+    const now = new Date();
+    return date.toDateString() === now.toDateString();
+  });
 
   // Handlers
   const handleAcceptJob = async (bookingId: string) => {
@@ -176,7 +175,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
             <Chip
               label={tab.label}
               variant={isActive ? 'filled' : 'outline'}
-              color="primary"
+              color="teal"
               isActive={isActive}
               onPress={() => setActiveTab(tab.key)}
               style={styles.tabChip}
@@ -189,39 +188,34 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
   );
 
   // Render filter bar (only for available tab)
-  const renderFilterBar = () => {
-    if (activeTab !== 'available') return null;
-    
-    return (
-      <Animated.View entering={FadeIn.duration(300)} style={styles.filterBar}>
-        {FILTERS.map((filter) => (
-          <Chip
-            key={filter.key}
-            label={filter.label}
-            variant="outline"
-            color="primary"
-            size="sm"
-            isActive={selectedFilter === filter.key}
-            onPress={() => setSelectedFilter(filter.key)}
-          />
-        ))}
-      </Animated.View>
-    );
-  };
+  const renderFilterBar = () => null;
 
   // Render job card
-  const renderJobCard = ({ item, index }: { item: Booking; index: number }) => (
-    <JobCard
-      booking={item}
-      variant={activeTab}
-      onPress={() => handleJobPress(item)}
-      onAccept={() => handleAcceptJob(item.id)}
-      onDecline={() => handleDeclineJob(item.id)}
-      onStartTraveling={() => handleStartTraveling(item.id)}
-      isAccepting={acceptingJobId === item.id}
-      delay={index * 50}
-    />
-  );
+  const renderJobCard = ({ item, index }: { item: Booking; index: number }) => {
+    const showEmergencyTag =
+      activeTab === 'available' &&
+      (item.isInstant || item.serviceType.toLowerCase().includes('emergency'));
+    return (
+      <View style={styles.jobCardWrapper}>
+        {showEmergencyTag && (
+          <View style={styles.emergencyTag}>
+            <Ionicons name="flash" size={12} color="#FFFFFF" />
+            <Text style={styles.emergencyTagText}>Emergency Clean</Text>
+          </View>
+        )}
+        <JobCard
+          booking={item}
+          variant={activeTab}
+          onPress={() => handleJobPress(item)}
+          onAccept={() => handleAcceptJob(item.id)}
+          onDecline={() => handleDeclineJob(item.id)}
+          onStartTraveling={() => handleStartTraveling(item.id)}
+          isAccepting={acceptingJobId === item.id}
+          delay={index * 50}
+        />
+      </View>
+    );
+  };
 
   // Render empty state
   const renderEmptyState = () => (
@@ -259,7 +253,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Jobs</Text>
         <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>{availableBookings.length} available</Text>
+          <Text style={styles.headerBadgeText}>{availableBookings.length} new</Text>
         </View>
       </View>
 
@@ -268,6 +262,21 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
 
       {/* Filter Bar */}
       {renderFilterBar()}
+
+      {todayActive && (
+        <View style={styles.activeJobCard}>
+          <Text style={styles.activeJobTitle}>Today’s Job</Text>
+          <Text style={styles.activeJobName}>{todayActive.customerName}</Text>
+          <Text style={styles.activeJobMeta}>Access Instructions</Text>
+          <Text style={styles.activeJobInstructions}>
+            {todayActive.specialRequestText || 'Check the lockbox by the front door.'}
+          </Text>
+          <TouchableOpacity style={styles.slideButton} onPress={() => handleStartTraveling(todayActive.id)}>
+            <Ionicons name="car" size={18} color="#FFFFFF" />
+            <Text style={styles.slideButtonText}>Slide to Start Heading</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Job List */}
       {isLoading ? (
@@ -321,7 +330,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   headerBadge: {
-    backgroundColor: colors.primaryLight,
+    backgroundColor: 'rgba(38, 183, 201, 0.12)',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radii.pill,
@@ -329,7 +338,55 @@ const styles = StyleSheet.create({
   headerBadgeText: {
     fontSize: typography.labelSmall.fontSize,
     fontWeight: typography.label.fontWeight,
-    color: colors.primary,
+    color: BRAND_TEAL,
+  },
+  activeJobCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: spacing.xl,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: radii.card,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(38, 183, 201, 0.35)',
+    ...shadows.soft,
+  },
+  activeJobTitle: {
+    fontSize: typography.label.fontSize,
+    fontWeight: '700',
+    color: BRAND_TEAL,
+    marginBottom: 6,
+  },
+  activeJobName: {
+    fontSize: typography.title.fontSize,
+    fontWeight: typography.title.fontWeight,
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  activeJobMeta: {
+    fontSize: typography.labelSmall.fontSize,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  activeJobInstructions: {
+    fontSize: typography.body.fontSize,
+    color: colors.textSecondary,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  slideButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: BRAND_TEAL,
+    paddingVertical: 12,
+    borderRadius: radii.pill,
+  },
+  slideButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: typography.label.fontSize,
   },
   tabBar: {
     flexDirection: 'row',
@@ -347,7 +404,7 @@ const styles = StyleSheet.create({
   tabIndicator: {
     height: 3,
     width: '80%',
-    backgroundColor: colors.primary,
+    backgroundColor: BRAND_TEAL,
     borderRadius: 2,
     marginTop: spacing.xs,
   },
@@ -361,6 +418,25 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.xl,
     paddingBottom: 120, // Account for bottom nav
+  },
+  jobCardWrapper: {
+    marginBottom: spacing.md,
+  },
+  emergencyTag: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F97316',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  emergencyTagText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   loadingContainer: {
     flex: 1,

@@ -5,6 +5,11 @@ export interface BaseUser {
   name: string;
   username?: string; // optional handle, unique when set
   avatar_url?: string;
+  customer_onboarding_state?: string;
+  customer_onboarding_step?: number;
+  cleaner_onboarding_state?: string;
+  cleaner_onboarding_step?: number;
+  role_locked?: boolean;
   created_at: string;
   updated_at: string;
   profile_completed?: boolean;

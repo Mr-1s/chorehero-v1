@@ -15,6 +15,7 @@ import {
   Platform,
   Alert,
   Modal,
+  TextInput,
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { BlurView } from 'expo-blur';
@@ -31,6 +32,8 @@ import { presenceService } from '../../services/presenceService';
 import { notificationService } from '../../services/notificationService';
 
 import { useAuth } from '../../hooks/useAuth';
+import AuthModal from '../../components/AuthModal';
+import { setPendingAuthAction, setPostAuthRoute } from '../../utils/authPendingAction';
 import { availabilityService } from '../../services/availabilityService';
 import { supabase } from '../../services/supabase';
 
@@ -43,6 +46,13 @@ type TabParamList = {
   Messages: undefined;
   Profile: undefined;
   CleanerProfile: { cleanerId: string };
+  BookingSummary: {
+    cleanerId: string;
+    cleanerName?: string;
+    hourlyRate?: number;
+    selectedService?: string;
+    selectedTime?: string;
+  };
 };
 
 type CleanerProfileScreenNavigationProp = StackNavigationProp<TabParamList, 'CleanerProfile'>;
@@ -84,13 +94,13 @@ interface CleanerVideo {
 }
 
 const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation, route }) => {
-  const { cleanerId } = route.params || {};
+  const { cleanerId, activeTab: initialTab } = route.params || {};
   const { user } = useAuth();
   // Call hooks unconditionally and before any early returns to avoid hook-order errors
   const { width: winWidth } = useWindowDimensions();
   const isNarrow = winWidth < 360;
   const videoCardWidth = isNarrow ? winWidth - 40 : (winWidth - 40 - 16) / 2;
-  const [activeTab, setActiveTab] = useState<'videos' | 'services' | 'reviews' | 'about'>('videos');
+  const [activeTab, setActiveTab] = useState<'videos' | 'services' | 'reviews' | 'about'>(initialTab || 'videos');
   const [showFullBio, setShowFullBio] = useState(false);
   const [cleaner, setCleaner] = useState<any | null>(null);
   const [services, setServices] = useState<CleanerService[]>([]);
@@ -108,6 +118,39 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
   const [loadingAvailability, setLoadingAvailability] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
   const [presence, setPresence] = useState<{ online: boolean; last_seen_at?: string } | null>(null);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [authModalVisible, setAuthModalVisible] = useState(false);
+  const [userZip, setUserZip] = useState<string | null>(null);
+  const [proZip, setProZip] = useState<string | null>(null);
+  const [distanceMiles, setDistanceMiles] = useState<number | null>(null);
+  const [isInServiceArea, setIsInServiceArea] = useState(false);
+  const [waitlistModalVisible, setWaitlistModalVisible] = useState(false);
+  const [waitlistPhone, setWaitlistPhone] = useState('');
+  const [waitlistZip, setWaitlistZip] = useState('');
+  const [waitlistSubmitting, setWaitlistSubmitting] = useState(false);
+  const requireAuth = async (actionType: 'SAVE' | 'MESSAGE' | 'BOOK', providerId: string) => {
+    await setPostAuthRoute({ name: 'CleanerProfile', params: { cleanerId: providerId, activeTab } });
+    if (actionType === 'SAVE') {
+      await setPendingAuthAction({ type: 'SAVE', providerId });
+    }
+    setAuthModalVisible(true);
+  };
+  const reviewCount = reviews.length;
+  const displayRate = cleaner?.profile?.hourly_rate || services?.[0]?.price || 0;
+  const availabilityStatus = nextAvailable === 'No availability this week' ? 'none_this_week' : 'available';
+
+  const calculateDistance = (zipA?: string | null, zipB?: string | null): number | null => {
+    if (!zipA || !zipB) return null;
+    if (zipA === zipB) return 0;
+    const diff = Math.abs(Number.parseInt(zipA, 10) - Number.parseInt(zipB, 10));
+    if (Number.isNaN(diff)) return null;
+    return Math.min(50, diff / 10);
+  };
+
+  const openWaitlistModal = () => {
+    setWaitlistZip(prev => prev || userZip || proZip || '');
+    setWaitlistModalVisible(true);
+  };
   
   // Animation values
   const saveButtonScale = useRef(new Animated.Value(1)).current;
@@ -124,6 +167,16 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     })();
     return () => { if (unsub) unsub(); };
   }, [cleanerId]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('blur', () => {
+      setVideoModalVisible(false);
+      setWaitlistModalVisible(false);
+      setAuthModalVisible(false);
+      setSelectedVideo(null);
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // Load saved following state from storage
   useEffect(() => {
@@ -299,7 +352,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           title: post.title || 'Cleaning Video',
           description: post.description || '',
           media_url: post.media_url,
-          thumbnail_url: post.thumbnail_url,
+          thumbnail_url: post.thumbnail_url || post.media_url,
           view_count: post.view_count || 0,
           like_count: post.like_count || 0,
           created_at: post.created_at
@@ -359,6 +412,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
 
         let cleanerData: any = null; let cleanerError: any = null;
         let cleanerProfileData: any = null;
+        let followersTotal = 0;
         
         if (isUuid) {
           // Fetch user data
@@ -390,6 +444,16 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             cleanerProfileData = profileData;
             console.log('📋 Loaded cleaner profile:', cleanerProfileData);
           }
+
+          // Fetch follower count
+          const { count: followersCount, error: followersError } = await supabase
+            .from('user_follows')
+            .select('*', { count: 'exact', head: true })
+            .eq('following_id', idToLoad);
+          if (followersError) {
+            console.warn('⚠️ Error fetching follower count:', followersError);
+          }
+          followersTotal = followersCount || 0;
         }
 
         if (cleanerError || !cleanerData) {
@@ -417,6 +481,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               },
             };
             setCleaner(demoCleanerData);
+            setFollowerCount(0);
           } else {
             console.error('❌ Error fetching cleaner data:', cleanerError);
             setCleaner(null);
@@ -431,6 +496,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               hourly_rate: cleanerProfileData?.hourly_rate || 0,
               rating_average: cleanerProfileData?.rating_average || 0,
               total_jobs: cleanerProfileData?.total_jobs || 0,
+              followers_count: followersTotal,
               bio: cleanerProfileData?.bio || 'Professional cleaning specialist',
               specialties: cleanerProfileData?.specialties || [],
               verification_status: cleanerProfileData?.verification_status || 'pending',
@@ -440,6 +506,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               years_experience: cleanerProfileData?.years_experience || 0,
             },
           });
+          setFollowerCount(followersTotal);
         }
 
         // Load cleaner's services (skip when not UUID)
@@ -515,8 +582,53 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     fetchCleanerData();
   }, [cleanerId]);
 
+  useEffect(() => {
+    const loadZipContext = async () => {
+      try {
+        const storedGuestZip = await AsyncStorage.getItem('guest_zip');
+        if (storedGuestZip) setUserZip(storedGuestZip);
+
+        if (user?.id) {
+          const { data: userAddress } = await supabase
+            .from('addresses')
+            .select('zip_code')
+            .eq('user_id', user.id)
+            .eq('is_default', true)
+            .limit(1)
+            .single();
+          if (userAddress?.zip_code) setUserZip(userAddress.zip_code);
+        }
+
+        if (cleaner?.id) {
+          const { data: cleanerAddress } = await supabase
+            .from('addresses')
+            .select('zip_code')
+            .eq('user_id', cleaner.id)
+            .eq('is_default', true)
+            .limit(1)
+            .single();
+          if (cleanerAddress?.zip_code) setProZip(cleanerAddress.zip_code);
+        }
+      } catch (error) {
+        console.warn('⚠️ Error loading zip context:', error);
+      }
+    };
+    loadZipContext();
+  }, [user?.id, cleaner?.id]);
+
+  useEffect(() => {
+    const miles = calculateDistance(userZip, proZip);
+    setDistanceMiles(miles);
+    const radiusMiles = Math.round((cleaner?.profile?.service_radius_km || 0) * 0.621);
+    setIsInServiceArea(miles !== null && radiusMiles > 0 && miles <= radiusMiles);
+  }, [userZip, proZip, cleaner?.profile?.service_radius_km]);
+
   // Animate save button on press
   const handleSavePress = () => {
+    if (!user?.id) {
+      requireAuth('SAVE', cleanerId);
+      return;
+    }
     Animated.sequence([
       Animated.timing(saveButtonScale, {
         toValue: 0.95,
@@ -647,12 +759,14 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           <Text style={styles.servicePrice}>${service.price}</Text>
           <TouchableOpacity 
             style={styles.bookNowButton}
-            onPress={() => navigation.navigate('NewBookingFlow', {
-              cleanerId: cleaner?.id,
-              serviceType: service.category,
-              serviceName: service.name,
-              basePrice: service.price
-            })}
+            onPress={() =>
+              navigation.navigate('BookingSummary', {
+                cleanerId: cleaner?.id,
+                cleanerName: cleaner?.name,
+                hourlyRate: service.price,
+                selectedService: service.title || service.name,
+              })
+            }
           >
             <LinearGradient
               colors={['#3ad3db', '#2BC8D4']}
@@ -701,6 +815,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           source: 'cleaner',
           cleanerId: cleanerId,
           initialVideoId: video.id,
+          proId: cleanerId,
         });
       }}
     >
@@ -709,15 +824,8 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           <Image 
             source={{ uri: video.thumbnail_url }} 
             style={styles.videoThumbnail}
-          />
-        ) : video.media_url ? (
-          <Video
-            source={{ uri: video.media_url }}
-            style={styles.videoThumbnail}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false}
-            isMuted={true}
-            positionMillis={1000}
+            resizeMode="cover"
+            fadeDuration={120}
           />
         ) : (
           <LinearGradient
@@ -816,21 +924,35 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 <View style={styles.locationContainer}>
                   <Ionicons name="location-outline" size={14} color={COLORS.primary} />
                   <Text style={styles.locationText}>
-                    {cleaner.profile.coverage_area || 'Location not set'}
+                    {distanceMiles !== null
+                      ? `${distanceMiles.toFixed(1)} mi away`
+                      : cleaner.profile.coverage_area || 'Distance unavailable'}
                   </Text>
                   {cleaner.profile.service_radius_km > 0 && (
                     <Text style={styles.distanceText}>
                       • {Math.round(cleaner.profile.service_radius_km * 0.621)} mi radius
                     </Text>
                   )}
+                  {isInServiceArea && (
+                    <Text style={styles.serviceAreaText}>Services your area</Text>
+                  )}
                 </View>
                 <View style={styles.ratingContainer}>
-                  <Ionicons name="star" size={16} color="#fbbf24" />
-                  <Text style={styles.ratingText}>
-                    {cleaner.profile.rating_average > 0 
-                      ? `${cleaner.profile.rating_average} (${cleaner.profile.total_jobs} reviews)`
-                      : 'New cleaner'}
-                  </Text>
+                  {reviewCount === 0 ? (
+                    <View style={styles.newHeroBadge}>
+                      <Ionicons name="sparkles" size={14} color="#0891b2" />
+                      <Text style={styles.newHeroText}>New Hero</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Ionicons name="star" size={16} color="#fbbf24" />
+                      <Text style={styles.ratingText}>
+                        {cleaner.profile.rating_average > 0 
+                          ? `${cleaner.profile.rating_average} (${reviewCount} reviews)`
+                          : 'New Hero'}
+                      </Text>
+                    </>
+                  )}
                 </View>
               </View>
             </View>
@@ -879,14 +1001,14 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
-                    <Text style={styles.statValue}>&lt; 1 hour</Text>
-                    <Text style={styles.statLabel}>Avg Response</Text>
+                    <Ionicons name="people-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statValue}>{followerCount}</Text>
+                    <Text style={styles.statLabel}>Followers</Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
                     <Text style={styles.statValue}>
-                      {cleaner.profile.hourly_rate > 0 ? `$${cleaner.profile.hourly_rate}/hr` : 'Contact'}
+                      {displayRate > 0 ? `$${displayRate}/hr` : 'Contact'}
                     </Text>
                     <Text style={styles.statLabel}>Rate</Text>
                   </View>
@@ -898,13 +1020,13 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                     <Text style={styles.statCollapsedText}>{cleaner.profile.total_jobs} bookings</Text>
                   </View>
                   <View style={styles.statCollapsedItem}>
-                    <Ionicons name="time-outline" size={16} color="#3ad3db" />
-                    <Text style={styles.statCollapsedText}>&lt; 1 hour</Text>
+                    <Ionicons name="people-outline" size={16} color="#3ad3db" />
+                    <Text style={styles.statCollapsedText}>{followerCount} followers</Text>
                   </View>
                   <View style={styles.statCollapsedItem}>
                     <Ionicons name="pricetag-outline" size={16} color="#3ad3db" />
                     <Text style={styles.statCollapsedText}>
-                      {cleaner.profile.hourly_rate > 0 ? `$${cleaner.profile.hourly_rate}/hr` : 'Contact'}
+                      {displayRate > 0 ? `$${displayRate}/hr` : 'Contact'}
                     </Text>
                   </View>
                 </View>
@@ -928,9 +1050,19 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               <TouchableOpacity 
                 style={styles.primaryActionButton}
                 onPress={() => {
-                  navigation.navigate('NewBookingFlow', {
+                  if (availabilityStatus === 'none_this_week') {
+                    openWaitlistModal();
+                    return;
+                  }
+                  if (!user?.id) {
+                    requireAuth('BOOK', cleanerId);
+                    return;
+                  }
+                  navigation.navigate('BookingSummary', {
                     cleanerId: cleaner?.id,
-                    serviceName: 'Cleaning Service'
+                    cleanerName: cleaner?.name,
+                    hourlyRate: displayRate,
+                    selectedService: 'Cleaning Service',
                   });
                 }}
               >
@@ -939,7 +1071,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   style={styles.primaryActionGradient}
                 >
                   <Ionicons name="calendar" size={20} color="white" />
-                  <Text style={styles.primaryActionText}>Book Service</Text>
+                  <Text style={styles.primaryActionText}>
+                    {availabilityStatus === 'none_this_week' ? `Join ${cleaner?.name || 'This'}'s Waitlist` : 'Book Service'}
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
               
@@ -949,11 +1083,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   onPress={async () => {
                     // Check if user is authenticated
                     if (!user) {
-                      Alert.alert(
-                        'Sign In Required',
-                        'Please sign in to message cleaners.',
-                        [{ text: 'OK', style: 'default' }]
-                      );
+                      requireAuth('MESSAGE', cleanerId);
                       return;
                     }
 
@@ -1033,9 +1163,17 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   <Text style={styles.loadingText}>Loading videos...</Text>
                 </View>
               ) : videos.length > 0 ? (
-                <View style={styles.videosGrid}>
-                  {videos.map(renderVideoCard)}
-                </View>
+                <FlatList
+                  data={videos}
+                  renderItem={({ item }) => renderVideoCard(item)}
+                  keyExtractor={(item) => item.id}
+                  numColumns={2}
+                  columnWrapperStyle={styles.videoColumn}
+                  scrollEnabled={false}
+                  removeClippedSubviews
+                  initialNumToRender={4}
+                  windowSize={5}
+                />
               ) : (
                 <View style={styles.emptyVideoState}>
                   <Ionicons name="videocam-outline" size={48} color="#C7C7CC" />
@@ -1043,6 +1181,29 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   <Text style={styles.emptyVideoSubtitle}>
                     This cleaner hasn't shared any videos of their work yet.
                   </Text>
+                  <TouchableOpacity
+                    style={styles.requestVideoButton}
+                    onPress={() => {
+                      if (!user?.id) {
+                        requireAuth('MESSAGE', cleanerId);
+                        return;
+                      }
+                      const participant: MessageParticipant = {
+                        id: cleaner.id,
+                        name: cleaner.name,
+                        avatar: cleaner.avatar_url || '',
+                        role: 'cleaner',
+                      };
+                      routeToMessage({
+                        participant,
+                        navigation,
+                        currentUserId: user.id,
+                      });
+                    }}
+                  >
+                    <Ionicons name="megaphone-outline" size={18} color="#ffffff" />
+                    <Text style={styles.requestVideoText}>Request a Video</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -1056,11 +1217,39 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
 
           {activeTab === 'reviews' && (
             <View>
-              {reviews.slice(0, 2).map(renderReviewCard)}
-              {reviews.length > 2 && (
-                <TouchableOpacity style={styles.viewAllReviewsButton}>
-                  <Text style={styles.viewAllReviewsText}>View All {reviews.length} Reviews</Text>
-                </TouchableOpacity>
+              {reviews.length === 0 ? (
+                <View style={styles.emptyReviewsContainer}>
+                  <Ionicons name="star-outline" size={48} color="#D1D5DB" />
+                  <Text style={styles.emptyReviewsTitle}>No Reviews Yet</Text>
+                  <Text style={styles.emptyReviewsText}>
+                    Be the first to leave a review after booking with this cleaner!
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {/* Show rating summary */}
+                  <View style={styles.ratingSummaryCard}>
+                    <View style={styles.ratingSummaryLeft}>
+                      <Text style={styles.ratingBigNumber}>
+                        {cleaner?.profile?.rating_average?.toFixed(1) || 'New'}
+                      </Text>
+                      <View style={styles.ratingStarsRow}>
+                        {[...Array(5)].map((_, index) => (
+                          <Ionicons
+                            key={index}
+                            name={index < Math.round(cleaner?.profile?.rating_average || 0) ? "star" : "star-outline"}
+                            size={18}
+                            color="#FFD700"
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.ratingCountText}>{reviews.length} reviews</Text>
+                    </View>
+                  </View>
+                  
+                  {/* Show all reviews */}
+                  {reviews.map(renderReviewCard)}
+                </>
               )}
             </View>
           )}
@@ -1140,6 +1329,85 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 <Ionicons name="heart" size={16} color="#EF4444" />
                 <Text style={styles.videoModalStatText}>{selectedVideo?.like_count} likes</Text>
               </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        onOpenEmail={() => {
+          setAuthModalVisible(false);
+          navigation.navigate('AuthScreen');
+        }}
+      />
+
+      <Modal
+        visible={waitlistModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setWaitlistModalVisible(false)}
+      >
+        <View style={styles.waitlistOverlay}>
+          <View style={styles.waitlistCard}>
+            <Text style={styles.waitlistTitle}>Join {cleaner?.name || 'this'}'s Waitlist</Text>
+            <Text style={styles.waitlistSubtitle}>
+              We’ll text you when {cleaner?.name || 'this pro'} opens availability.
+            </Text>
+            <TextInput
+              style={styles.waitlistInput}
+              placeholder="Phone number"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="phone-pad"
+              value={waitlistPhone}
+              onChangeText={setWaitlistPhone}
+            />
+            <TextInput
+              style={styles.waitlistInput}
+              placeholder="ZIP code"
+              placeholderTextColor="#9CA3AF"
+              keyboardType="number-pad"
+              maxLength={5}
+              value={waitlistZip}
+              onChangeText={(text) => setWaitlistZip(text.replace(/\D/g, '').slice(0, 5))}
+            />
+            <View style={styles.waitlistActions}>
+              <TouchableOpacity
+                style={styles.waitlistCancel}
+                onPress={() => setWaitlistModalVisible(false)}
+              >
+                <Text style={styles.waitlistCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.waitlistSubmit}
+                onPress={async () => {
+                  const digits = waitlistPhone.replace(/\D/g, '');
+                  if (digits.length < 10 || waitlistZip.length !== 5) {
+                    Alert.alert('Missing Info', 'Enter a valid phone and ZIP.');
+                    return;
+                  }
+                  try {
+                    setWaitlistSubmitting(true);
+                    const { error } = await supabase.from('waitlist_leads').insert({
+                      phone: digits,
+                      zip_code: waitlistZip,
+                      primary_service_needed: `Cleaner waitlist - ${cleaner?.name || 'Pro'}`,
+                    });
+                    if (error) throw error;
+                    setWaitlistModalVisible(false);
+                    Alert.alert('Added!', `We'll notify you when ${cleaner?.name || 'this pro'} is available.`);
+                  } catch (error) {
+                    Alert.alert('Waitlist', 'Unable to join waitlist. Try again.');
+                  } finally {
+                    setWaitlistSubmitting(false);
+                  }
+                }}
+                disabled={waitlistSubmitting}
+              >
+                <Text style={styles.waitlistSubmitText}>
+                  {waitlistSubmitting ? 'Adding…' : 'Join Waitlist'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -1299,10 +1567,30 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     fontWeight: '400',
   },
+  serviceAreaText: {
+    fontSize: 12,
+    color: '#059669',
+    marginLeft: 6,
+    fontWeight: '600',
+  },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2,
+  },
+  newHeroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  newHeroText: {
+    marginLeft: 6,
+    fontSize: 13,
+    color: '#0891b2',
+    fontWeight: '700',
   },
   ratingText: {
     fontSize: 15,
@@ -1723,6 +2011,67 @@ const styles = StyleSheet.create({
     color: '#3ad3db',
     fontWeight: '600',
   },
+  // Empty reviews state
+  emptyReviewsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  emptyReviewsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyReviewsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  // Rating summary card
+  ratingSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 2,
+    borderColor: 'rgba(58, 211, 219, 0.15)',
+  },
+  ratingSummaryLeft: {
+    alignItems: 'center',
+  },
+  ratingBigNumber: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: '#1F2937',
+    letterSpacing: -1,
+  },
+  ratingStarsRow: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 8,
+  },
+  ratingCountText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
   aboutCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -1897,6 +2246,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 24,
   },
+  videoColumn: {
+    justifyContent: 'space-between',
+    gap: 14,
+    marginBottom: 14,
+  },
   videoCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
@@ -2031,6 +2385,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  requestVideoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3ad3db',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    gap: 8,
+    marginTop: 16,
+  },
+  requestVideoText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2103,6 +2472,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#FFFFFF',
     fontWeight: '500',
+  },
+  waitlistOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  waitlistCard: {
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  waitlistTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  waitlistSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  waitlistInput: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  waitlistActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 6,
+  },
+  waitlistCancel: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  waitlistCancelText: {
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  waitlistSubmit: {
+    backgroundColor: '#3ad3db',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  waitlistSubmitText: {
+    color: '#ffffff',
+    fontWeight: '700',
   },
 });
 

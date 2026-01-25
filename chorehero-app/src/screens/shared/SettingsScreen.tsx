@@ -221,46 +221,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         return;
       }
 
-      if (isAuthenticated) {
-        // For real authenticated users, we need to implement account type switching in the database
-        // This would require updating the user's role in the database
-        Alert.alert(
-          'Switch Account Type',
-          'Account type switching for authenticated users is not yet implemented. Please contact support.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-
-      // For demo users, switch demo role
-      const currentRole = isCleaner ? 'cleaner' : 'customer';
-      const newRole = currentRole === 'cleaner' ? 'customer' : 'cleaner';
-      
+      const currentRole = ((user as any)?.role || (isCleaner ? 'cleaner' : 'customer')) as 'customer' | 'cleaner';
+      const newRole: 'customer' | 'cleaner' = currentRole === 'cleaner' ? 'customer' : 'cleaner';
+      await AsyncStorage.setItem('interface_role_override', newRole);
       Alert.alert(
-        'Switch Account Type',
-        `Switch from ${currentRole} to ${newRole}?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Switch',
-            onPress: async () => {
-              try {
-                // Use the proper demo system
-                const cleanerType = newRole === 'cleaner' ? 'sarah' : undefined;
-                // Demo functionality removed - contact support for account type changes
-                
-                Alert.alert(
-                  'Account Switched',
-                  `You are now using the app as a ${newRole}. The interface will update automatically.`,
-                  [{ text: 'OK' }]
-                );
-              } catch (error) {
-                console.error('Error switching account:', error);
-                Alert.alert('Error', 'Failed to switch account type');
-              }
-            },
-          },
-        ]
+        'Experience Switched',
+        `You're now viewing the ${newRole} experience.`,
+        [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
       );
     } catch (error) {
       console.error('Error in handleSwitchAccount:', error);

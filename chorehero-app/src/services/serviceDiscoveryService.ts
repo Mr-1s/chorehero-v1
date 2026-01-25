@@ -44,7 +44,7 @@ class ServiceDiscoveryService {
         .from('users')
         .select(`
           id,
-          profile:user_profiles(
+          profile:cleaner_profiles(
             specialties,
             hourly_rate,
             rating_average,
@@ -94,7 +94,7 @@ class ServiceDiscoveryService {
           id,
           name,
           avatar_url,
-          profile:user_profiles(
+          profile:cleaner_profiles(
             hourly_rate,
             rating_average,
             total_jobs,
@@ -175,7 +175,7 @@ class ServiceDiscoveryService {
           id,
           name,
           avatar_url,
-          profile:user_profiles(
+          profile:cleaner_profiles(
             hourly_rate,
             rating_average,
             total_jobs,
