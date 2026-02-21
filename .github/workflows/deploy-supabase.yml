@@ -24,6 +24,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
-          cd chorehero-app/supabase
+          cd chorehero-app
+          supabase link --project-ref $SUPABASE_PROJECT_REF
           supabase functions deploy create-payment-intent
           supabase functions deploy stripe-webhook --no-verify-jwt
