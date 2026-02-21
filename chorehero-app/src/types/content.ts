@@ -55,6 +55,15 @@ export interface ContentPost {
   user_has_liked?: boolean;
   user_interaction_type?: InteractionType;
   is_following_user?: boolean;
+
+  // Package fields (bookable content)
+  package_type?: 'fixed' | 'estimate' | 'hourly' | 'contact';
+  base_price_cents?: number;
+  price_range?: { min: number; max: number };
+  included_tasks?: string[];
+  estimated_hours?: number;
+  service_radius_miles?: number;
+  is_bookable?: boolean;
 }
 
 export interface ContentInteraction {
@@ -181,6 +190,14 @@ export interface CreateContentRequest {
     duration_display?: string;
     [key: string]: any;
   };
+  /** Package fields for bookable content */
+  package_type?: 'fixed' | 'estimate' | 'hourly' | 'contact';
+  base_price_cents?: number;
+  price_range?: { min: number; max: number };
+  included_tasks?: string[];
+  estimated_hours?: number;
+  service_radius_miles?: number;
+  is_bookable?: boolean;
 }
 
 export interface UpdateContentRequest {
@@ -189,6 +206,13 @@ export interface UpdateContentRequest {
   location_name?: string;
   tags?: string[];
   status?: ContentStatus;
+  package_type?: 'fixed' | 'estimate' | 'hourly' | 'contact';
+  base_price_cents?: number;
+  price_range?: { min: number; max: number };
+  included_tasks?: string[];
+  estimated_hours?: number;
+  service_radius_miles?: number;
+  is_bookable?: boolean;
 }
 
 export interface ContentFeedResponse {

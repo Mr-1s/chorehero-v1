@@ -17,8 +17,13 @@ CREATE TABLE IF NOT EXISTS public.users (
 -- Create index on email for fast lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 
--- Create index on account_type for filtering
-CREATE INDEX IF NOT EXISTS idx_users_account_type ON public.users(account_type);
+-- Create index on account_type for filtering (only if column exists; 001 uses role)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'account_type') THEN
+    CREATE INDEX IF NOT EXISTS idx_users_account_type ON public.users(account_type);
+  END IF;
+END $$;
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -30,6 +35,7 @@ END;
 $$ language 'plpgsql';
 
 -- Create trigger to automatically update updated_at
+DROP TRIGGER IF EXISTS update_users_updated_at ON public.users;
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON public.users
     FOR EACH ROW
@@ -38,22 +44,18 @@ CREATE TRIGGER update_users_updated_at
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
--- Create policy for users to read their own data
+-- Create policy for users to read their own data (idempotent)
+DROP POLICY IF EXISTS "Users can read own data" ON public.users;
 CREATE POLICY "Users can read own data" ON public.users
     FOR SELECT USING (auth.uid()::text = id::text);
 
--- Create policy for users to update their own data
+DROP POLICY IF EXISTS "Users can update own data" ON public.users;
 CREATE POLICY "Users can update own data" ON public.users
     FOR UPDATE USING (auth.uid()::text = id::text);
 
--- Create policy for inserting new users (handled by auth service)
+DROP POLICY IF EXISTS "Enable insert for service role" ON public.users;
 CREATE POLICY "Enable insert for service role" ON public.users
     FOR INSERT WITH CHECK (true);
 
--- Add comments for documentation
-COMMENT ON TABLE public.users IS 'User accounts for both customers and cleaners';
-COMMENT ON COLUMN public.users.email IS 'Unique email address used for authentication';
-COMMENT ON COLUMN public.users.password_hash IS 'Hashed password for security';
-COMMENT ON COLUMN public.users.account_type IS 'Type of account: customer or cleaner';
-COMMENT ON COLUMN public.users.profile_completed IS 'Whether user has completed onboarding';
-COMMENT ON COLUMN public.users.email_verified IS 'Whether email address has been verified'; 
+-- Add comments for documentation (idempotent: columns may not exist if 001 created users)
+COMMENT ON TABLE public.users IS 'User accounts for both customers and cleaners'; 

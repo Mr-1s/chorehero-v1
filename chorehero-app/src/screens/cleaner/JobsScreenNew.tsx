@@ -10,6 +10,8 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../../hooks/useAuth';
+import { cleanerBookingService } from '../../services/cleanerBookingService';
 import {
   View,
   Text,
@@ -60,7 +62,8 @@ const TABS: { key: JobTab; label: string }[] = [
 
 const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
   const { showToast } = useToast();
-  
+  const { user } = useAuth();
+
   // Store state
   const {
     availableBookings,
@@ -85,6 +88,22 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
   useEffect(() => {
     fetchDashboard();
   }, []);
+
+  // Real-time subscription for new marketplace jobs
+  useEffect(() => {
+    const cleanerId = user?.id;
+    if (!cleanerId || cleanerId.startsWith('demo_')) return;
+
+    const unsubscribe = cleanerBookingService.subscribeToNewBookings(
+      cleanerId,
+      () => {
+        fetchDashboard();
+        showToast?.({ type: 'info', message: 'New job available!' });
+      }
+    );
+
+    return unsubscribe;
+  }, [user?.id]);
 
   // Get bookings based on active tab
   const getBookingsForTab = useCallback((): Booking[] => {
@@ -118,7 +137,8 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation }) => {
       });
       setActiveTab('active'); // Switch to active tab
     } catch (error) {
-      showToast?.({ type: 'error', message: 'Failed to accept job' });
+      const msg = error instanceof Error ? error.message : 'Failed to accept job';
+      showToast?.({ type: 'error', message: msg });
     } finally {
       setAcceptingJobId(null);
     }

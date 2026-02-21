@@ -329,18 +329,11 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
       // Check if this is a valid UUID (real booking)
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       
-      if (isValidUUID) {
-        // Update booking status in database
-        const { error: updateError } = await supabase
-          .from('bookings')
-          .update({ 
-            status: 'completed',
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', id);
-
-        if (updateError) {
-          console.error('❌ Error completing booking:', updateError);
+      if (isValidUUID && currentCleaner?.id) {
+        // Use RPC for atomic complete (verifies cleaner owns booking, status is in_progress)
+        const success = await cleanerBookingService.markJobComplete(id, currentCleaner.id);
+        if (!success) {
+          console.error('❌ Error completing booking');
           return;
         }
 

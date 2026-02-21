@@ -14,8 +14,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,13 +28,28 @@ import * as Location from 'expo-location';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { decode } from 'base64-arraybuffer';
+import { uploadService } from '../../services/uploadService';
+import { contentService } from '../../services/contentService';
 import { milestoneNotificationService } from '../../services/milestoneNotificationService';
 import { zipLookupService } from '../../services/zipLookupService';
 import { setCleanerOnboardingOverride } from '../../utils/onboardingOverride';
 import { useToast } from '../../components/Toast';
 
+const VIDEO_LIMITS = { maxDurationSeconds: 45, minDurationSeconds: 5, maxFileSizeMB: 50 };
+const INCLUDED_TASKS = ['Inside oven', 'Stovetop deep clean', 'Refrigerator', 'Baseboards', 'Cabinets', 'Countertops', 'Sinks', 'Floors'];
+
+const STEP_THEMES: Record<number, { icon: string; label: string; color: string }> = {
+  1: { icon: '👋', label: 'Introduce Yourself', color: '#FF6B6B' },
+  2: { icon: '🗺️', label: 'Set Your Territory', color: '#4ECDC4' },
+  3: { icon: '🎬', label: 'Create Your Offer', color: '#45B7D1' },
+  4: { icon: '👀', label: 'Review', color: '#96CEB4' },
+  5: { icon: '🔒', label: 'Verify ID', color: '#96CEB4' },
+};
+
 type StackParamList = {
   CleanerOnboarding: undefined;
+  OnboardingComplete: undefined;
   MainTabs: undefined;
 };
 
@@ -41,71 +60,53 @@ interface CleanerOnboardingProps {
 }
 
 interface CleanerOnboardingData {
-  // Step 1: Basic Info
+  // Step 1: Professional Profile
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
   profilePhoto: string;
   dateOfBirth: string;
-  
-  // Step 2: Professional Background
-  yearsExperience: string;
-  previousEmployer: string;
-  references: string;
-  hasInsurance: boolean;
-  insuranceProvider: string;
-  hasTransportation: boolean;
-  transportationDetails: string;
-  
-  // Step 3: Service Area & Availability
+  bio: string;
+  specialty: string;
+  // Step 2: Service Area & Availability
   serviceRadius: string;
   serviceZip: string;
   availableDays: string[];
   availableHours: string;
   serviceTypes: string[];
   specializations: string[];
-  
-  // Step 4: Equipment & Pricing
   providesEquipment: boolean;
-  equipmentDetails: string;
   providesSupplies: boolean;
-  supplyDetails: string;
-  hourlyRate: string;
-  minimumBooking: string;
-  
-  // Step 5: Skills Assessment
-  cleaningKnowledge: number;
-  customerService: number;
-  timeManagement: number;
-  portfolioPhotos: string[];
-  workSamples: string;
-  auditionVideo: string;
-  
-  // Step 6: Legal & Verification
-  hasWorkAuthorization: boolean;
-  socialSecurityNumber: string;
-  driversLicense: string;
-  emergencyContact: string;
-  emergencyPhone: string;
+  // Step 3: Create Package (video + pricing)
+  packageVideoUri: string;
+  packageTitle: string;
+  packageType: 'fixed' | 'hourly' | 'contact';
+  packagePrice: string;
+  estimatedHours: number;
+  includedTasks: string[];
+  // Step 5: Background Check
+  idFrontPhoto: string;
+  idBackPhoto: string;
+  selfiePhoto: string;
   backgroundCheckConsent: boolean;
 }
 
 const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation }) => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [bypassMode, setBypassMode] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
   const hasAutoExited = useRef(false);
-  const totalSteps = 6;
+  const totalSteps = 5;
   const { refreshSession, refreshUser, authUser } = useAuth();
   const { showToast } = useToast();
 
   const getCleanerStateForStep = (step: number) => {
     if (step >= totalSteps) return 'STAGING';
-    if (step >= 5) return 'STAGING';
-    if (step >= 3) return 'SERVICE_DEFINED';
-    if (step >= 2) return 'UNDER_REVIEW';
+    if (step >= 4) return 'STAGING';
+    if (step >= 2) return 'SERVICE_DEFINED';
     return 'APPLICANT';
   };
 
@@ -207,13 +208,8 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     phone: '',
     profilePhoto: `https://ui-avatars.com/api/?name=Cleaner&background=3ad3db&color=fff&size=160&font-size=0.4&format=png`,
     dateOfBirth: '',
-    yearsExperience: '',
-    previousEmployer: '',
-    references: '',
-    hasInsurance: false,
-    insuranceProvider: '',
-    hasTransportation: true,
-    transportationDetails: '',
+    bio: '',
+    specialty: '',
     serviceRadius: '',
     serviceZip: '',
     availableDays: [],
@@ -221,22 +217,16 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     serviceTypes: [],
     specializations: [],
     providesEquipment: true,
-    equipmentDetails: '',
     providesSupplies: true,
-    supplyDetails: '',
-    hourlyRate: '',
-    minimumBooking: '',
-    cleaningKnowledge: 0,
-    customerService: 0,
-    timeManagement: 0,
-    portfolioPhotos: [],
-    workSamples: '',
-    auditionVideo: '',
-    hasWorkAuthorization: false,
-    socialSecurityNumber: '',
-    driversLicense: '',
-    emergencyContact: '',
-    emergencyPhone: '',
+    packageVideoUri: '',
+    packageTitle: '',
+    packageType: 'fixed',
+    packagePrice: '',
+    estimatedHours: 2,
+    includedTasks: [],
+    idFrontPhoto: '',
+    idBackPhoto: '',
+    selfiePhoto: '',
     backgroundCheckConsent: false,
   });
 
@@ -269,49 +259,106 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     setData(prev => ({ ...prev, [field]: value }));
   };
 
-  const toggleArrayItem = (field: keyof CleanerOnboardingData, item: string) => {
-    const currentArray = data[field] as string[];
-    const updatedArray = currentArray.includes(item)
-      ? currentArray.filter(i => i !== item)
-      : [...currentArray, item];
-    updateData(field, updatedArray);
+  const toggleArrayItem = (field: 'availableDays' | 'serviceTypes' | 'specializations', item: string) => {
+    const arr = data[field];
+    const updated = arr.includes(item) ? arr.filter((i) => i !== item) : [...arr, item];
+    updateData(field, updated);
+  };
+
+  const toggleIncludedTask = (task: string) => {
+    const updated = data.includedTasks.includes(task)
+      ? data.includedTasks.filter(t => t !== task)
+      : [...data.includedTasks, task];
+    updateData('includedTasks', updated);
   };
 
   const validateStep = (step: number): string | null => {
     switch (step) {
       case 1:
-        if (!data.firstName || !data.lastName || !data.email || !data.phone) {
-          return 'Please fill in all required fields';
+        if (!data.firstName?.trim() || !data.lastName?.trim() || !data.email?.trim() || !data.phone?.trim() || !data.dateOfBirth?.trim()) {
+          return 'Please fill in name, email, phone, and date of birth';
         }
         break;
       case 2:
-        if (!data.yearsExperience || !data.hasInsurance) {
-          return 'Professional background information is required';
-        }
+        if (!data.serviceRadius?.trim()) return 'Please select your service radius';
         break;
       case 3:
-        if (!data.serviceRadius || data.serviceTypes.length === 0) {
-          return 'Please specify your service area and types';
+        if (!data.packageVideoUri) return 'Please record or upload a video for your package';
+        if (!data.packageTitle?.trim()) return 'Please enter a package name';
+        if (data.packageType !== 'contact' && (!data.packagePrice?.trim() || parseFloat(data.packagePrice) <= 0)) {
+          return 'Please enter a valid price';
         }
         break;
       case 5:
-        break;
-      case 6:
-        if (!data.hasWorkAuthorization || !data.emergencyContact || !data.backgroundCheckConsent) {
-          return 'Legal verification and consent are required';
-        }
+        if (!data.idFrontPhoto) return 'Please capture a photo of your ID (front)';
+        if (!data.idBackPhoto) return 'Please capture a photo of your ID (back)';
+        if (!data.selfiePhoto) return 'Please take a selfie';
+        if (!data.backgroundCheckConsent) return 'Please consent to the background check to continue';
         break;
     }
     return null;
   };
 
-  const handleNext = () => {
-    if (!bypassMode) {
-      const error = validateStep(currentStep);
-      if (error) {
-        Alert.alert('Incomplete Information', error);
+  const handleNext = async () => {
+    const error = validateStep(currentStep);
+    if (error) {
+      Alert.alert('Incomplete Information', error);
+      return;
+    }
+
+    if (currentStep === 3 && data.packageVideoUri) {
+      // Upload video and create package before moving to Step 4
+      await refreshSession();
+      const userId = await resolveUserId();
+      if (!userId) {
+        Alert.alert('Authentication required', 'Please sign in again.');
         return;
       }
+      setIsUploadingVideo(true);
+      try {
+        const response = await uploadService.uploadFile(
+          data.packageVideoUri,
+          'video',
+          (p) => setVideoUploadProgress(p.progress),
+          { maxFileSize: VIDEO_LIMITS.maxFileSizeMB * 1024 * 1024 }
+        );
+        if (!response.success || !response.url) {
+          throw new Error(response.error || 'Upload failed');
+        }
+        let thumbnailUrl: string | undefined;
+        try {
+          const thumb = await VideoThumbnails.getThumbnailAsync(data.packageVideoUri, { time: 1000, quality: 0.7 });
+          const thumbRes = await uploadService.uploadFile(thumb.uri, 'image');
+          if (thumbRes.success && thumbRes.url) thumbnailUrl = thumbRes.url;
+        } catch {}
+        const priceCents = data.packageType !== 'contact' && data.packagePrice
+          ? Math.round(parseFloat(data.packagePrice) * 100)
+          : undefined;
+        const postRes = await contentService.createPost(userId, {
+          title: data.packageTitle,
+          description: data.bio || '',
+          content_type: 'video',
+          media_url: response.url,
+          thumbnail_url: thumbnailUrl,
+          status: 'published',
+          tags: ['cleaning', 'onboarding'],
+          is_bookable: true,
+          package_type: data.packageType,
+          base_price_cents: priceCents,
+          estimated_hours: data.packageType !== 'contact' ? data.estimatedHours : undefined,
+          included_tasks: data.includedTasks.length ? data.includedTasks : undefined,
+        });
+        if (!postRes.success) throw new Error(postRes.error);
+        setCurrentStep(4);
+        persistProgress(4);
+      } catch (err) {
+        console.error('Package upload error:', err);
+        Alert.alert('Upload Failed', err instanceof Error ? err.message : 'Please try again.');
+      } finally {
+        setIsUploadingVideo(false);
+        setVideoUploadProgress(0);
+      }
+      return;
     }
 
     if (currentStep < totalSteps) {
@@ -455,74 +502,84 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           ? `${data.availableDays.join(', ')} • ${data.availableHours || 'Flexible'}`
           : 'Flexible';
         const bioSummary = [
-          `Experience: ${data.yearsExperience || 'N/A'}`,
-          `Services: ${data.serviceTypes?.join(', ') || 'Standard cleaning'}`,
-          `Transportation: ${data.hasTransportation ? 'Yes' : 'No'}`,
+          data.bio || 'Professional cleaner',
+          data.specialty ? `Specialty: ${data.specialty}` : null,
           `Availability: ${availabilitySummary}`,
           `Service Radius: ${computedRadius} miles`,
-          data.workSamples ? `Work Samples: ${data.workSamples}` : null,
-          `Authorized to work: ${data.hasWorkAuthorization ? 'Yes' : 'No'}`,
-          `Emergency Contact: ${data.emergencyContact} (${data.emergencyPhone})`,
-          `Background Check Consent: ${data.backgroundCheckConsent ? 'Yes' : 'No'}`,
+          `Equipment: ${data.providesEquipment ? 'Yes' : 'No'}`,
+          `Supplies: ${data.providesSupplies ? 'Yes' : 'No'}`,
         ]
           .filter(Boolean)
           .join('\n');
 
-        // Create cleaner profile with available fields
+        // Derive hourly_rate from first package for backward compatibility
+        const packagePrice = data.packageType !== 'contact' ? parseFloat(data.packagePrice) : 0;
+        const hourlyRate = data.packageType === 'hourly' ? packagePrice : (data.packageType === 'fixed' && data.estimatedHours > 0 ? packagePrice / data.estimatedHours : 25);
+
+        // Create cleaner profile
         const { error: cleanerError } = await withTimeout(
           supabase
             .from('cleaner_profiles')
             .insert([{
               user_id: userId,
-              hourly_rate: Number.parseFloat(data.hourlyRate) || 25.00,
+              hourly_rate: hourlyRate > 0 ? hourlyRate : 25.00,
               bio: bioSummary,
-              years_experience: Number.parseInt(data.yearsExperience || '0', 10) || 0,
-              specialties: data.serviceTypes?.length ? data.serviceTypes : ['standard_cleaning'],
-              service_radius_km: Math.round(computedRadius * 1.60934), // Convert miles to km
+              years_experience: 0,
+              specialties: data.specialty ? [data.specialty] : ['standard_cleaning'],
+              service_radius_km: Math.round(computedRadius * 1.60934),
               verification_status: 'pending',
-              background_check_status: 'pending',
-              is_available: false, // Will be activated after verification
+              background_check_status: 'pending', // Triggered at first booking
+              provides_equipment: data.providesEquipment,
+              provides_supplies: data.providesSupplies,
+              is_available: true, // Immediately bookable
             }]),
           15000,
           'Create cleaner profile'
         );
 
-        // Also create an address record for the cleaner if complete
-        if (!cleanerError) {
-          const hasAddress =
-            Boolean(data.address?.trim()) &&
-            Boolean(data.city?.trim()) &&
-            Boolean(data.state?.trim()) &&
-            Boolean(data.zipCode?.trim());
-
-          if (hasAddress) {
-            const { error: addressError } = await withTimeout(
-              supabase
-                .from('addresses')
-                .insert([{
-                  user_id: userId,
-                  street: data.address?.trim(),
-                  city: data.city?.trim(),
-                  state: data.state?.trim(),
-                  zip_code: data.zipCode?.trim(),
-                  is_default: true,
-                  nickname: 'Service Address',
-                }]),
-              15000,
-              'Create address'
-            );
-
-            if (addressError) {
-              console.error('Error creating cleaner address:', addressError);
-            }
-          } else {
-            console.warn('Skipping cleaner address insert due to missing fields');
-          }
-        }
-
         if (cleanerError && cleanerError.code !== '23505') {
           console.error('Error creating cleaner profile:', cleanerError);
           throw new Error('Failed to create cleaner profile: ' + cleanerError.message);
+        }
+
+        // Step 5: Upload verification docs and create background check (MVP manual review)
+        if (data.idFrontPhoto && data.idBackPhoto && data.selfiePhoto) {
+          try {
+            const uploadToStorage = async (uri: string, path: string): Promise<string> => {
+              const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+              const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
+              const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+              const { data: uploadData, error } = await supabase.storage
+                .from('verification-docs')
+                .upload(path, decode(base64), { contentType: mime, upsert: true });
+              if (error) throw error;
+              return uploadData.path;
+            };
+            const idFrontPath = await uploadToStorage(data.idFrontPhoto, `${userId}/id-front.jpg`);
+            const idBackPath = await uploadToStorage(data.idBackPhoto, `${userId}/id-back.jpg`);
+            const selfiePath = await uploadToStorage(data.selfiePhoto, `${userId}/selfie.jpg`);
+
+            const { error: bcError } = await supabase.from('background_checks').insert({
+              cleaner_id: userId,
+              id_front_url: idFrontPath,
+              id_back_url: idBackPath,
+              selfie_url: selfiePath,
+              status: 'pending_review',
+              submitted_at: new Date().toISOString(),
+            });
+            if (bcError) throw bcError;
+
+            await supabase
+              .from('cleaner_profiles')
+              .update({ verification_status: 'pending', onboarding_complete: true })
+              .eq('user_id', userId);
+          } catch (verifErr) {
+            console.error('Verification upload error:', verifErr);
+            if (String(verifErr).includes('Bucket not found') || String(verifErr).includes('verification-docs')) {
+              Alert.alert('Setup Required', 'Please create the verification-docs storage bucket in Supabase Dashboard.');
+            }
+            throw verifErr;
+          }
         }
 
         // Keep auth metadata in sync so the UI can show a name immediately
@@ -562,14 +619,13 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           }, 1200);
         });
         try {
-          await AsyncStorage.setItem('last_route', JSON.stringify({ name: 'MainTabs' }));
           await AsyncStorage.setItem('cleaner_onboarding_complete', 'true');
           setCleanerOnboardingOverride(true);
         } catch {}
         showToast({
           type: 'success',
           message:
-            'Hero launch confirmed! We’ll review your information and run a background check within 24–48 hours.',
+            "You're all set! We’ll review your information and run a background check within 24–48 hours.",
         });
         try {
           // Refresh user data - App.tsx will auto-navigate when role is detected
@@ -581,7 +637,7 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         // Ensure we leave onboarding even if role propagation is delayed
         navigation.reset({
           index: 0,
-          routes: [{ name: 'MainTabs' }],
+          routes: [{ name: 'OnboardingComplete' as any }],
         });
       } else {
         Alert.alert('Authentication required', 'Please sign in again to complete setup.');
@@ -595,30 +651,32 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     }
   };
 
+  const stepTheme = STEP_THEMES[currentStep] || STEP_THEMES[1];
+  const progressPct = (currentStep / totalSteps) * 100;
+
   const renderProgressBar = () => (
-    <View style={styles.progressContainer}>
+    <View style={[styles.progressContainer, { borderBottomWidth: 3, borderBottomColor: stepTheme.color + '40' }]}>
       <View style={styles.progressHeader}>
         <View style={styles.progressBar}>
-          <View 
+          <View
             style={[
-              styles.progressFill, 
-              { width: `${(currentStep / totalSteps) * 100}%` }
-            ]} 
+              styles.progressFill,
+              {
+                width: `${progressPct}%`,
+                backgroundColor: stepTheme.color,
+                shadowColor: stepTheme.color,
+              },
+            ]}
           />
         </View>
-        <Text style={styles.progressText}>Step {currentStep} of {totalSteps}</Text>
+        <View style={styles.stepLabelsRow}>
+          <Text style={[styles.stepLabelEmoji]}>{stepTheme.icon}</Text>
+          <Text style={[styles.stepLabelText, { color: stepTheme.color }]}>
+            {stepTheme.label}
+          </Text>
+          <Text style={styles.stepCounter}>Step {currentStep} of {totalSteps}</Text>
+        </View>
       </View>
-      {false && ( // Demo mode removed
-        <View style={styles.bypassContainer}>
-          <Text style={styles.bypassLabel}>Bypass Mode</Text>
-          <Switch
-            value={bypassMode}
-            onValueChange={setBypassMode}
-            trackColor={{ false: '#767577', true: '#26B7C9' }}
-            thumbColor={bypassMode ? '#ffffff' : '#f4f3f4'}
-          />
-        </View>
-      )}
     </View>
   );
 
@@ -632,6 +690,18 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
     >
       <Text style={styles.stepTitle}>Professional Profile</Text>
       <Text style={styles.stepSubtitle}>Let's set up your cleaner profile</Text>
+
+      {(() => {
+        const fields = [!!data.firstName?.trim(), !!data.lastName?.trim(), !!data.email?.trim(), !!data.phone?.trim(), !!data.dateOfBirth?.trim(), !!data.profilePhoto && !data.profilePhoto.includes('ui-avatars'), !!data.bio?.trim()];
+        const filled = fields.filter(Boolean).length;
+        const pct = Math.round((filled / 7) * 100);
+        return pct > 0 ? (
+          <View style={styles.profileStrengthBar}>
+            <View style={[styles.profileStrengthFill, { width: `${pct}%`, backgroundColor: stepTheme.color }]} />
+            <Text style={styles.profileStrengthText}>Profile {pct}% complete</Text>
+          </View>
+        ) : null;
+      })()}
 
       <TouchableOpacity
         style={styles.photoContainer}
@@ -658,156 +728,110 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       </TouchableOpacity>
 
       <View style={styles.inputRow}>
-        <View style={styles.inputHalf}>
+        <View style={[styles.inputHalf, styles.inputWithCheck]}>
           <Text style={styles.inputLabel}>First Name *</Text>
-          <TextInput
-            style={styles.textInput}
-            value={data.firstName}
-            onChangeText={(text) => updateData('firstName', text)}
-            placeholder="Sarah"
-            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 140, animated: true }), 150)}
-          />
+          <View style={styles.inputRowWithCheck}>
+            <TextInput
+              style={[styles.textInput, { flex: 1 }]}
+              value={data.firstName}
+              onChangeText={(text) => updateData('firstName', text)}
+              placeholder="Sarah"
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 140, animated: true }), 150)}
+            />
+            {!!data.firstName?.trim() && <Ionicons name="checkmark-circle" size={22} color="#22C55E" style={styles.fieldCheck} />}
+          </View>
         </View>
-        <View style={styles.inputHalf}>
+        <View style={[styles.inputHalf, styles.inputWithCheck]}>
           <Text style={styles.inputLabel}>Last Name *</Text>
-          <TextInput
-            style={styles.textInput}
-            value={data.lastName}
-            onChangeText={(text) => updateData('lastName', text)}
-            placeholder="Johnson"
-            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 160, animated: true }), 150)}
-          />
+          <View style={styles.inputRowWithCheck}>
+            <TextInput
+              style={[styles.textInput, { flex: 1 }]}
+              value={data.lastName}
+              onChangeText={(text) => updateData('lastName', text)}
+              placeholder="Johnson"
+              onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 160, animated: true }), 150)}
+            />
+            {!!data.lastName?.trim() && <Ionicons name="checkmark-circle" size={22} color="#22C55E" style={styles.fieldCheck} />}
+          </View>
         </View>
       </View>
 
-      <Text style={styles.inputLabel}>Email Address *</Text>
-      <TextInput
-        style={styles.textInput}
-        value={data.email}
-        onChangeText={(text) => updateData('email', text)}
-        placeholder="sarah.johnson@example.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 190, animated: true }), 150)}
-      />
-
-      <Text style={styles.inputLabel}>Phone Number *</Text>
-      <TextInput
-        style={styles.textInput}
-        value={data.phone}
-        onChangeText={(text) => updateData('phone', text)}
-        placeholder="+1 (555) 123-4567"
-        keyboardType="phone-pad"
-        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 240, animated: true }), 150)}
-      />
-
-      <Text style={styles.inputLabel}>Date of Birth *</Text>
-      <TextInput
-        style={styles.textInput}
-        value={data.dateOfBirth}
-        onChangeText={(text) => updateData('dateOfBirth', text)}
-        placeholder="MM/DD/YYYY"
-        onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 300, animated: true }), 150)}
-      />
-    </ScrollView>
-  );
-
-  const renderStep2 = () => (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.stepContainer}
-      contentContainerStyle={{ paddingBottom: 140 }}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.stepTitle}>Professional Background</Text>
-      <Text style={styles.stepSubtitle}>Tell us about your cleaning experience</Text>
-
-      <Text style={styles.inputLabel}>Years of Experience *</Text>
-      <View style={styles.optionRow}>
-        {['Less than 1', '1-2 years', '3-5 years', '5+ years'].map((option) => (
-          <TouchableOpacity
-            key={option}
-            style={[
-              styles.optionButton,
-              data.yearsExperience === option && styles.selectedOption
-            ]}
-            onPress={() => updateData('yearsExperience', option)}
-          >
-            <Text style={[
-              styles.optionText,
-              data.yearsExperience === option && styles.selectedOptionText
-            ]}>
-              {option}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.inputWithCheck}>
+        <Text style={styles.inputLabel}>Email Address *</Text>
+        <View style={styles.inputRowWithCheck}>
+          <TextInput
+            style={[styles.textInput, { flex: 1 }]}
+            value={data.email}
+            onChangeText={(text) => updateData('email', text)}
+            placeholder="sarah.johnson@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 190, animated: true }), 150)}
+          />
+          {!!data.email?.trim() && <Ionicons name="checkmark-circle" size={22} color="#22C55E" style={styles.fieldCheck} />}
+        </View>
       </View>
 
-      <Text style={styles.inputLabel}>Previous Employer/Experience</Text>
+      <View style={styles.inputWithCheck}>
+        <Text style={styles.inputLabel}>Phone Number *</Text>
+        <View style={styles.inputRowWithCheck}>
           <TextInput
-        style={[styles.textInput, styles.textArea]}
-        value={data.previousEmployer}
-        onChangeText={(text) => updateData('previousEmployer', text)}
-        placeholder="Previous cleaning companies, independent work, or relevant experience..."
-        multiline
-            numberOfLines={3}
+            style={[styles.textInput, { flex: 1 }]}
+            value={data.phone}
+            onChangeText={(text) => updateData('phone', text)}
+            placeholder="+1 (555) 123-4567"
+            keyboardType="phone-pad"
+            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 240, animated: true }), 150)}
+          />
+          {!!data.phone?.trim() && <Ionicons name="checkmark-circle" size={22} color="#22C55E" style={styles.fieldCheck} />}
+        </View>
+      </View>
+
+      <View style={styles.inputWithCheck}>
+        <Text style={styles.inputLabel}>Date of Birth *</Text>
+        <View style={styles.inputRowWithCheck}>
+          <TextInput
+            style={[styles.textInput, { flex: 1 }]}
+            value={data.dateOfBirth}
+            onChangeText={(text) => updateData('dateOfBirth', text)}
+            placeholder="MM/DD/YYYY"
             onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 300, animated: true }), 150)}
-      />
-
-      <Text style={styles.inputLabel}>References</Text>
-          <TextInput
-        style={[styles.textInput, styles.textArea]}
-        value={data.references}
-        onChangeText={(text) => updateData('references', text)}
-        placeholder="Previous employers or clients who can vouch for your work..."
-        multiline
-            numberOfLines={3}
-            onFocus={() => setTimeout(() => scrollRef.current?.scrollTo({ y: 380, animated: true }), 150)}
-      />
-
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>Do you have liability insurance? *</Text>
-          <Text style={styles.switchDescription}>Required for all cleaners</Text>
+          />
+          {!!data.dateOfBirth?.trim() && <Ionicons name="checkmark-circle" size={22} color="#22C55E" style={styles.fieldCheck} />}
         </View>
-        <Switch
-          value={data.hasInsurance}
-          onValueChange={(value) => updateData('hasInsurance', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.hasInsurance ? '#ffffff' : '#f4f3f4'}
-        />
       </View>
 
-      {data.hasInsurance && (
-        <>
-          <Text style={styles.inputLabel}>Insurance Provider</Text>
-          <TextInput
-            style={styles.textInput}
-            value={data.insuranceProvider}
-            onChangeText={(text) => updateData('insuranceProvider', text)}
-            placeholder="Insurance company name"
-          />
-        </>
-      )}
+      <Text style={styles.inputLabel}>Bio / Specialty</Text>
+      <TextInput
+        style={[styles.textInput, styles.textArea]}
+        value={data.bio}
+        onChangeText={(text) => updateData('bio', text)}
+        placeholder="e.g. Deep cleaning specialist, 5+ years experience..."
+        multiline
+        numberOfLines={3}
+      />
 
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>Do you have reliable transportation?</Text>
-          <Text style={styles.switchDescription}>Car, bike, or public transit</Text>
+      <Text style={[styles.inputLabel, { marginTop: 24 }]}>Preview</Text>
+      <View style={styles.profilePreviewCard}>
+        <Image source={{ uri: data.profilePhoto }} style={styles.profilePreviewPhoto} />
+        <View style={styles.profilePreviewContent}>
+          <Text style={styles.profilePreviewName}>
+            {data.firstName || data.lastName ? `${data.firstName} ${data.lastName}`.trim() || 'Your Name' : 'Your Name'}
+          </Text>
+          <View style={styles.profilePreviewBadge}>
+            <Text style={styles.profilePreviewBadgeText}>⭐ New Hero</Text>
+          </View>
+          <Text style={styles.profilePreviewBio} numberOfLines={3}>
+            {data.bio?.trim() || 'Your bio will appear here...'}
+          </Text>
+          <Text style={styles.profilePreviewLocation}>📍 {data.serviceZip || 'Your area'}</Text>
         </View>
-        <Switch
-          value={data.hasTransportation}
-          onValueChange={(value) => updateData('hasTransportation', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.hasTransportation ? '#ffffff' : '#f4f3f4'}
-        />
       </View>
     </ScrollView>
   );
 
-  const renderStep3 = () => {
-    const radiusMiles = data.serviceRadius.includes('5')
+  const renderStep2 = () => {
+    const radiusMiles = (data.serviceRadius || '').includes('5')
       ? 5
       : data.serviceRadius.includes('10')
         ? 10
@@ -853,6 +877,11 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         <Text style={styles.stepSubtitle}>Where and when do you want to work?</Text>
 
         <Text style={styles.inputLabel}>Service Radius *</Text>
+        {data.serviceRadius ? (
+          <Text style={styles.radiusHint}>
+            You'll see jobs within {data.serviceRadius.replace(/\D/g, '') || '10'} miles of your location
+          </Text>
+        ) : null}
         <View style={styles.optionRow}>
           {['5 miles', '10 miles', '20 miles'].map((option) => (
             <TouchableOpacity
@@ -907,14 +936,19 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
             <Circle
               center={serviceMapCenter}
               radius={radiusMeters}
-              fillColor="rgba(38, 183, 201, 0.15)"
-              strokeColor="rgba(38, 183, 201, 0.7)"
+              fillColor={STEP_THEMES[2].color + '25'}
+              strokeColor={STEP_THEMES[2].color + 'CC'}
               strokeWidth={2}
             />
           </MapView>
-          <Text style={styles.mapHint}>
-            {isResolvingZip ? 'Updating map from ZIP...' : 'Tap the map or use GPS to set your service area.'}
-          </Text>
+          <View style={styles.mapHintContainer}>
+            <Text style={[styles.mapHint, { color: STEP_THEMES[2].color, fontWeight: '600' }]}>
+              {isResolvingZip ? 'Updating map from ZIP...' : `You'll see jobs within ${radiusMiles} miles`}
+            </Text>
+            <Text style={styles.mapHintSub}>
+              {isResolvingZip ? '' : 'Tap the map or use GPS to set your center'}
+            </Text>
+          </View>
         </View>
 
       <Text style={styles.inputLabel}>Available Days</Text>
@@ -1000,6 +1034,287 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
           </TouchableOpacity>
         ))}
       </View>
+
+      <Text style={[styles.inputLabel, { marginTop: 24 }]}>What do you provide?</Text>
+      <View style={styles.switchRow}>
+        <View style={styles.switchInfo}>
+          <Text style={styles.switchLabel}>Cleaning equipment (vacuum, mop, etc.)</Text>
+          <Text style={styles.switchDescription}>Bring your own tools</Text>
+        </View>
+        <Switch
+          value={data.providesEquipment}
+          onValueChange={(v) => updateData('providesEquipment', v)}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
+          thumbColor={data.providesEquipment ? '#ffffff' : '#f4f3f4'}
+        />
+      </View>
+      <View style={styles.switchRow}>
+        <View style={styles.switchInfo}>
+          <Text style={styles.switchLabel}>Cleaning supplies (sprays, cloths, etc.)</Text>
+          <Text style={styles.switchDescription}>Bring your own products</Text>
+        </View>
+        <Switch
+          value={data.providesSupplies}
+          onValueChange={(v) => updateData('providesSupplies', v)}
+          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
+          thumbColor={data.providesSupplies ? '#ffffff' : '#f4f3f4'}
+        />
+      </View>
+      </ScrollView>
+    );
+  };
+
+  const renderStep3 = () => {
+    const handleRecordVideo = async () => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow camera access to record your intro video.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: VIDEO_LIMITS.maxDurationSeconds,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        updateData('packageVideoUri', result.assets[0].uri);
+      }
+    };
+
+    const handleUploadVideo = async () => {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow photo access to upload your video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: VIDEO_LIMITS.maxDurationSeconds,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        updateData('packageVideoUri', result.assets[0].uri);
+      }
+    };
+
+    return (
+      <ScrollView
+        ref={scrollRef}
+        style={styles.stepContainer}
+        contentContainerStyle={{ paddingBottom: 140 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.stepTitle}>Create Your First Package</Text>
+        <Text style={styles.stepSubtitle}>Record or upload a video, then add pricing</Text>
+
+        <Text style={styles.inputLabel}>Video *</Text>
+        {!data.packageVideoUri ? (
+          <>
+            <View style={[styles.videoAuditionCard, { borderColor: STEP_THEMES[3].color + '60' }]}>
+              <Ionicons name="videocam" size={28} color={STEP_THEMES[3].color} />
+              <Text style={styles.videoAuditionTitle}>Your Hero Audition</Text>
+              <Text style={styles.videoAuditionText}>Share your vibe and specialty. 15-45 seconds.</Text>
+              <View style={styles.videoActionRow}>
+                <TouchableOpacity style={[styles.primaryButton, { backgroundColor: STEP_THEMES[3].color }]} onPress={handleRecordVideo} activeOpacity={0.8}>
+                  <Ionicons name="camera" size={18} color="#FFFFFF" />
+                  <Text style={styles.primaryButtonText}>Record</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.secondaryButton, { borderColor: STEP_THEMES[3].color }]} onPress={handleUploadVideo} activeOpacity={0.8}>
+                  <Ionicons name="cloud-upload" size={18} color={STEP_THEMES[3].color} />
+                  <Text style={[styles.secondaryButtonText, { color: STEP_THEMES[3].color }]}>Upload</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={[styles.tipsCard, { backgroundColor: STEP_THEMES[3].color + '15', borderWidth: 1, borderColor: STEP_THEMES[3].color + '30' }]}>
+              <Text style={[styles.tipsTitle, { color: STEP_THEMES[3].color }]}>Recording tips</Text>
+              <Text style={styles.tipsText}>• Smile! Customers book friendly cleaners more often</Text>
+              <Text style={styles.tipsText}>• Mention your specialty (kitchen, deep clean, etc.)</Text>
+              <Text style={styles.tipsText}>• Show your equipment if you bring your own</Text>
+            </View>
+          </>
+        ) : (
+          <View style={styles.videoUploaded}>
+            <Video source={{ uri: data.packageVideoUri }} style={{ height: 180, borderRadius: 12 }} useNativeControls resizeMode={ResizeMode.CONTAIN} />
+            <TouchableOpacity style={[styles.secondaryButton, { marginTop: 8 }]} onPress={() => updateData('packageVideoUri', '')}>
+              <Text style={styles.secondaryButtonText}>Change Video</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        <Text style={styles.inputLabel}>Package name *</Text>
+        <TextInput
+          style={styles.textInput}
+          value={data.packageTitle}
+          onChangeText={(t) => updateData('packageTitle', t)}
+          placeholder="e.g. Deep Kitchen Clean"
+        />
+
+        <Text style={styles.inputLabel}>Price type</Text>
+        <View style={styles.optionRow}>
+          {(['fixed', 'hourly', 'contact'] as const).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.optionButton, data.packageType === t && styles.selectedOption]}
+              onPress={() => updateData('packageType', t)}
+            >
+              <Text style={[styles.optionText, data.packageType === t && styles.selectedOptionText]}>
+                {t === 'fixed' ? 'Fixed' : t === 'hourly' ? 'Hourly' : 'Contact'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {data.packageType !== 'contact' && (
+          <>
+            <Text style={styles.inputLabel}>{data.packageType === 'fixed' ? 'Total price ($)' : 'Hourly rate ($)'}</Text>
+            <TextInput
+              style={styles.textInput}
+              keyboardType="numeric"
+              value={data.packagePrice}
+              onChangeText={(p) => updateData('packagePrice', p)}
+              placeholder={data.packageType === 'fixed' ? '299' : '45'}
+            />
+          </>
+        )}
+
+        {data.packageType === 'hourly' && (
+          <>
+            <Text style={styles.inputLabel}>Estimated hours for typical job</Text>
+            <View style={styles.optionRow}>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
+                <TouchableOpacity
+                  key={h}
+                  style={[styles.dayButton, data.estimatedHours === h && styles.selectedOption]}
+                  onPress={() => updateData('estimatedHours', h)}
+                >
+                  <Text style={[styles.optionText, data.estimatedHours === h && styles.selectedOptionText]}>{h}h</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        <Text style={styles.inputLabel}>What's included</Text>
+        {data.includedTasks.length > 0 && (
+          <Text style={styles.packageStrengthHint}>
+            Package strength: {data.includedTasks.length} tasks
+          </Text>
+        )}
+        {data.packageType !== 'contact' && data.packagePrice && (
+          <Text style={styles.proTip}>💡 Similar heroes charge ${data.packageType === 'fixed' ? '250-350' : '40-60/hr'} for this type of service</Text>
+        )}
+        <View style={styles.optionGrid}>
+          {INCLUDED_TASKS.map((task) => (
+            <TouchableOpacity
+              key={task}
+              style={[styles.serviceButton, data.includedTasks.includes(task) && styles.selectedOption]}
+              onPress={() => toggleIncludedTask(task)}
+            >
+              <Text style={[styles.optionText, data.includedTasks.includes(task) && styles.selectedOptionText]}>
+                {data.includedTasks.includes(task) ? '✓ ' : ''}{task}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+    );
+  };
+
+  const renderStep5 = () => {
+    const capturePhoto = async (field: 'idFrontPhoto' | 'idBackPhoto' | 'selfiePhoto') => {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow camera access to capture your ID.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: field === 'selfiePhoto' ? [1, 1] : [4, 3],
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        updateData(field, result.assets[0].uri);
+      }
+    };
+
+    return (
+      <ScrollView
+        ref={scrollRef}
+        style={styles.stepContainer}
+        contentContainerStyle={{ paddingBottom: 140 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={styles.stepTitle}>Final Step: Verify ID</Text>
+        <Text style={styles.stepSubtitle}>This keeps everyone safe. Usually takes 2 minutes.</Text>
+
+        <View style={styles.verificationSection}>
+          <Ionicons name="shield-checkmark" size={32} color="#26B7C9" />
+          <Text style={styles.verificationTitle}>Quick identity verification</Text>
+          <Text style={styles.verificationDescription}>
+            Capture photos of your ID and a selfie. We'll review within 24 hours.
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.idScanPlaceholder} onPress={() => capturePhoto('idFrontPhoto')}>
+          {data.idFrontPhoto ? (
+            <Image source={{ uri: data.idFrontPhoto }} style={styles.idScanPreview} />
+          ) : (
+            <>
+              <Ionicons name="card-outline" size={40} color="#9CA3AF" />
+              <Text style={styles.idScanLabel}>ID Front</Text>
+              <Text style={styles.idScanHint}>Tap to capture</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.idScanPlaceholder} onPress={() => capturePhoto('idBackPhoto')}>
+          {data.idBackPhoto ? (
+            <Image source={{ uri: data.idBackPhoto }} style={styles.idScanPreview} />
+          ) : (
+            <>
+              <Ionicons name="card-outline" size={40} color="#9CA3AF" />
+              <Text style={styles.idScanLabel}>ID Back</Text>
+              <Text style={styles.idScanHint}>Tap to capture</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.idScanPlaceholder} onPress={() => capturePhoto('selfiePhoto')}>
+          {data.selfiePhoto ? (
+            <Image source={{ uri: data.selfiePhoto }} style={styles.idScanPreview} />
+          ) : (
+            <>
+              <Ionicons name="person-outline" size={40} color="#9CA3AF" />
+              <Text style={styles.idScanLabel}>Selfie</Text>
+              <Text style={styles.idScanHint}>Tap to capture</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.switchRow}>
+          <View style={styles.switchInfo}>
+            <View style={styles.lockedInline}>
+              <Ionicons name="lock-closed" size={14} color="#26B7C9" />
+              <Text style={styles.switchLabel}>I consent to a background check *</Text>
+            </View>
+            <Text style={styles.switchDescription}>Required to join ChoreHero</Text>
+          </View>
+          <Switch
+            value={data.backgroundCheckConsent}
+            onValueChange={(v) => updateData('backgroundCheckConsent', v)}
+            trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
+            thumbColor={data.backgroundCheckConsent ? '#ffffff' : '#f4f3f4'}
+          />
+        </View>
+
+        <View style={styles.agreementSection}>
+          <Text style={styles.agreementText}>
+            By continuing, you agree to our{' '}
+            <Text style={styles.linkText}>Background Check Policy</Text>
+            {' and '}
+            <Text style={styles.linkText}>Privacy Policy</Text>.
+          </Text>
+        </View>
       </ScrollView>
     );
   };
@@ -1012,273 +1327,28 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.stepTitle}>Equipment & Pricing</Text>
-      <Text style={styles.stepSubtitle}>Set up your service offerings</Text>
+      <Text style={styles.stepTitle}>Review Your Profile</Text>
+      <Text style={styles.stepSubtitle}>Customers will see this</Text>
 
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>Do you provide cleaning equipment?</Text>
-          <Text style={styles.switchDescription}>Vacuum, mop, microfiber cloths, etc.</Text>
-        </View>
-        <Switch
-          value={data.providesEquipment}
-          onValueChange={(value) => updateData('providesEquipment', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.providesEquipment ? '#ffffff' : '#f4f3f4'}
-        />
+      <View style={styles.previewCard}>
+        <Text style={styles.inputLabel}>{data.packageTitle || 'Your package'}</Text>
+        <Text style={styles.earningsValue}>
+          {data.packageType === 'contact'
+            ? 'Contact for price'
+            : data.packageType === 'fixed'
+              ? `$${data.packagePrice || '0'}`
+              : `$${data.packagePrice || '0'}/hr • Est. ${data.estimatedHours}h`}
+        </Text>
+        {data.includedTasks.length > 0 && (
+          <Text style={styles.rateHelperText}>✓ {data.includedTasks.join(' ✓ ')}</Text>
+        )}
       </View>
-
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>Do you provide cleaning supplies?</Text>
-          <Text style={styles.switchDescription}>All-purpose cleaners, glass cleaner, etc.</Text>
-        </View>
-        <Switch
-          value={data.providesSupplies}
-          onValueChange={(value) => updateData('providesSupplies', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.providesSupplies ? '#ffffff' : '#f4f3f4'}
-        />
-      </View>
-
-      <Text style={styles.inputLabel}>Earnings Calculator</Text>
-      <View style={styles.earningsRow}>
-        <View style={styles.inputHalf}>
-          <TextInput
-            style={styles.textInput}
-            value={data.hourlyRate}
-            onChangeText={(text) => updateData('hourlyRate', text)}
-            placeholder="45"
-            keyboardType="numeric"
-          />
-          <Text style={styles.rateHelperText}>Hourly rate</Text>
-        </View>
-        <View style={styles.earningsBreakdown}>
-          <Text style={styles.earningsLine}>Rate - 20% fee = Your pay</Text>
-          <Text style={styles.earningsValue}>
-            {data.hourlyRate
-              ? `$${((Number.parseFloat(data.hourlyRate) || 0) * 0.8).toFixed(0)}/hr take-home`
-              : '$0/hr take-home'}
-          </Text>
-          <Text style={styles.rateHelperText}>Local average: $35-65/hr</Text>
-        </View>
-      </View>
-      {Number.parseFloat(data.hourlyRate) > 100 && (
-        <View style={styles.rateWarning}>
-          <Ionicons name="alert-circle" size={16} color="#F97316" />
-          <Text style={styles.rateWarningText}>
-            This is significantly higher than the local average. High rates may lead to fewer bookings.
-          </Text>
-        </View>
-      )}
-
-      <Text style={styles.inputLabel}>Minimum Booking (hours)</Text>
-      <View style={styles.optionRow}>
-        {['1 hour', '2 hours', '3 hours', '4 hours'].map((option) => (
-          <TouchableOpacity
-            key={option}
-            style={[
-              styles.optionButton,
-              data.minimumBooking === option && styles.selectedOption
-            ]}
-            onPress={() => updateData('minimumBooking', option)}
-          >
-            <Text style={[
-              styles.optionText,
-              data.minimumBooking === option && styles.selectedOptionText
-            ]}>
-              {option}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.inputLabel}>What equipment/supplies do you provide?</Text>
-      <TextInput
-        style={[styles.textInput, styles.textArea]}
-        value={data.equipmentDetails}
-        onChangeText={(text) => updateData('equipmentDetails', text)}
-        placeholder="List the equipment and supplies you bring to each job..."
-        multiline
-        numberOfLines={4}
-      />
-    </ScrollView>
-  );
-
-  const renderStep5 = () => {
-    const handleRecordVideo = async () => {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow camera access to record your audition.');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        videoMaxDuration: 30,
-      });
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        updateData('auditionVideo', result.assets[0].uri);
-      }
-    };
-
-    const handleUploadVideo = async () => {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please allow photo access to upload your audition.');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        videoMaxDuration: 30,
-      });
-      if (!result.canceled && result.assets?.[0]?.uri) {
-        updateData('auditionVideo', result.assets[0].uri);
-      }
-    };
-
-    return (
-      <ScrollView
-        ref={scrollRef}
-        style={styles.stepContainer}
-        contentContainerStyle={{ paddingBottom: 140 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.stepTitle}>Hero Audition</Text>
-        <Text style={styles.stepSubtitle}>Record a 15-30 second intro video</Text>
-
-        <View style={styles.videoAuditionCard}>
-          <Ionicons name="videocam" size={28} color="#26B7C9" />
-          <Text style={styles.videoAuditionTitle}>Video Audition</Text>
-          <Text style={styles.videoAuditionText}>
-            Share your vibe and specialty. Short and authentic wins.
-          </Text>
-          {data.auditionVideo ? (
-            <View style={styles.videoUploaded}>
-              <Ionicons name="checkmark-circle" size={18} color="#26B7C9" />
-              <Text style={styles.videoUploadedText}>Video ready to submit</Text>
-            </View>
-          ) : null}
-          <View style={styles.videoActionRow}>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleRecordVideo}>
-              <Ionicons name="camera" size={18} color="#FFFFFF" />
-              <Text style={styles.primaryButtonText}>Record</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryButton} onPress={handleUploadVideo}>
-              <Ionicons name="cloud-upload" size={18} color="#26B7C9" />
-              <Text style={styles.secondaryButtonText}>Upload</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>Recording Tips</Text>
-          <Text style={styles.tipsText}>1. Find good lighting.</Text>
-          <Text style={styles.tipsText}>2. Smile!</Text>
-          <Text style={styles.tipsText}>3. Mention your specialty.</Text>
-        </View>
-      </ScrollView>
-    );
-  };
-
-  const renderStep6 = () => (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.stepContainer}
-      contentContainerStyle={{ paddingBottom: 140 }}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.stepTitle}>Legal & Verification</Text>
-      <Text style={styles.stepSubtitle}>Final step to complete your application</Text>
 
       <View style={styles.verificationSection}>
         <Ionicons name="shield-checkmark" size={24} color="#26B7C9" />
-        <Text style={styles.verificationTitle}>Background Check Required</Text>
+        <Text style={styles.verificationTitle}>You're ready!</Text>
         <Text style={styles.verificationDescription}>
-          All cleaners must pass a background check for customer safety and trust.
-        </Text>
-      </View>
-
-      <View style={styles.lockedLabelRow}>
-        <Ionicons name="lock-closed" size={16} color="#26B7C9" />
-        <Text style={styles.inputLabel}>SSN (Last 4) *</Text>
-      </View>
-      <TextInput
-        style={styles.textInput}
-        value={data.socialSecurityNumber}
-        onChangeText={(text) => updateData('socialSecurityNumber', text)}
-        placeholder="1234"
-        keyboardType="number-pad"
-        secureTextEntry
-      />
-
-      <View style={styles.lockedLabelRow}>
-        <Ionicons name="lock-closed" size={16} color="#26B7C9" />
-        <Text style={styles.inputLabel}>Driver's License *</Text>
-      </View>
-      <TextInput
-        style={styles.textInput}
-        value={data.driversLicense}
-        onChangeText={(text) => updateData('driversLicense', text)}
-        placeholder="A1234567"
-        autoCapitalize="characters"
-      />
-
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <Text style={styles.switchLabel}>I am authorized to work in the US *</Text>
-          <Text style={styles.switchDescription}>Required for all contractors</Text>
-        </View>
-        <Switch
-          value={data.hasWorkAuthorization}
-          onValueChange={(value) => updateData('hasWorkAuthorization', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.hasWorkAuthorization ? '#ffffff' : '#f4f3f4'}
-        />
-      </View>
-
-      <Text style={styles.inputLabel}>Emergency Contact Name *</Text>
-      <TextInput
-        style={styles.textInput}
-        value={data.emergencyContact}
-        onChangeText={(text) => updateData('emergencyContact', text)}
-        placeholder="John Doe"
-      />
-
-      <Text style={styles.inputLabel}>Emergency Contact Phone *</Text>
-      <TextInput
-        style={styles.textInput}
-        value={data.emergencyPhone}
-        onChangeText={(text) => updateData('emergencyPhone', text)}
-        placeholder="+1 (555) 987-6543"
-        keyboardType="phone-pad"
-      />
-
-      <View style={styles.switchRow}>
-        <View style={styles.switchInfo}>
-          <View style={styles.lockedInline}>
-            <Ionicons name="lock-closed" size={14} color="#26B7C9" />
-            <Text style={styles.switchLabel}>I consent to a background check *</Text>
-          </View>
-          <Text style={styles.switchDescription}>Required to join ChoreHero</Text>
-        </View>
-        <Switch
-          value={data.backgroundCheckConsent}
-          onValueChange={(value) => updateData('backgroundCheckConsent', value)}
-          trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
-          thumbColor={data.backgroundCheckConsent ? '#ffffff' : '#f4f3f4'}
-        />
-      </View>
-
-      <View style={styles.agreementSection}>
-        <Text style={styles.agreementText}>
-          By submitting this application, you agree to our{' '}
-          <Text style={styles.linkText}>Cleaner Terms of Service</Text>
-          {', '}
-          <Text style={styles.linkText}>Background Check Policy</Text>
-          {', and '}
-          <Text style={styles.linkText}>Privacy Policy</Text>.
+          Background check will be triggered after your first booking.
         </Text>
       </View>
     </ScrollView>
@@ -1291,7 +1361,6 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
       case 3: return renderStep3();
       case 4: return renderStep4();
       case 5: return renderStep5();
-      case 6: return renderStep6();
       default: return renderStep1();
     }
   };
@@ -1320,20 +1389,23 @@ const CleanerOnboardingScreen: React.FC<CleanerOnboardingProps> = ({ navigation 
         {/* Bottom Button */}
         <View style={styles.bottomContainer}>
           <TouchableOpacity 
-            style={[styles.continueButton, isLoading && styles.continueButtonDisabled]}
+            style={[styles.continueButton, (isLoading || isUploadingVideo) && styles.continueButtonDisabled]}
             onPress={handleNext}
-            disabled={isLoading}
+            disabled={isLoading || isUploadingVideo}
+            activeOpacity={0.8}
           >
             <LinearGradient
-              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#26B7C9', '#26B7C9']}
+              colors={(isLoading || isUploadingVideo) ? ['#9CA3AF', '#6B7280'] : [stepTheme.color, stepTheme.color]}
               style={styles.continueButtonGradient}
             >
               <Text style={styles.continueButtonText}>
-                {isLoading
-                  ? 'Launching...'
-                  : currentStep === totalSteps
-                    ? 'Launch My Hero Career'
-                    : 'Continue'}
+                {isUploadingVideo
+                  ? `Uploading... ${Math.round(videoUploadProgress)}%`
+                  : isLoading
+                    ? 'Launching...'
+                    : currentStep === totalSteps
+                      ? 'Launch My Hero Career'
+                      : 'Continue'}
               </Text>
               {!isLoading && currentStep < totalSteps && (
                 <Ionicons name="arrow-forward" size={20} color="#ffffff" />
@@ -1427,6 +1499,61 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     textAlign: 'center',
   },
+  stepLabelsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  stepLabelEmoji: {
+    fontSize: 18,
+  },
+  stepLabelText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  stepCounter: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginLeft: 4,
+  },
+  profileStrengthBar: {
+    height: 6,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 999,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  profileStrengthFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  profileStrengthText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  radiusHint: {
+    fontSize: 13,
+    color: '#4ECDC4',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  packageStrengthHint: {
+    fontSize: 13,
+    color: '#45B7D1',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  proTip: {
+    fontSize: 12,
+    color: '#6B7280',
+    backgroundColor: '#FEF3C7',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
   content: {
     flex: 1,
   },
@@ -1498,6 +1625,17 @@ const styles = StyleSheet.create({
   },
   inputHalf: {
     flex: 1,
+  },
+  inputWithCheck: {
+    marginBottom: 0,
+  },
+  inputRowWithCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fieldCheck: {
+    marginLeft: 4,
   },
   rateHelper: {
     flex: 1,
@@ -1585,11 +1723,19 @@ const styles = StyleSheet.create({
     height: 160,
     width: '100%',
   },
+  mapHintContainer: {
+    padding: 12,
+  },
   mapHint: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#6B7280',
-    padding: 10,
     textAlign: 'center',
+  },
+  mapHintSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 2,
   },
   optionGrid: {
     flexDirection: 'row',
@@ -1700,10 +1846,67 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   videoUploaded: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
     marginBottom: 12,
+    gap: 8,
+  },
+  previewCard: {
+    backgroundColor: '#F0FDFA',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#26B7C9',
+    marginBottom: 16,
+  },
+  profilePreviewCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  profilePreviewPhoto: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: 12,
+  },
+  profilePreviewContent: {
+    flex: 1,
+  },
+  profilePreviewName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  profilePreviewBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  profilePreviewBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#92400E',
+  },
+  profilePreviewBio: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  profilePreviewLocation: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   videoUploadedText: {
     fontSize: 12,
@@ -1813,6 +2016,34 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  idScanPlaceholder: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    borderStyle: 'dashed',
+  },
+  idScanLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 8,
+  },
+  idScanHint: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  idScanPreview: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    resizeMode: 'cover',
   },
   agreementSection: {
     padding: 16,

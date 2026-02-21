@@ -30,12 +30,14 @@ import { routeToMessage, MessageParticipant } from '../../utils/messageRouting';
 import { contentService } from '../../services/contentService';
 import { presenceService } from '../../services/presenceService';
 import { notificationService } from '../../services/notificationService';
+import CleanerProfileReviews from '../../components/cleaner/CleanerProfileReviews';
 
 import { useAuth } from '../../hooks/useAuth';
 import AuthModal from '../../components/AuthModal';
 import { setPendingAuthAction, setPostAuthRoute } from '../../utils/authPendingAction';
 import { availabilityService } from '../../services/availabilityService';
 import { supabase } from '../../services/supabase';
+import { wp, hp } from '../../utils/responsive';
 
 const { height } = Dimensions.get('window');
 
@@ -50,6 +52,10 @@ type TabParamList = {
     cleanerId: string;
     cleanerName?: string;
     hourlyRate?: number;
+    packageId?: string;
+    packageType?: 'fixed' | 'estimate' | 'hourly';
+    packageBasePriceCents?: number;
+    estimatedHours?: number;
     selectedService?: string;
     selectedTime?: string;
   };
@@ -69,6 +75,11 @@ interface CleanerService {
   price: number;
   duration: string;
   image: string;
+  /** Package fields (from content_posts) - when present, use package-based booking */
+  package_id?: string;
+  package_type?: 'fixed' | 'estimate' | 'hourly';
+  base_price_cents?: number | null;
+  estimated_hours?: number | null;
 }
 
 interface Review {
@@ -136,7 +147,9 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
     setAuthModalVisible(true);
   };
   const reviewCount = reviews.length;
-  const displayRate = cleaner?.profile?.hourly_rate || services?.[0]?.price || 0;
+  const firstPackage = services?.[0];
+  const displayRate = firstPackage?.price ?? cleaner?.profile?.hourly_rate ?? 0;
+  const displayRateIsHourly = firstPackage?.package_type === 'hourly' || (!firstPackage && !!cleaner?.profile?.hourly_rate);
   const availabilityStatus = nextAvailable === 'No availability this week' ? 'none_this_week' : 'available';
 
   const calculateDistance = (zipA?: string | null, zipB?: string | null): number | null => {
@@ -509,34 +522,36 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           setFollowerCount(followersTotal);
         }
 
-        // Load cleaner's services (skip when not UUID)
-        let services: any[] | null = null; let servicesError: any = null;
+        // Load packages from content_posts (matches feed) - not legacy cleaner_services
+        let services: CleanerService[] = [];
         if (isUuid) {
-          const res = await supabase
-            .from('cleaner_services')
-            .select(`
-              id,
-              custom_price,
-              is_available,
-              category:service_categories(
-                name,
-                description,
-                base_price,
-                estimated_duration_minutes
-              )
-            `)
-            .eq('cleaner_id', idToLoad)
-            .eq('is_available', true);
-          services = res.data; servicesError = res.error;
-        }
+          const { data: packages, error: packagesError } = await supabase
+            .from('content_posts')
+            .select('id, title, description, media_url, base_price_cents, package_type, estimated_hours')
+            .eq('user_id', idToLoad)
+            .eq('is_bookable', true)
+            .eq('status', 'published')
+            .order('created_at', { ascending: false });
 
-        if (servicesError) {
-          console.warn('⚠️ Error loading services:', servicesError);
-          setServices([]);
-        } else {
-          setServices(services || []);
-          console.log(`✅ Loaded ${services?.length || 0} services for cleaner`);
+          if (packagesError) {
+            console.warn('⚠️ Error loading packages:', packagesError);
+          } else if (packages?.length) {
+            services = packages.map((p: any) => ({
+              id: p.id,
+              title: p.title || 'Cleaning Service',
+              description: p.description || 'Professional cleaning service.',
+              price: p.base_price_cents != null ? p.base_price_cents / 100 : 0,
+              duration: p.estimated_hours != null ? `Est. ${p.estimated_hours} hrs` : '2-3 hrs',
+              image: p.media_url || '',
+              package_id: p.id,
+              package_type: p.package_type || 'fixed',
+              base_price_cents: p.base_price_cents,
+              estimated_hours: p.estimated_hours ?? undefined,
+            }));
+            console.log(`✅ Loaded ${services.length} packages for cleaner (matches feed)`);
+          }
         }
+        setServices(services);
 
         // Load cleaner's reviews
         const { data: reviews, error: reviewsError } = await supabase
@@ -756,7 +771,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
           </View>
         </View>
         <View style={styles.servicePriceContainer}>
-          <Text style={styles.servicePrice}>${service.price}</Text>
+          <Text style={styles.servicePrice}>
+            {service.package_type === 'hourly' && service.estimated_hours != null
+              ? `$${service.price}/hr • Est. ${service.estimated_hours} hrs`
+              : `$${service.price}`}
+          </Text>
           <TouchableOpacity 
             style={styles.bookNowButton}
             onPress={() =>
@@ -764,6 +783,10 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                 cleanerId: cleaner?.id,
                 cleanerName: cleaner?.name,
                 hourlyRate: service.price,
+                packageId: service.package_id,
+                packageType: service.package_type,
+                packageBasePriceCents: service.base_price_cents ?? undefined,
+                estimatedHours: service.estimated_hours ?? undefined,
                 selectedService: service.title || service.name,
               })
             }
@@ -1008,7 +1031,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
                     <Text style={styles.statValue}>
-                      {displayRate > 0 ? `$${displayRate}/hr` : 'Contact'}
+                      {displayRate > 0 ? (displayRateIsHourly ? `$${displayRate}/hr` : `$${displayRate}`) : 'Contact'}
                     </Text>
                     <Text style={styles.statLabel}>Rate</Text>
                   </View>
@@ -1026,7 +1049,7 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                   <View style={styles.statCollapsedItem}>
                     <Ionicons name="pricetag-outline" size={16} color="#3ad3db" />
                     <Text style={styles.statCollapsedText}>
-                      {displayRate > 0 ? `$${displayRate}/hr` : 'Contact'}
+                      {displayRate > 0 ? (displayRateIsHourly ? `$${displayRate}/hr` : `$${displayRate}`) : 'Contact'}
                     </Text>
                   </View>
                 </View>
@@ -1045,49 +1068,31 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
               )}
             </View>
 
-            {/* Action Buttons */}
+            {/* Action Buttons - Message primary; Book Service removed to avoid hourly/package confusion (feed is conversion engine) */}
             <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={styles.primaryActionButton}
-                onPress={() => {
-                  if (availabilityStatus === 'none_this_week') {
-                    openWaitlistModal();
-                    return;
-                  }
-                  if (!user?.id) {
-                    requireAuth('BOOK', cleanerId);
-                    return;
-                  }
-                  navigation.navigate('BookingSummary', {
-                    cleanerId: cleaner?.id,
-                    cleanerName: cleaner?.name,
-                    hourlyRate: displayRate,
-                    selectedService: 'Cleaning Service',
-                  });
-                }}
-              >
-                <LinearGradient
-                  colors={['#3AD3DB', '#2BC8D0']}
-                  style={styles.primaryActionGradient}
+              {availabilityStatus === 'none_this_week' ? (
+                <TouchableOpacity
+                  style={styles.primaryActionButton}
+                  onPress={openWaitlistModal}
                 >
-                  <Ionicons name="calendar" size={20} color="white" />
-                  <Text style={styles.primaryActionText}>
-                    {availabilityStatus === 'none_this_week' ? `Join ${cleaner?.name || 'This'}'s Waitlist` : 'Book Service'}
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-              
-              <View style={styles.secondaryActions}>
-                <TouchableOpacity 
-                  style={styles.secondaryActionButton}
+                  <LinearGradient
+                    colors={['#3AD3DB', '#2BC8D0']}
+                    style={styles.primaryActionGradient}
+                  >
+                    <Ionicons name="calendar" size={20} color="white" />
+                    <Text style={styles.primaryActionText}>
+                      Join {cleaner?.name || 'This'}'s Waitlist
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.primaryActionButton}
                   onPress={async () => {
-                    // Check if user is authenticated
-                    if (!user) {
+                    if (!user?.id) {
                       requireAuth('MESSAGE', cleanerId);
                       return;
                     }
-
-                    // Check if user is trying to message themselves
                     if (user.id === cleaner.id) {
                       Alert.alert(
                         'Cannot Message Yourself',
@@ -1096,14 +1101,12 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                       );
                       return;
                     }
-
                     const participant: MessageParticipant = {
                       id: cleaner.id,
                       name: cleaner.name,
                       avatar: cleaner.avatar_url || '',
                       role: 'cleaner',
                     };
-                    
                     await routeToMessage({
                       participant,
                       navigation,
@@ -1111,9 +1114,50 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
                     });
                   }}
                 >
-                  <Ionicons name="chatbubble" size={20} color="#3ad3db" />
-                  <Text style={styles.secondaryActionText}>Message</Text>
+                  <LinearGradient
+                    colors={['#3AD3DB', '#2BC8D0']}
+                    style={styles.primaryActionGradient}
+                  >
+                    <Ionicons name="chatbubble" size={20} color="white" />
+                    <Text style={styles.primaryActionText}>Message</Text>
+                  </LinearGradient>
                 </TouchableOpacity>
+              )}
+              
+              <View style={styles.secondaryActions}>
+                {availabilityStatus === 'none_this_week' && (
+                  <TouchableOpacity 
+                    style={styles.secondaryActionButton}
+                    onPress={async () => {
+                      if (!user?.id) {
+                        requireAuth('MESSAGE', cleanerId);
+                        return;
+                      }
+                      if (user.id === cleaner.id) {
+                        Alert.alert(
+                          'Cannot Message Yourself',
+                          'You cannot send messages to your own profile.',
+                          [{ text: 'OK', style: 'default' }]
+                        );
+                        return;
+                      }
+                      const participant: MessageParticipant = {
+                        id: cleaner.id,
+                        name: cleaner.name,
+                        avatar: cleaner.avatar_url || '',
+                        role: 'cleaner',
+                      };
+                      await routeToMessage({
+                        participant,
+                        navigation,
+                        currentUserId: user.id,
+                      });
+                    }}
+                  >
+                    <Ionicons name="chatbubble" size={20} color="#3ad3db" />
+                    <Text style={styles.secondaryActionText}>Message</Text>
+                  </TouchableOpacity>
+                )}
                 
                 <Animated.View style={{ transform: [{ scale: saveButtonScale }] }}>
                   <TouchableOpacity 
@@ -1215,43 +1259,11 @@ const CleanerProfileScreen: React.FC<CleanerProfileScreenProps> = ({ navigation,
             </View>
           )}
 
-          {activeTab === 'reviews' && (
-            <View>
-              {reviews.length === 0 ? (
-                <View style={styles.emptyReviewsContainer}>
-                  <Ionicons name="star-outline" size={48} color="#D1D5DB" />
-                  <Text style={styles.emptyReviewsTitle}>No Reviews Yet</Text>
-                  <Text style={styles.emptyReviewsText}>
-                    Be the first to leave a review after booking with this cleaner!
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {/* Show rating summary */}
-                  <View style={styles.ratingSummaryCard}>
-                    <View style={styles.ratingSummaryLeft}>
-                      <Text style={styles.ratingBigNumber}>
-                        {cleaner?.profile?.rating_average?.toFixed(1) || 'New'}
-                      </Text>
-                      <View style={styles.ratingStarsRow}>
-                        {[...Array(5)].map((_, index) => (
-                          <Ionicons
-                            key={index}
-                            name={index < Math.round(cleaner?.profile?.rating_average || 0) ? "star" : "star-outline"}
-                            size={18}
-                            color="#FFD700"
-                          />
-                        ))}
-                      </View>
-                      <Text style={styles.ratingCountText}>{reviews.length} reviews</Text>
-                    </View>
-                  </View>
-                  
-                  {/* Show all reviews */}
-                  {reviews.map(renderReviewCard)}
-                </>
-              )}
-            </View>
+          {activeTab === 'reviews' && cleaner?.id && (
+            <CleanerProfileReviews
+              cleanerId={cleaner.id}
+              cachedAverage={cleaner?.profile?.rating_average}
+            />
           )}
 
           {activeTab === 'about' && (
@@ -1427,8 +1439,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#F9FAFB',
     borderBottomWidth: 0,
   },
@@ -1436,13 +1448,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.2%'),
     backgroundColor: '#F9FAFB',
   },
   backButton: {
-    width: 44,
-    height: 44,
+    width: wp('11%'),
+    height: wp('11%'),
     borderRadius: 22,
     backgroundColor: 'white',
     justifyContent: 'center',
@@ -1454,14 +1466,14 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#0F172A',
     letterSpacing: -0.3,
   },
   shareButton: {
-    width: 44,
-    height: 44,
+    width: wp('11%'),
+    height: wp('11%'),
     borderRadius: 22,
     backgroundColor: 'white',
     justifyContent: 'center',
@@ -1476,13 +1488,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileSection: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('1%'),
   },
   profileCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 24,
+    borderRadius: wp('6%'),
+    padding: wp('6%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.18,
@@ -1493,16 +1505,16 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: wp('4%'),
   },
   profileAvatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: wp('22%'),
+    height: wp('22%'),
+    borderRadius: wp('11%'),
     borderWidth: 4,
     borderColor: '#3ad3db',
   },
@@ -1538,16 +1550,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   profileName: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#0F172A',
     marginRight: 8,
     letterSpacing: -0.5,
   },
   profileUsername: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#64748B',
-    marginBottom: 10,
+    marginBottom: hp('1.2%'),
     fontWeight: '500',
   },
   locationContainer: {
@@ -1556,7 +1568,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   locationText: {
-    fontSize: 15,
+    fontSize: wp('3.8%'),
     color: '#64748B',
     marginLeft: 4,
     fontWeight: '500',
@@ -1600,14 +1612,14 @@ const styles = StyleSheet.create({
   },
   bioCard: {
     backgroundColor: '#F8FFFE',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: wp('4%'),
+    padding: wp('4%'),
+    marginBottom: hp('2%'),
     borderWidth: 1.5,
     borderColor: 'rgba(58, 211, 219, 0.15)',
   },
   profileBio: {
-    fontSize: 15,
+    fontSize: wp('3.8%'),
     color: '#374151',
     lineHeight: 24,
     fontWeight: '400',
@@ -1621,15 +1633,15 @@ const styles = StyleSheet.create({
   trustBadges: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
+    gap: wp('2%'),
+    marginBottom: hp('2%'),
   },
   trustBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('1.2%'),
     borderRadius: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(58, 211, 219, 0.25)',
@@ -1640,7 +1652,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   trustBadgeText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#059669',
     fontWeight: '600',
     marginLeft: 4,
@@ -1649,9 +1661,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    marginBottom: hp('2%'),
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('4%'),
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 2,
@@ -1674,7 +1686,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   statCollapsedText: {
-    fontSize: 13,
+    fontSize: wp('3.2%'),
     color: '#64748B',
     fontWeight: '600',
   },
@@ -1689,14 +1701,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   statValue: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '800',
     color: '#3ad3db',
     marginLeft: 4,
     letterSpacing: -0.2,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: wp('2.8%'),
     color: '#64748B',
     marginTop: 2,
     textAlign: 'center',
@@ -1720,13 +1732,13 @@ const styles = StyleSheet.create({
   availabilityBubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.7%'),
     borderRadius: 16,
     borderWidth: 2,
     borderColor: 'rgba(58, 211, 219, 0.25)',
     backgroundColor: '#FFFFFF',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
     gap: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1742,10 +1754,10 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'column',
-    gap: 12,
+    gap: hp('1.5%'),
   },
   primaryActionButton: {
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     shadowColor: '#3ad3db',
     shadowOffset: { width: 0, height: 3 },
@@ -1757,27 +1769,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingVertical: hp('2.2%'),
+    paddingHorizontal: wp('6%'),
   },
   primaryActionText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     marginLeft: 8,
     letterSpacing: 0.2,
   },
   secondaryActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   secondaryActionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('4%'),
     borderRadius: 12,
     backgroundColor: 'white',
     borderWidth: 2,
@@ -1794,7 +1806,7 @@ const styles = StyleSheet.create({
   },
   secondaryActionText: {
     color: '#3ad3db',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     marginLeft: 6,
   },
@@ -1806,8 +1818,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('3%'),
     borderRadius: 12,
     backgroundColor: 'white',
     borderWidth: 2,
@@ -1824,7 +1836,7 @@ const styles = StyleSheet.create({
   },
   followSmallText: {
     color: '#3ad3db',
-    fontSize: 13,
+    fontSize: wp('3.2%'),
     fontWeight: '600',
     marginLeft: 4,
   },
@@ -1833,9 +1845,9 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
-    marginHorizontal: 20,
-    marginTop: 20,
-    marginBottom: 16,
+    marginHorizontal: wp('5%'),
+    marginTop: hp('2.5%'),
+    marginBottom: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 6,
@@ -1849,8 +1861,8 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('2%'),
     alignItems: 'center',
     position: 'relative',
     minHeight: 44,
@@ -1860,7 +1872,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(58, 211, 219, 0.12)',
   },
   tabButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#9CA3AF',
   },
@@ -1878,13 +1890,13 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   tabContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   serviceCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
+    borderRadius: wp('4.5%'),
+    padding: wp('4.5%'),
+    marginBottom: hp('1.7%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
@@ -1898,11 +1910,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   serviceImageContainer: {
-    marginRight: 12,
+    marginRight: wp('3%'),
   },
   serviceImage: {
-    width: 60,
-    height: 60,
+    width: wp('15%'),
+    height: wp('15%'),
     borderRadius: 8,
     backgroundColor: '#F0FDFA',
   },
@@ -1911,13 +1923,13 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   serviceTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 4,
   },
   serviceDescription: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginBottom: 8,
     lineHeight: 20,
@@ -1939,7 +1951,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   servicePrice: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#3ad3db', // Teal for customer-facing view
     marginBottom: 8,
@@ -1949,12 +1961,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   bookNowGradient: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('4%'),
   },
   bookNowText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   reviewCard: {
@@ -2134,7 +2146,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   bottomSpacing: {
-    height: 120,
+    height: hp('15%'),
   },
   loadingContainer: {
     flex: 1,
@@ -2265,7 +2277,7 @@ const styles = StyleSheet.create({
   },
   videoThumbnailContainer: {
     position: 'relative',
-    height: 150,
+    height: hp('18%'),
     backgroundColor: '#F0FDFA',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -2351,12 +2363,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   videoInfo: {
-    padding: 14,
+    padding: wp('3.5%'),
     borderTopWidth: 1,
     borderTopColor: 'rgba(58, 211, 219, 0.1)',
   },
   videoTitle: {
-    fontSize: 15,
+    fontSize: wp('3.8%'),
     fontWeight: '700',
     color: '#1F2937',
     marginBottom: 6,
@@ -2369,18 +2381,18 @@ const styles = StyleSheet.create({
   },
   emptyVideoState: {
     alignItems: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
+    paddingVertical: hp('7%'),
+    paddingHorizontal: wp('10%'),
   },
   emptyVideoTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1C1C1E',
     marginTop: 16,
     marginBottom: 8,
   },
   emptyVideoSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#8E8E93',
     textAlign: 'center',
     lineHeight: 20,
@@ -2389,8 +2401,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#3ad3db',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
     borderRadius: 999,
     gap: 8,
     marginTop: 16,
@@ -2398,7 +2410,7 @@ const styles = StyleSheet.create({
   requestVideoText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -2483,8 +2495,8 @@ const styles = StyleSheet.create({
   waitlistCard: {
     width: '100%',
     backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 20,
+    borderRadius: wp('4.5%'),
+    padding: wp('5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.2,
@@ -2498,17 +2510,17 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   waitlistSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#64748B',
     marginBottom: 16,
   },
   waitlistInput: {
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('1.5%'),
+    fontSize: wp('3.8%'),
     color: '#0F172A',
     marginBottom: 12,
   },

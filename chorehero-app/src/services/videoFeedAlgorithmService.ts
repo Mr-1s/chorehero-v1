@@ -26,6 +26,12 @@ export interface EnhancedVideoItem {
   media_url: string;
   thumbnail_url: string;
   
+  // Package pricing (from content_posts when is_bookable)
+  base_price_cents?: number | null;
+  package_type?: 'fixed' | 'estimate' | 'hourly' | null;
+  is_bookable?: boolean | null;
+  estimated_hours?: number | null;
+  
   // Enhanced ranking data
   ranking_score: number;
   ranking_factors: FeedRankingFactors;
@@ -43,6 +49,7 @@ export interface EnhancedVideoItem {
     rating_average: number;
     hourly_rate: number;
     is_available: boolean;
+    total_jobs?: number;
     distance_km: number;
     specialties: string[];
   };
@@ -53,10 +60,11 @@ export interface EnhancedVideoItem {
 class VideoFeedAlgorithmService {
   
   /**
-   * Get intelligently ranked video feed for user
+   * Get intelligently ranked video feed for user.
+   * Tries server-side RPC (get_ranked_cleaner_feed) when location is available for scale.
    */
   async getRankedFeed(
-    userId: string, 
+    userId: string,
     userLocation?: { latitude: number; longitude: number },
     options: {
       limit?: number;
@@ -65,28 +73,134 @@ class VideoFeedAlgorithmService {
       budget_range?: { min: number; max: number };
     } = {}
   ): Promise<EnhancedVideoItem[]> {
-    
     const { limit = 20, sort_preference = 'balanced' } = options;
-    
+
     try {
-      // 1. Get user's preferences and history
+      // Try server-side RPC first when we have location (better for scale)
+      if (userLocation?.latitude != null && userLocation?.longitude != null) {
+        let rpcItems = await this.getRankedFeedFromRpc(
+          userLocation.latitude,
+          userLocation.longitude,
+          limit,
+          false
+        );
+        // Cold start: if no verified cleaners, broaden to include unverified (launch day)
+        if (rpcItems.length === 0) {
+          rpcItems = await this.getRankedFeedFromRpc(
+            userLocation.latitude,
+            userLocation.longitude,
+            limit,
+            true
+          );
+        }
+        if (rpcItems.length > 0) return rpcItems;
+      }
+
+      // Fallback: client-side ranking
       const userProfile = await this.getUserPreferences(userId);
-      
-      // 2. Get all available content with cleaner data
       const rawContent = await this.getRawContentWithCleaners(userLocation, limit * 2);
-      
-      // 3. Calculate ranking scores for each video
       const rankedContent = await Promise.all(
-        rawContent.map(item => this.calculateRankingScore(item, userId, userProfile, userLocation, sort_preference))
+        rawContent.map((item) =>
+          this.calculateRankingScore(item, userId, userProfile, userLocation, sort_preference)
+        )
       );
-      
-      // 4. Sort by ranking score and return top items
       return rankedContent
         .sort((a, b) => b.ranking_score - a.ranking_score)
         .slice(0, limit);
-        
     } catch (error) {
       console.error('Error in getRankedFeed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Server-side ranked feed via RPC (scales better than client-side).
+   * @param includeUnverified - when true, show unverified cleaners (cold start / launch day)
+   */
+  private async getRankedFeedFromRpc(
+    lat: number,
+    lng: number,
+    limit: number,
+    includeUnverified = false
+  ): Promise<EnhancedVideoItem[]> {
+    try {
+      const { data: rows, error } = await supabase.rpc('get_ranked_cleaner_feed', {
+        p_lat: lat,
+        p_lng: lng,
+        p_radius_km: 50,
+        p_limit: limit,
+        p_include_unverified: includeUnverified,
+      });
+
+      if (error || !rows?.length) return [];
+
+      const contentIds = rows.map((r: { content_id: string }) => r.content_id);
+      const rankMap = new Map(rows.map((r: { content_id: string; rank_score: number }) => [r.content_id, r.rank_score]));
+      const distanceMap = new Map(rows.map((r: { content_id: string; distance_km?: number | null }) => [r.content_id, r.distance_km ?? null]));
+
+      const { data: posts } = await supabase
+        .from('content_posts')
+        .select(
+          `
+          id,
+          user_id,
+          title,
+          description,
+          media_url,
+          thumbnail_url,
+          view_count,
+          like_count,
+          comment_count,
+          created_at,
+          base_price_cents,
+          package_type,
+          is_bookable,
+          estimated_hours,
+          user:users(id, name, avatar_url, cleaner_profiles(rating_average, hourly_rate, is_available, total_jobs))
+        `
+        )
+        .in('id', contentIds);
+
+      if (!posts?.length) return [];
+
+      const ordered = contentIds
+        .map((id) => posts.find((p) => p.id === id))
+        .filter(Boolean) as typeof posts;
+
+      return ordered.map((p) => {
+        const cp = p.user?.cleaner_profiles as { rating_average?: number; hourly_rate?: number; is_available?: boolean; total_jobs?: number } | undefined;
+        const post = p as { base_price_cents?: number | null; package_type?: string | null; is_bookable?: boolean | null; estimated_hours?: number | null };
+        return {
+          id: p.id,
+          cleaner_id: p.user_id,
+          title: p.title || '',
+          description: p.description || '',
+          media_url: p.media_url,
+          thumbnail_url: p.thumbnail_url || '',
+          base_price_cents: post.base_price_cents ?? null,
+          package_type: post.package_type ?? null,
+          is_bookable: post.is_bookable ?? null,
+          estimated_hours: post.estimated_hours ?? null,
+          ranking_score: rankMap.get(p.id) ?? 0,
+          ranking_factors: {} as FeedRankingFactors,
+          view_count: p.view_count ?? 0,
+          like_count: p.like_count ?? 0,
+          comment_count: p.comment_count ?? 0,
+          cleaner: {
+            id: p.user_id,
+            name: (p.user as { name?: string })?.name || 'Provider',
+            avatar_url: (p.user as { avatar_url?: string })?.avatar_url || '',
+            rating_average: cp?.rating_average ?? 0,
+            hourly_rate: cp?.hourly_rate ?? 0,
+            is_available: cp?.is_available ?? true,
+            total_jobs: cp?.total_jobs ?? 0,
+            distance_km: distanceMap.get(p.id) ?? 0,
+            specialties: [],
+          },
+          created_at: p.created_at || new Date().toISOString(),
+        };
+      });
+    } catch {
       return [];
     }
   }

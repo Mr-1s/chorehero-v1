@@ -20,6 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Tutorial, TutorialStep, tutorialService } from '../services/tutorialService';
+import { wp, hp } from '../utils/responsive';
 
 // Safety timeout - if a step is stuck for 15 seconds, auto-advance
 const SAFETY_TIMEOUT_MS = 15000;
@@ -438,8 +439,8 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   tooltipGradient: {
-    padding: 20,
-    minHeight: 120,
+    padding: wp('5%'),
+    minHeight: hp('15%'),
   },
   progressContainer: {
     flexDirection: 'row',
@@ -464,17 +465,17 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tooltipTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#ffffff',
-    marginBottom: 8,
-    lineHeight: 24,
+    marginBottom: hp('1%'),
+    lineHeight: wp('6%'),
   },
   tooltipDescription: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 20,
-    marginBottom: 16,
+    lineHeight: wp('5%'),
+    marginBottom: hp('2%'),
   },
   actionHint: {
     flexDirection: 'row',

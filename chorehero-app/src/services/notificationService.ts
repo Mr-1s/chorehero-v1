@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
 
 export interface Notification {
   id: string;
@@ -117,6 +118,73 @@ class NotificationService {
       toUserId: cleanerId,
       relatedId: bookingId,
     });
+  }
+
+  /**
+   * Notify cleaners of a new marketplace job (pending, no cleaner assigned).
+   * Trigger inserts into notifications; this invokes send-push for each matched cleaner.
+   */
+  async notifyCleanersOfNewJob(booking: {
+    id: string;
+    address_id?: string;
+    service_type?: string;
+    total_amount?: number;
+    scheduled_time?: string;
+  }): Promise<void> {
+    try {
+      if (!booking.address_id) return;
+
+      const { data: addr } = await supabase
+        .from('addresses')
+        .select('latitude, longitude')
+        .eq('id', booking.address_id)
+        .single();
+
+      const lat = addr?.latitude != null ? Number(addr.latitude) : null;
+      const lng = addr?.longitude != null ? Number(addr.longitude) : null;
+      if (lat == null || lng == null) return;
+
+      const { data: cleaners, error } = await supabase.rpc('find_cleaners_for_job', {
+        p_lat: lat,
+        p_lng: lng,
+        p_service_type: booking.service_type || null,
+        p_radius_km: 50,
+      });
+
+      if (error || !cleaners?.length) return;
+
+      const serviceType = booking.service_type || 'Cleaning';
+      const total = booking.total_amount ?? 0;
+      const scheduled = booking.scheduled_time
+        ? new Date(booking.scheduled_time).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : '';
+
+      const title = 'New cleaning job available!';
+      const body = `$${total.toFixed(2)} - ${serviceType} on ${scheduled}`;
+
+      for (const row of cleaners as { user_id: string }[]) {
+        try {
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: row.user_id,
+              title,
+              body,
+              data: { type: 'new_booking', bookingId: booking.id },
+            },
+          });
+        } catch (e) {
+          console.warn('Push send failed for cleaner:', row.user_id, e);
+        }
+      }
+    } catch (err) {
+      console.warn('notifyCleanersOfNewJob failed:', err);
+    }
   }
 
   // Send cancellation notification to cleaner

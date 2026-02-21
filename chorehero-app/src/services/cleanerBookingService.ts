@@ -247,21 +247,47 @@ class CleanerBookingService {
 
   /**
    * Accept a booking
+   * Blocks if Stripe onboarding not complete (prevents accepted jobs that can't pay out)
    */
   async acceptBooking(bookingId: string, cleanerId: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('bookings')
-        .update({
-          cleaner_id: cleanerId,
-          status: 'confirmed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', bookingId)
-        .is('cleaner_id', null); // Ensure no one else grabbed it
+      // Enforce Stripe onboarding and background check before accepting jobs
+      const { data: profile, error: profileError } = await supabase
+        .from('cleaner_profiles')
+        .select('stripe_onboarding_complete, stripe_account_id, background_check_status')
+        .eq('user_id', cleanerId)
+        .single();
+
+      if (profileError || !profile) {
+        console.error('❌ Could not fetch cleaner profile:', profileError);
+        return false;
+      }
+
+      if (!profile.stripe_onboarding_complete || !profile.stripe_account_id) {
+        console.warn('⚠️ Cleaner must complete Stripe onboarding before accepting jobs');
+        throw new Error('Complete Stripe onboarding before accepting jobs. Go to Profile → Earnings to set up payouts.');
+      }
+
+      // Background check required before first booking (deferred from onboarding)
+      const bgStatus = profile.background_check_status as string | null | undefined;
+      if (bgStatus !== 'cleared') {
+        console.warn('⚠️ Background check required before accepting jobs');
+        throw new Error('To complete this booking, we need to verify your background. This takes 2-3 minutes. Go to Profile to start verification.');
+      }
+
+      // Use atomic RPC to prevent two cleaners claiming simultaneously
+      const { data: claimed, error } = await supabase.rpc('claim_booking', {
+        p_booking_id: bookingId,
+        p_cleaner_id: cleanerId,
+      });
 
       if (error) {
         console.error('❌ Error accepting booking:', error);
+        return false;
+      }
+
+      if (!claimed) {
+        console.warn('⚠️ Booking already claimed by another cleaner');
         return false;
       }
 
@@ -281,6 +307,32 @@ class CleanerBookingService {
     // For now, we just log it
     console.log(`Cleaner ${cleanerId} declined booking ${bookingId}`);
     return true;
+  }
+
+  /**
+   * Mark job complete (triggers escrow release via enqueue_cleaner_payout).
+   * Verifies cleaner owns booking and status is in_progress.
+   */
+  async markJobComplete(bookingId: string, cleanerId: string): Promise<boolean> {
+    try {
+      const { data: result, error } = await supabase.rpc('complete_booking', {
+        p_booking_id: bookingId,
+        p_cleaner_id: cleanerId,
+        p_completed_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
+      const rpcResult = result as { success: boolean; error?: string };
+      if (!rpcResult.success) {
+        throw new Error(rpcResult.error || 'Failed to complete booking');
+      }
+
+      return true;
+    } catch (err) {
+      console.error('❌ Error in markJobComplete:', err);
+      return false;
+    }
   }
 
   /**
@@ -315,6 +367,43 @@ class CleanerBookingService {
     } catch (err) {
       console.error('❌ Error in updateBookingStatus:', err);
       return false;
+    }
+  }
+
+  /**
+   * Cancel a job (cleaner-initiated). Uses RPC for refunds and payout cancellation.
+   */
+  async cancelJob(bookingId: string, reason: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.id) {
+        return { success: false, error: 'Not authenticated' };
+      }
+
+      const { data: result, error } = await supabase.rpc('cancel_booking_with_refund', {
+        p_booking_id: bookingId,
+        p_reason: reason,
+        p_cancelled_by: 'cleaner',
+        p_refund_pct: null,
+      });
+
+      if (error) {
+        console.error('❌ Error cancelling job:', error);
+        return { success: false, error: error.message };
+      }
+
+      const rpcResult = result as { success: boolean; error?: string };
+      if (!rpcResult.success) {
+        return { success: false, error: rpcResult.error || 'Cancellation failed' };
+      }
+
+      return { success: true };
+    } catch (err) {
+      console.error('❌ Error in cancelJob:', err);
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to cancel job',
+      };
     }
   }
 

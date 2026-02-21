@@ -26,35 +26,60 @@ serve(async (req) => {
     case "payment_intent.succeeded": {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.booking_id;
-      
+
       if (bookingId) {
-        // Update booking payment status
-        const { error } = await supabase
-          .from('bookings')
-          .update({
-            payment_status: 'paid',
-            stripe_payment_intent_id: pi.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', bookingId);
-        
-        if (error) {
-          console.error('Error updating booking:', error);
-        } else {
-          console.log(`✅ Booking ${bookingId} marked as paid`);
+        // Idempotency: Only process if not already captured (handles duplicate webhooks)
+        const { data: booking } = await supabase
+          .from("bookings")
+          .select("payment_status, stripe_payment_intent_id")
+          .eq("id", bookingId)
+          .single();
+
+        if (
+          booking?.payment_status === "captured" ||
+          booking?.payment_status === "paid" ||
+          booking?.payment_status === "succeeded" ||
+          booking?.stripe_payment_intent_id === pi.id
+        ) {
+          console.log(`⏭️ Booking ${bookingId} already processed, skipping`);
+          break;
         }
-        
-        // Create payment record
-        await supabase
-          .from('payments')
-          .insert({
-            booking_id: bookingId,
-            stripe_payment_intent_id: pi.id,
-            amount: pi.amount,
-            platform_fee: parseInt(pi.metadata?.platform_fee_cents || '0'),
-            status: 'succeeded',
-            created_at: new Date().toISOString(),
-          });
+
+        // Use RPC for atomic capture (or direct update if RPC expects different states)
+        const { data: captured } = await supabase.rpc("capture_booking_payment", {
+          p_booking_id: bookingId,
+          p_payment_intent_id: pi.id,
+        });
+
+        if (!captured) {
+          // RPC may not match (e.g. payment_status not in authorized/pending) — fallback to direct update
+          const { error } = await supabase
+            .from("bookings")
+            .update({
+              payment_status: "paid",
+              stripe_payment_intent_id: pi.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", bookingId);
+
+          if (error) {
+            console.error("Error updating booking:", error);
+          } else {
+            console.log(`✅ Booking ${bookingId} marked as paid`);
+          }
+        } else {
+          console.log(`✅ Booking ${bookingId} captured via RPC`);
+        }
+
+        // Create payment record (idempotent by booking_id + pi.id if unique)
+        await supabase.from("payments").insert({
+          booking_id: bookingId,
+          stripe_payment_intent_id: pi.id,
+          amount: pi.amount,
+          platform_fee: parseInt(pi.metadata?.platform_fee_cents || "0"),
+          status: "succeeded",
+          created_at: new Date().toISOString(),
+        });
       }
       break;
     }

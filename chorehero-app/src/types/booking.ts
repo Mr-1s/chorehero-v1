@@ -96,6 +96,10 @@ export interface BookingRequest {
   pet_details?: string | null;
   payment_method_id: string;
   tip_amount?: number;
+  /** Package (content_post) id when booking from video feed */
+  package_id?: string;
+  /** Override service base price (cents) when using package-based pricing */
+  service_base_price_cents?: number;
 }
 
 export interface BookingResponse {

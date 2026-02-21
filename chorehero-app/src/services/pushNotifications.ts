@@ -169,17 +169,26 @@ class PushNotificationService {
     try {
       const { error } = await supabase
         .from('user_push_tokens')
-        .upsert({
-          user_id: userId,
-          push_token: token,
-          platform: Platform.OS,
-          updated_at: new Date().toISOString(),
-        });
+        .upsert(
+          {
+            user_id: userId,
+            push_token: token,
+            platform: Platform.OS,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
 
       if (error) throw error;
     } catch (error) {
       console.error('Error saving push token:', error);
     }
+  }
+
+  /** Public API: register push token (called from App after auth) */
+  async registerPushToken(userId: string, token: string): Promise<void> {
+    await this.savePushToken(userId, token);
   }
 
   private async updateBadgeCount(): Promise<void> {

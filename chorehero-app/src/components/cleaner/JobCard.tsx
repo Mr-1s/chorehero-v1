@@ -265,8 +265,11 @@ const JobCard: React.FC<JobCardProps> = ({
 
               {variant === 'history' && (
                 <View style={styles.completedInfo}>
-                  <Ionicons name="checkmark-circle" size={16} color="#D97706" />
-                  <Text style={styles.completedText}>Completed</Text>
+                  <View style={styles.completedRow}>
+                    <Ionicons name="checkmark-circle" size={16} color="#D97706" />
+                    <Text style={styles.completedText}>Completed</Text>
+                  </View>
+                  <Text style={styles.payoutStatus}>Payout in ~24h</Text>
                 </View>
               )}
             </View>
@@ -497,6 +500,11 @@ const styles = StyleSheet.create({
 
   // Completed info
   completedInfo: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 2,
+  },
+  completedRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
@@ -505,6 +513,11 @@ const styles = StyleSheet.create({
     fontSize: typography.label.fontSize,
     color: '#D97706',
     fontWeight: '500',
+  },
+  payoutStatus: {
+    fontSize: typography.labelSmall.fontSize,
+    color: colors.textMuted,
+    marginLeft: 20, // Align with text after icon
   },
 });
 

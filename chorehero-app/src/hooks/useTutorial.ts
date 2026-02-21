@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Tutorial, tutorialService } from '../services/tutorialService';
+import { shouldShowGuide, markGuideAsSeen } from '../services/onboardingService';
 import { useAuth } from './useAuth';
 
 export const useTutorial = () => {
@@ -14,18 +15,22 @@ export const useTutorial = () => {
   const { user } = useAuth();
 
   /**
-   * Check for tutorials that should trigger on first login
+   * Check for tutorials that should trigger on first login.
+   * Only for new sign-ups (created in last 24h) who haven't seen the guide.
    */
   const checkFirstLoginTutorials = useCallback(async () => {
     if (!user?.id) return;
-    
+
     try {
+      const showGuide = await shouldShowGuide();
+      if (!showGuide) return;
+
       const tutorials = await tutorialService.getTriggeredTutorials(
         'first_login',
         user.id,
         user.role as 'customer' | 'cleaner'
       );
-      
+
       if (tutorials.length > 0) {
         startTutorial(tutorials[0]);
       }
@@ -96,6 +101,7 @@ export const useTutorial = () => {
    * Complete current tutorial
    */
   const completeTutorial = useCallback(() => {
+    markGuideAsSeen();
     setCurrentTutorial(null);
     setCurrentStepIndex(0);
     setIsActive(false);
@@ -105,6 +111,7 @@ export const useTutorial = () => {
    * Skip current tutorial
    */
   const skipTutorial = useCallback(() => {
+    markGuideAsSeen();
     setCurrentTutorial(null);
     setCurrentStepIndex(0);
     setIsActive(false);

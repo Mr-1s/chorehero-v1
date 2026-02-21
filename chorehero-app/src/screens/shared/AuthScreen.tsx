@@ -41,7 +41,7 @@ const PRIMARY_ACTION = '#26B7C9';
 const PRIMARY_ACTION_DESAT = '#9CCED6';
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(false); // Default to Sign Up so new users see account type choice
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);

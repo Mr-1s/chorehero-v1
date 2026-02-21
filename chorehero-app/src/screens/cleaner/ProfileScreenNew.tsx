@@ -9,7 +9,7 @@
  * - Quick actions grid (2 columns)
  */
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 
 // Store
 import { useCleanerStore } from '../../store/cleanerStore';
+import { supabase } from '../../services/supabase';
 
 // Components
 import { MetricCard, QuickActionTile, PressableScale } from '../../components/cleaner';
@@ -86,6 +87,61 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
     refreshData,
   } = useCleanerStore();
   const [detailsVisible, setDetailsVisible] = React.useState(false);
+  const [packages, setPackages] = useState<{ id: string; title: string; base_price_cents: number | null; package_type: string | null; thumbnail_url: string | null; bookings_count: number }[]>([]);
+  const [packagesLoading, setPackagesLoading] = useState(false);
+
+  const loadPackages = useCallback(async () => {
+    const userId = currentCleaner?.id;
+    if (!userId) return;
+    setPackagesLoading(true);
+    try {
+      // Use package_analytics view via RPC (single query, no N+1)
+      const { data: stats, error } = await supabase.rpc('get_my_package_stats');
+
+      if (error) {
+        // Fallback to N+1 if RPC not yet deployed
+        const { data: posts } = await supabase
+          .from('content_posts')
+          .select('id, title, base_price_cents, package_type, thumbnail_url')
+          .eq('user_id', userId)
+          .eq('is_bookable', true)
+          .eq('status', 'published')
+          .order('created_at', { ascending: false });
+
+        const withCounts = await Promise.all(
+          (posts || []).map(async (p) => {
+            const { count } = await supabase
+              .from('bookings')
+              .select('*', { count: 'exact', head: true })
+              .eq('package_id', p.id);
+            return { ...p, bookings_count: count ?? 0 };
+          })
+        );
+        setPackages(withCounts);
+        return;
+      }
+
+      setPackages(
+        (stats || []).map((s: { package_id: string; title: string; base_price_cents: number | null; package_type: string | null; thumbnail_url: string | null; bookings_count: number }) => ({
+          id: s.package_id,
+          title: s.title || 'Package',
+          base_price_cents: s.base_price_cents,
+          package_type: s.package_type,
+          thumbnail_url: s.thumbnail_url,
+          bookings_count: s.bookings_count ?? 0,
+        }))
+      );
+    } catch (err) {
+      console.warn('Failed to load packages:', err);
+      setPackages([]);
+    } finally {
+      setPackagesLoading(false);
+    }
+  }, [currentCleaner?.id]);
+
+  useEffect(() => {
+    loadPackages();
+  }, [loadPackages]);
 
   useEffect(() => {
     if (currentCleaner?.profileCompletion !== undefined && currentCleaner.profileCompletion < 1 && currentCleaner.isOnline) {
@@ -155,7 +211,10 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
-            onRefresh={refreshData}
+            onRefresh={async () => {
+              await refreshData();
+              loadPackages();
+            }}
             tintColor={colors.primary}
             colors={[colors.primary]}
           />
@@ -359,6 +418,59 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
               </View>
             </LinearGradient>
           </TouchableOpacity>
+        </Animated.View>
+
+        {/* My Packages */}
+        <Animated.View entering={FadeInUp.delay(250).duration(400)} style={styles.section}>
+          <View style={styles.packagesSection}>
+            <View style={styles.packagesHeader}>
+              <Text style={styles.sectionTitle}>My Packages</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('VideoUpload')}>
+                <Text style={styles.packagesManageText}>Manage</Text>
+              </TouchableOpacity>
+            </View>
+            {packagesLoading ? (
+              <View style={styles.packagesPlaceholder}>
+                <Text style={styles.packagesPlaceholderText}>Loading...</Text>
+              </View>
+            ) : packages.length === 0 ? (
+              <TouchableOpacity
+                style={styles.packagesEmptyCard}
+                onPress={() => navigation.navigate('VideoUpload')}
+              >
+                <Ionicons name="add-circle-outline" size={32} color={colors.textMuted} />
+                <Text style={styles.packagesEmptyTitle}>Create your first package</Text>
+                <Text style={styles.packagesEmptySubtext}>Upload a video and set a price to get booked</Text>
+              </TouchableOpacity>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.packagesScroll}>
+                {packages.map((pkg) => (
+                  <TouchableOpacity
+                    key={pkg.id}
+                    style={styles.packageCard}
+                    onPress={() => navigation.navigate('VideoUpload')}
+                  >
+                    {pkg.thumbnail_url ? (
+                      <Image source={{ uri: pkg.thumbnail_url }} style={styles.packageThumb} />
+                    ) : (
+                      <View style={[styles.packageThumb, styles.packageThumbPlaceholder]}>
+                        <Ionicons name="videocam-outline" size={24} color={colors.textMuted} />
+                      </View>
+                    )}
+                    <Text style={styles.packageTitle} numberOfLines={1}>{pkg.title || 'Package'}</Text>
+                    <Text style={styles.packagePrice}>
+                      {pkg.base_price_cents != null
+                        ? pkg.package_type === 'fixed'
+                          ? `$${pkg.base_price_cents / 100}`
+                          : `$${pkg.base_price_cents / 100}/hr`
+                        : 'Contact'}
+                    </Text>
+                    <Text style={styles.packageBookings}>{pkg.bookings_count} bookings</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
         </Animated.View>
 
         {/* Quick Actions */}
@@ -593,6 +705,92 @@ const styles = StyleSheet.create({
     fontWeight: typography.sectionHeading.fontWeight,
     color: colors.textPrimary,
     marginBottom: spacing.lg,
+  },
+
+  // My Packages
+  packagesSection: {},
+  packagesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  packagesManageText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  packagesPlaceholder: {
+    padding: spacing.xl,
+    alignItems: 'center',
+    backgroundColor: colors.cardBg,
+    borderRadius: radii.card,
+    ...shadows.soft,
+  },
+  packagesPlaceholderText: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+  packagesEmptyCard: {
+    padding: spacing.xl,
+    alignItems: 'center',
+    backgroundColor: colors.cardBg,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    borderStyle: 'dashed',
+  },
+  packagesEmptyTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    marginTop: spacing.md,
+  },
+  packagesEmptySubtext: {
+    fontSize: 13,
+    color: colors.textMuted,
+    marginTop: 4,
+  },
+  packagesScroll: {
+    marginHorizontal: -spacing.xl,
+  },
+  packageCard: {
+    width: 140,
+    marginLeft: spacing.xl,
+    backgroundColor: colors.cardBg,
+    borderRadius: radii.card,
+    overflow: 'hidden',
+    ...shadows.soft,
+  },
+  packageThumb: {
+    width: '100%',
+    height: 90,
+    backgroundColor: colors.metaBg,
+  },
+  packageThumbPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  packageTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textPrimary,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  packagePrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+    paddingHorizontal: spacing.md,
+    paddingTop: 2,
+  },
+  packageBookings: {
+    fontSize: 12,
+    color: colors.textMuted,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    paddingTop: 2,
   },
 
   // Completion Card

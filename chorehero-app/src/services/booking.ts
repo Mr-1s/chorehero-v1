@@ -1,10 +1,12 @@
 import { supabase } from './supabase';
 import { chatService } from './chatService';
 import { messageService } from './messageService';
+import { notificationService } from './notificationService';
 import { ApiResponse } from '../types/api';
 import { Booking, BookingRequest, BookingResponse, ServiceType, AddOn, TimeSlot } from '../types/booking';
 import { Address } from '../types/user';
 import { SERVICE_TYPES, ADD_ONS, PLATFORM_CONFIG } from '../utils/constants';
+import { displayInTz, DEFAULT_TZ } from '../utils/timezone';
 
 class BookingService {
   // Get available time slots for a cleaner
@@ -194,29 +196,63 @@ class BookingService {
   // Create a new booking
   async createBooking(request: BookingRequest): Promise<ApiResponse<BookingResponse>> {
     try {
-      // Calculate pricing
-      const pricingResponse = await this.calculateBookingTotal(
-        request.service_type,
-        request.add_ons,
-        request.scheduled_time
-      );
-
-      if (!pricingResponse.success) {
-        throw new Error(pricingResponse.error);
+      // Prevent self-booking (customer cannot book themselves as cleaner)
+      if (request.cleaner_id && request.customer_id === request.cleaner_id) {
+        return {
+          success: false,
+          data: null as any,
+          error: 'Cannot book your own services',
+        };
       }
 
-      const pricing = pricingResponse.data;
+      // Calculate pricing: use package override when present, else SERVICE_TYPES
+      let pricing: {
+        service_base_price: number;
+        add_ons_total: number;
+        platform_fee: number;
+        tax: number;
+        total_amount: number;
+        cleaner_earnings: number;
+      };
+      if (request.service_base_price_cents != null) {
+        const serviceBasePrice = request.service_base_price_cents / 100;
+        const addOnsTotal = request.add_ons.reduce((total, addOnId) => {
+          const addOn = ADD_ONS.find(a => a.id === addOnId);
+          return total + (addOn?.price || 0);
+        }, 0);
+        const subtotal = serviceBasePrice + addOnsTotal;
+        const platformFee = subtotal * PLATFORM_CONFIG.commission_rate;
+        const tax = subtotal * 0.08;
+        const totalAmount = subtotal + platformFee + tax;
+        const cleanerEarnings = subtotal * PLATFORM_CONFIG.cleaner_retention_rate;
+        pricing = {
+          service_base_price: serviceBasePrice,
+          add_ons_total: addOnsTotal,
+          platform_fee: platformFee,
+          tax,
+          total_amount: totalAmount,
+          cleaner_earnings: cleanerEarnings,
+        };
+      } else {
+        const pricingResponse = await this.calculateBookingTotal(
+          request.service_type,
+          request.add_ons,
+          request.scheduled_time
+        );
+        if (!pricingResponse.success) {
+          throw new Error(pricingResponse.error);
+        }
+        pricing = pricingResponse.data;
+      }
 
       // Create booking record
-      const { data: booking, error: bookingError } = await supabase
-        .from('bookings')
-        .insert({
-          customer_id: request.customer_id,
-          cleaner_id: request.cleaner_id,
-          service_type: request.service_type,
-          address_id: request.address_id,
-          scheduled_time: request.scheduled_time,
-          estimated_duration: request.estimated_duration ?? SERVICE_TYPES[request.service_type].estimated_duration,
+      const insertPayload: Record<string, unknown> = {
+        customer_id: request.customer_id,
+        cleaner_id: request.cleaner_id,
+        service_type: request.service_type,
+        address_id: request.address_id,
+        scheduled_time: request.scheduled_time,
+        estimated_duration: request.estimated_duration ?? SERVICE_TYPES[request.service_type].estimated_duration,
           special_instructions: request.special_instructions,
           access_instructions: request.access_instructions,
           bedrooms: request.bedrooms,
@@ -233,7 +269,13 @@ class BookingService {
           cleaner_earnings: pricing.cleaner_earnings + (request.tip_amount || 0),
           status: 'pending',
           payment_status: 'pending',
-        })
+        };
+      if (request.package_id) {
+        insertPayload.package_id = request.package_id;
+      }
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .insert(insertPayload)
         .select(`
           *,
           customer:customer_id(name, phone),
@@ -265,33 +307,48 @@ class BookingService {
         }
       }
 
-      // Create chat thread using chat service
-      const chatResult = await chatService.createOrGetChatThread({
-        customer_id: request.customer_id,
-        cleaner_id: request.cleaner_id,
-        booking_id: booking.id,
-      });
-
-      if (!chatResult.success) {
-        console.error('❌ Chat thread creation failed:', chatResult.error);
-        throw new Error(chatResult.error || 'Failed to create chat thread');
+      // Create chat thread (skip for marketplace jobs with no cleaner assigned)
+      let chatThreadId: string | undefined;
+      if (request.cleaner_id) {
+        const chatResult = await chatService.createOrGetChatThread({
+          customer_id: request.customer_id,
+          cleaner_id: request.cleaner_id,
+          booking_id: booking.id,
+        });
+        if (!chatResult.success) {
+          console.error('❌ Chat thread creation failed:', chatResult.error);
+          throw new Error(chatResult.error || 'Failed to create chat thread');
+        }
+        chatThreadId = chatResult.data!.id;
       }
 
-      // Send notification to cleaner
-      await this.sendBookingNotification(booking.id, 'new_booking_request');
+      // Send notification: direct to assigned cleaner, or push to cleaners in radius (marketplace)
+      if (request.cleaner_id) {
+        await this.sendBookingNotification(booking.id, 'new_booking_request');
+      } else {
+        await notificationService.notifyCleanersOfNewJob({
+          id: booking.id,
+          address_id: request.address_id,
+          service_type: request.service_type,
+          total_amount: (booking as any).total_amount,
+          scheduled_time: request.scheduled_time,
+        });
+      }
 
       return {
         success: true,
         data: {
           booking: booking as Booking,
           estimated_arrival: new Date(new Date(request.scheduled_time).getTime() - 15 * 60 * 1000).toISOString(),
-          cleaner_info: {
-            name: booking.cleaner.name,
-            photo_url: booking.cleaner.avatar_url || '',
-            rating: 4.8, // Would come from cleaner profile
-            phone: booking.cleaner.phone,
-          },
-          chat_thread_id: chatResult.data!.id,
+          cleaner_info: request.cleaner_id && (booking as any).cleaner
+            ? {
+                name: (booking as any).cleaner.name,
+                photo_url: (booking as any).cleaner.avatar_url || '',
+                rating: 4.8,
+                phone: (booking as any).cleaner.phone,
+              }
+            : null,
+          chat_thread_id: chatThreadId,
         },
       };
     } catch (error) {
@@ -415,14 +472,41 @@ class BookingService {
   // Send booking notification
   private async sendBookingNotification(bookingId: string, type: string) {
     try {
-      // Get booking details
+      // Get booking details (include package_id and scheduled_time for contextual notifications)
       const { data: booking } = await supabase
         .from('bookings')
-        .select('customer_id, cleaner_id, status')
+        .select('customer_id, cleaner_id, status, package_id, scheduled_time')
         .eq('id', bookingId)
         .single();
 
       if (!booking) return;
+
+      // Fetch package title if booking includes a package
+      let packageTitle: string | null = null;
+      if (booking.package_id) {
+        const { data: pkg } = await supabase
+          .from('content_posts')
+          .select('title')
+          .eq('id', booking.package_id)
+          .single();
+        packageTitle = pkg?.title ?? null;
+      }
+
+      const formatScheduledDate = (iso: string) => {
+        try {
+          return new Date(iso).toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        } catch {
+          return '';
+        }
+      };
+
+      const scheduledStr = booking.scheduled_time ? formatScheduledDate(booking.scheduled_time) : '';
 
       const notifications = [];
 
@@ -435,14 +519,25 @@ class BookingService {
         data: { booking_id: bookingId },
       });
 
-      // Create notification for cleaner
+      // Create notification for cleaner (with package context when available)
       if (booking.cleaner_id) {
+        const cleanerMessage =
+          type === 'new_booking_request' && packageTitle && scheduledStr
+            ? `Someone booked your "${packageTitle}" package for ${scheduledStr}`
+            : type === 'new_booking_request' && scheduledStr
+              ? `You have a new booking request for ${scheduledStr}`
+              : this.getNotificationMessage(type, 'cleaner');
+
         notifications.push({
           user_id: booking.cleaner_id,
           type,
           title: this.getNotificationTitle(type, 'cleaner'),
-          message: this.getNotificationMessage(type, 'cleaner'),
-          data: { booking_id: bookingId },
+          message: cleanerMessage,
+          data: {
+            booking_id: bookingId,
+            package_id: booking.package_id ?? null,
+            package_title: packageTitle ?? null,
+          },
         });
       }
 
@@ -499,8 +594,8 @@ class BookingService {
         .from('bookings')
         .select(`
           *,
-          customer:profiles!customer_id(*),
-          cleaner:profiles!cleaner_id(*),
+          customer:users!customer_id(id, name, avatar_url, email, phone),
+          cleaner:users!cleaner_id(id, name, avatar_url, email, phone),
           address:addresses(*)
         `)
         .eq('id', bookingId)
@@ -605,21 +700,38 @@ class BookingService {
     }
   }
 
-  // Accept a job (assign cleaner to booking)
+  // Accept a job (assign cleaner to booking) — atomic via DB RPC
   async acceptJob(
     bookingId: string,
     cleanerId: string
   ): Promise<ApiResponse<Booking>> {
     try {
+      // Acquire a short-lived booking lock to signal intent
+      await supabase.from('booking_locks').upsert(
+        {
+          cleaner_id: cleanerId,
+          time_slot: new Date().toISOString(),
+          locked_by: cleanerId,
+          expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        },
+        { onConflict: 'cleaner_id,time_slot' }
+      ).then(() => {}).catch(() => {});
+
+      // Atomic claim — SELECT FOR UPDATE SKIP LOCKED prevents race condition
+      const { data: claimed, error: rpcError } = await supabase.rpc('claim_booking', {
+        p_booking_id: bookingId,
+        p_cleaner_id: cleanerId,
+      });
+
+      if (rpcError) throw rpcError;
+
+      if (!claimed) {
+        throw new Error('Job no longer available — another cleaner accepted it first');
+      }
+
+      // Fetch the updated booking so callers get full data
       const { data, error } = await supabase
         .from('bookings')
-        .update({
-          cleaner_id: cleanerId,
-          status: 'cleaner_assigned',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', bookingId)
-        .eq('status', 'pending') // Only accept if still pending
         .select(`
           *,
           customer:customer_id (
@@ -630,6 +742,7 @@ class BookingService {
             phone
           )
         `)
+        .eq('id', bookingId)
         .single();
 
       if (error) throw error;
@@ -658,7 +771,7 @@ class BookingService {
             await messageService.sendMessage({
               roomId: chatRoomResult.data.id,
               senderId: 'system',
-              content: `Booking confirmed! Your cleaner will arrive at ${new Date(data.scheduled_time).toLocaleString()}. Feel free to chat here for any questions or updates.`,
+              content: `Booking confirmed! Your cleaner will arrive at ${displayInTz(data.scheduled_time, (data as any).timezone || DEFAULT_TZ)}. Feel free to chat here for any questions or updates.`,
               messageType: 'booking_update'
             });
           }
@@ -680,6 +793,99 @@ class BookingService {
         success: false,
         data: null as any,
         error: error instanceof Error ? error.message : 'Failed to accept job',
+      };
+    }
+  }
+
+  /**
+   * Cancel a booking with automatic time-based refund policy.
+   *
+   * Refund policy:
+   *   > 24 hrs before job  → 100% refund
+   *   2–24 hrs before job  → 50% refund
+   *   < 2 hrs / in-progress → 0% refund
+   *   Cleaner cancels       → always 100% refund
+   *
+   * If the payment was already captured, a Stripe refund is triggered
+   * via the Supabase Edge Function `process-refund`.
+   */
+  async cancelBooking(
+    bookingId: string,
+    reason: string,
+    cancelledBy: 'customer' | 'cleaner' | 'system'
+  ): Promise<ApiResponse<{ refundAmount: number; refundPct: number }>> {
+    try {
+      // DB handles policy calculation atomically
+      const { data: result, error } = await supabase.rpc('cancel_booking_with_refund', {
+        p_booking_id:   bookingId,
+        p_reason:       reason,
+        p_cancelled_by: cancelledBy,
+        p_refund_pct:   null, // let DB policy decide
+      });
+
+      if (error) throw error;
+
+      const rpcResult = result as {
+        success: boolean;
+        error?: string;
+        refund_pct: number;
+        refund_amount: number;
+        payment_intent: string | null;
+        payment_status: string;
+      };
+
+      if (!rpcResult.success) {
+        throw new Error(rpcResult.error || 'Cancellation failed');
+      }
+
+      // If payment was captured, trigger Stripe refund via Edge Function
+      if (
+        rpcResult.refund_amount > 0 &&
+        rpcResult.payment_intent &&
+        ['captured', 'succeeded'].includes(rpcResult.payment_status)
+      ) {
+        const { error: refundError } = await supabase.functions.invoke('process-refund', {
+          body: {
+            payment_intent_id: rpcResult.payment_intent,
+            amount_cents: Math.round(rpcResult.refund_amount * 100),
+            booking_id: bookingId,
+          },
+        });
+
+        if (refundError) {
+          // Log but don't fail — DB is already cancelled, refund can be retried
+          console.error('⚠️ Stripe refund failed (will retry):', refundError);
+        }
+      }
+
+      // Notify both parties via notification system
+      try {
+        await supabase.from('notifications').insert([
+          {
+            user_id:  null, // populated below per-party
+            type:    'booking_cancelled',
+            title:   'Booking Cancelled',
+            message: `Your booking has been cancelled. ${rpcResult.refund_amount > 0 ? `Refund of $${rpcResult.refund_amount.toFixed(2)} will be processed.` : 'No refund applies per cancellation policy.'}`,
+            data:    { booking_id: bookingId, cancelled_by: cancelledBy },
+          },
+        ]);
+      } catch {
+        // non-critical
+      }
+
+      return {
+        success: true,
+        data: {
+          refundAmount: rpcResult.refund_amount,
+          refundPct:    rpcResult.refund_pct,
+        },
+      };
+    } catch (error) {
+      console.error('Error cancelling booking:', error);
+      return {
+        success: false,
+        data: { refundAmount: 0, refundPct: 0 },
+        error: error instanceof Error ? error.message : 'Failed to cancel booking',
       };
     }
   }

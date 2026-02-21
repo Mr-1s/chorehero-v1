@@ -89,23 +89,33 @@ class ContentService {
         status: postData.status || 'published'
       });
 
+      const insertData: Record<string, unknown> = {
+        user_id: userId,
+        title: postData.title,
+        description: postData.description,
+        content_type: postData.content_type,
+        media_url: postData.media_url,
+        thumbnail_url: postData.thumbnail_url,
+        secondary_media_url: postData.secondary_media_url,
+        duration_seconds: postData.duration_seconds,
+        location_name: postData.location_name,
+        tags: postData.tags,
+        metadata: postData.metadata,
+        status: postData.status || 'published',
+        published_at: postData.status !== 'draft' ? new Date().toISOString() : null,
+      };
+
+      if (postData.is_bookable != null) insertData.is_bookable = postData.is_bookable;
+      if (postData.package_type) insertData.package_type = postData.package_type;
+      if (postData.base_price_cents != null) insertData.base_price_cents = postData.base_price_cents;
+      if (postData.price_range) insertData.price_range = postData.price_range;
+      if (postData.included_tasks?.length) insertData.included_tasks = postData.included_tasks;
+      if (postData.estimated_hours != null) insertData.estimated_hours = postData.estimated_hours;
+      if (postData.service_radius_miles != null) insertData.service_radius_miles = postData.service_radius_miles;
+
       const { data, error } = await supabase
         .from('content_posts')
-        .insert({
-          user_id: userId,
-          title: postData.title,
-          description: postData.description,
-          content_type: postData.content_type,
-          media_url: postData.media_url,
-          thumbnail_url: postData.thumbnail_url,
-          secondary_media_url: postData.secondary_media_url,
-          duration_seconds: postData.duration_seconds,
-          location_name: postData.location_name,
-          tags: postData.tags,
-          metadata: postData.metadata,
-          status: postData.status || 'published',
-          published_at: postData.status !== 'draft' ? new Date().toISOString() : null
-        })
+        .insert(insertData)
         .select(`
           *,
           user:users(id, name, avatar_url, role, cleaner_profiles(hourly_rate, rating_average, total_jobs))

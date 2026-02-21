@@ -3,7 +3,7 @@
 
 -- Content posts table for videos/photos uploaded by cleaners
 CREATE TABLE IF NOT EXISTS public.content_posts (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.content_posts (
 
 -- Content interactions (likes, views, etc.)
 CREATE TABLE IF NOT EXISTS public.content_interactions (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   content_post_id UUID REFERENCES public.content_posts(id) ON DELETE CASCADE NOT NULL,
   interaction_type VARCHAR(20) NOT NULL CHECK (interaction_type IN ('like', 'view', 'share')),
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.content_interactions (
 
 -- Content comments
 CREATE TABLE IF NOT EXISTS public.content_comments (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   content_post_id UUID REFERENCES public.content_posts(id) ON DELETE CASCADE NOT NULL,
   parent_comment_id UUID REFERENCES public.content_comments(id) ON DELETE CASCADE,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS public.content_comments (
 
 -- User follows (for following other cleaners)
 CREATE TABLE IF NOT EXISTS public.user_follows (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   follower_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   following_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.user_follows (
 
 -- Content notifications
 CREATE TABLE IF NOT EXISTS public.content_notifications (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   actor_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
   content_post_id UUID REFERENCES public.content_posts(id) ON DELETE CASCADE,
@@ -96,58 +96,75 @@ ALTER TABLE public.user_follows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.content_notifications ENABLE ROW LEVEL SECURITY;
 
 -- Content posts policies
+DROP POLICY IF EXISTS "Content posts are viewable by everyone" ON public.content_posts;
 CREATE POLICY "Content posts are viewable by everyone" ON public.content_posts
   FOR SELECT USING (status = 'published');
 
+DROP POLICY IF EXISTS "Users can insert their own content posts" ON public.content_posts;
 CREATE POLICY "Users can insert their own content posts" ON public.content_posts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own content posts" ON public.content_posts;
 CREATE POLICY "Users can update their own content posts" ON public.content_posts
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete their own content posts" ON public.content_posts;
 CREATE POLICY "Users can delete their own content posts" ON public.content_posts
   FOR DELETE USING (auth.uid() = user_id);
 
 -- Content interactions policies
+DROP POLICY IF EXISTS "Users can view all interactions" ON public.content_interactions;
 CREATE POLICY "Users can view all interactions" ON public.content_interactions
   FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can insert their own interactions" ON public.content_interactions;
 CREATE POLICY "Users can insert their own interactions" ON public.content_interactions
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own interactions" ON public.content_interactions;
 CREATE POLICY "Users can update their own interactions" ON public.content_interactions
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete their own interactions" ON public.content_interactions;
 CREATE POLICY "Users can delete their own interactions" ON public.content_interactions
   FOR DELETE USING (auth.uid() = user_id);
 
 -- Content comments policies
+DROP POLICY IF EXISTS "Comments are viewable by everyone" ON public.content_comments;
 CREATE POLICY "Comments are viewable by everyone" ON public.content_comments
   FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can insert their own comments" ON public.content_comments;
 CREATE POLICY "Users can insert their own comments" ON public.content_comments
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own comments" ON public.content_comments;
 CREATE POLICY "Users can update their own comments" ON public.content_comments
   FOR UPDATE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete their own comments" ON public.content_comments;
 CREATE POLICY "Users can delete their own comments" ON public.content_comments
   FOR DELETE USING (auth.uid() = user_id);
 
 -- User follows policies
+DROP POLICY IF EXISTS "Users can view all follows" ON public.user_follows;
 CREATE POLICY "Users can view all follows" ON public.user_follows
   FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can insert their own follows" ON public.user_follows;
 CREATE POLICY "Users can insert their own follows" ON public.user_follows
   FOR INSERT WITH CHECK (auth.uid() = follower_id);
 
+DROP POLICY IF EXISTS "Users can delete their own follows" ON public.user_follows;
 CREATE POLICY "Users can delete their own follows" ON public.user_follows
   FOR DELETE USING (auth.uid() = follower_id);
 
 -- Content notifications policies
+DROP POLICY IF EXISTS "Users can view their own notifications" ON public.content_notifications;
 CREATE POLICY "Users can view their own notifications" ON public.content_notifications
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own notifications" ON public.content_notifications;
 CREATE POLICY "Users can update their own notifications" ON public.content_notifications
   FOR UPDATE USING (auth.uid() = user_id);
 
@@ -160,7 +177,9 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_content_posts_updated_at ON public.content_posts;
 CREATE TRIGGER update_content_posts_updated_at BEFORE UPDATE ON public.content_posts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_content_comments_updated_at ON public.content_comments;
 CREATE TRIGGER update_content_comments_updated_at BEFORE UPDATE ON public.content_comments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Function to update content interaction counts
@@ -196,6 +215,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_content_interaction_counts ON public.content_interactions;
 CREATE TRIGGER update_content_interaction_counts
   AFTER INSERT OR DELETE ON public.content_interactions
   FOR EACH ROW EXECUTE FUNCTION update_content_counts();
@@ -218,6 +238,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_content_comment_counts ON public.content_comments;
 CREATE TRIGGER update_content_comment_counts
   AFTER INSERT OR DELETE ON public.content_comments
   FOR EACH ROW EXECUTE FUNCTION update_comment_counts(); 

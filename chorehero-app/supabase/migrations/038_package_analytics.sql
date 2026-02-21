@@ -1,0 +1,43 @@
+-- Migration 038: Package analytics view (eliminates N+1 for My Packages)
+
+-- Create view for efficient package stats
+CREATE OR REPLACE VIEW public.package_analytics AS
+SELECT
+  cp.id AS package_id,
+  cp.user_id,
+  cp.title,
+  cp.thumbnail_url,
+  cp.base_price_cents,
+  cp.package_type,
+  cp.is_bookable,
+  cp.created_at,
+  COUNT(b.id)::integer AS bookings_count,
+  COUNT(CASE WHEN b.status = 'completed' THEN 1 END)::integer AS completed_bookings,
+  COALESCE(SUM(CASE WHEN b.status = 'completed' THEN b.total_amount ELSE 0 END), 0)::numeric AS total_revenue,
+  AVG(CASE WHEN b.status = 'completed' THEN b.total_amount END)::numeric AS avg_booking_value
+FROM public.content_posts cp
+LEFT JOIN public.bookings b ON b.package_id = cp.id
+WHERE cp.is_bookable = true
+GROUP BY cp.id;
+
+-- Grant access for authenticated users
+GRANT SELECT ON public.package_analytics TO authenticated;
+GRANT SELECT ON public.package_analytics TO service_role;
+
+-- Function for cleaner to get their package stats (RLS-safe)
+CREATE OR REPLACE FUNCTION public.get_my_package_stats()
+RETURNS SETOF public.package_analytics
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT * FROM public.package_analytics
+  WHERE user_id = auth.uid()
+  ORDER BY created_at DESC;
+END;
+$$;
+
+-- Grant execute to authenticated users
+GRANT EXECUTE ON FUNCTION public.get_my_package_stats() TO authenticated;

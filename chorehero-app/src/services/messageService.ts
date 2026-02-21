@@ -134,9 +134,27 @@ class MessageService {
   async sendMessage(params: SendMessageParams): Promise<{ success: boolean; data?: ChatMessage; error?: string }> {
     try {
       const { roomId, senderId, content, messageType = 'text' } = params;
-      
+
+      // Trust & safety: block off-platform payment keywords
+      const OFF_PLATFORM_KEYWORDS = ['venmo', 'cash', 'zelle', 'paypal', 'off app', 'off-platform', 'pay me directly'];
+      const contentLower = (content || '').toLowerCase();
+      const containsOffPlatform = OFF_PLATFORM_KEYWORDS.some((k) => contentLower.includes(k));
+
+      if (containsOffPlatform && messageType === 'text') {
+        await supabase.from('flagged_messages').insert({
+          thread_id: roomId,
+          sender_id: senderId,
+          content: content?.slice(0, 500),
+          reason: 'off_platform_payment',
+        });
+        return {
+          success: false,
+          error: 'Please keep payments and communication on-platform for your safety.',
+        };
+      }
+
       console.log('💬 Sending message to thread:', roomId);
-      
+
       // Insert the message
       const { data: message, error: messageError } = await supabase
         .from('chat_messages')

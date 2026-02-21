@@ -69,7 +69,7 @@ export interface PaymentBreakdown {
 class StripeService {
   // Calculate payment breakdown with platform fee
   calculatePaymentBreakdown(subtotal: number, tip: number = 0): PaymentBreakdown {
-    const platformFee = Math.round(subtotal * STRIPE_CONFIG.platformFeePercentage);
+    const platformFee = Math.round((subtotal * STRIPE_CONFIG.platformFeeBps) / 10000);
     const cleanerAmount = subtotal - platformFee + tip;
     const total = subtotal + tip;
 

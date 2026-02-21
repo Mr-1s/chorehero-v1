@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS public.active_locations (
 );
 
 CREATE TABLE IF NOT EXISTS public.waitlist_leads (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   phone VARCHAR(20) NOT NULL,
   zip_code VARCHAR(10) NOT NULL,
   city VARCHAR(100),

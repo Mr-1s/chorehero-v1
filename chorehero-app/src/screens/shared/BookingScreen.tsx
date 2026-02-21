@@ -25,6 +25,7 @@ import FloatingNavigation from '../../components/FloatingNavigation';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { notificationService } from '../../services/notificationService';
+import { bookingService } from '../../services/booking';
 
 import { routeToMessage } from '../../utils/messageRouting';
 
@@ -473,41 +474,26 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           style: 'destructive',
           onPress: async () => {
             try {
-              const { error } = await supabase
-                .from('bookings')
-                .update({ 
-                  status: 'cancelled',
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', booking.id);
+              const result = await bookingService.cancelBooking(
+                booking.id,
+                'Cancelled by customer',
+                'customer'
+              );
 
-              if (error) throw error;
-
-              // Send cancellation notification to the cleaner
-              if (booking.provider?.id && user) {
-                try {
-                  await notificationService.sendCancellationNotification(
-                    booking.id,
-                    booking.provider.id,
-                    user.id,
-                    user.name || 'A customer',
-                    booking.service || 'Cleaning Service',
-                    `${booking.date} at ${booking.time}`,
-                    user.avatar_url
-                  );
-                  console.log('📬 Cancellation notification sent to cleaner');
-                } catch (notifError) {
-                  console.warn('Could not send cancellation notification:', notifError);
-                }
+              if (!result.success) {
+                throw new Error(result.error || 'Cancellation failed');
               }
+
+              const refundMsg = result.data?.refundAmount
+                ? `A refund of $${result.data.refundAmount.toFixed(2)} will be processed within 3-5 business days.`
+                : 'No refund applies per cancellation policy.';
 
               Alert.alert(
                 'Booking Cancelled',
-                'Your booking has been cancelled. A refund will be processed within 3-5 business days.',
+                `Your booking has been cancelled. ${refundMsg}`,
                 [{ text: 'OK' }]
               );
-              
-              // Refresh bookings list
+
               loadBookings();
             } catch (error) {
               console.error('Error cancelling booking:', error);

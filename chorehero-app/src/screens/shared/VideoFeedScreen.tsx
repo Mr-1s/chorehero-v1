@@ -39,8 +39,11 @@ import { TutorialOverlay } from '../../components/TutorialOverlay';
 import { useTutorial } from '../../hooks/useTutorial';
 import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { contentService } from '../../services/contentService';
+import { videoFeedAlgorithmService } from '../../services/videoFeedAlgorithmService';
+import { guestModeService } from '../../services/guestModeService';
 import { useAuth } from '../../hooks/useAuth';
 import { useDeviceStabilization, getVideoFeedLayout } from '../../utils/deviceStabilization';
+import { wp, hp } from '../../utils/responsive';
 import StabilizedText from '../../components/StabilizedText';
 import CreatorFollowPill from '../../components/CreatorFollowPill';
 import BookingBubble from '../../components/BookingBubble';
@@ -172,9 +175,6 @@ const DESIGN_TOKENS = {
   }
 };
 
-const BOOKING_SHEET_HEIGHT = 360;
-const BOOKING_SERVICES = ['Standard Cleaning', 'Deep Cleaning', 'Move In/Out'];
-const BOOKING_TIMES = ['Today 2:00 PM', 'Today 4:00 PM', 'Tomorrow 9:00 AM'];
 
 
 // Simple expo-video player - more stable with Expo
@@ -516,11 +516,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const [globalView, setGlobalView] = useState(false);
   const [guestCity, setGuestCity] = useState<string | null>(null);
   const [guestState, setGuestState] = useState<string | null>(null);
-  const [bookingSheetVisible, setBookingSheetVisible] = useState(false);
-  const [bookingSheetProvider, setBookingSheetProvider] = useState<FeedItem | null>(null);
-  const bookingSheetTranslate = useRef(new Animated.Value(0)).current;
-  const [selectedService, setSelectedService] = useState('Standard Cleaning');
-  const [selectedTime, setSelectedTime] = useState('Today 2:00 PM');
   const [isUserPaused, setIsUserPaused] = useState(false);
   const [suppressAutoPlay, setSuppressAutoPlay] = useState(false);
   const [commentOverlayVisible, setCommentOverlayVisible] = useState(false);
@@ -537,22 +532,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   
   const { user } = useAuth();
   const { showUploadButton, isCleaner } = useRoleFeatures();
-  const handleBookingConfirmation = () => {
-    if (!user?.id) {
-      setAuthModalVisible(true);
-      return;
-    }
-    const hourlyRate = bookingSheetProvider?.provider_metadata?.base_price || 0;
-    navigation.navigate('BookingSummary' as any, {
-      cleanerId: bookingSheetProvider?.provider_id,
-      cleanerName: bookingSheetProvider?.provider_metadata?.name,
-      hourlyRate,
-      selectedService,
-      selectedTime,
-    });
-    setBookingSheetVisible(false);
-  };
-
   const navigateToDiscover = () => {
     const routes = (navigation as any)?.getState?.()?.routeNames || [];
     if (routes.includes('Discover')) {
@@ -629,19 +608,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     }
   }, [source]);
 
-  useEffect(() => {
-    Animated.timing(bookingSheetTranslate, {
-      toValue: bookingSheetVisible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [bookingSheetVisible, bookingSheetTranslate]);
-
-  const openBookingSheet = (item: FeedItem) => {
-    setBookingSheetProvider(item);
-    setBookingSheetVisible(true);
-  };
-  
   // Tutorial system
   const { 
     currentTutorial, 
@@ -786,8 +752,13 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
 
       const name = post.user?.name || 'Provider';
       const rating = post.user?.cleaner_profiles?.rating_average || 0;
-      const basePrice = post.user?.cleaner_profiles?.hourly_rate || 0;
+      const totalJobs = post.user?.cleaner_profiles?.total_jobs ?? 0;
+      // Prefer package price when available; fallback to cleaner hourly_rate
+      const packageCents = post.base_price_cents ?? null;
+      const hourlyRate = post.user?.cleaner_profiles?.hourly_rate ?? 0;
+      const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
 
+      const estHours = post.estimated_hours ?? null;
       items.push({
         post_id: post.id,
         provider_id: providerId,
@@ -796,6 +767,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           name,
           rating,
           base_price: basePrice,
+          package_id: post.is_bookable ? post.id : undefined,
+          package_type: post.package_type ?? undefined,
+          base_price_cents: packageCents,
+          estimated_hours: estHours,
         },
         interaction_state: {
           is_liked: false,
@@ -804,16 +779,18 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       });
 
       if (!uiMap[providerId]) {
+        const durationStr = estHours != null ? `Est. ${estHours} hrs` : '2-3 hrs';
         uiMap[providerId] = {
           name,
           username: post.user?.username ? `@${post.user.username}` : `@${name.toLowerCase().replace(/\s+/g, '')}`,
           avatar_url: post.user?.avatar_url || null,
           rating_average: rating,
+          total_jobs: totalJobs,
           hourly_rate: basePrice,
           verification_status: post.user?.cleaner_profiles?.verification_status,
           service_title: post.title || 'Cleaning Service',
           description: post.description || 'Professional cleaning service.',
-          estimated_duration: '2-3 hrs',
+          estimated_duration: durationStr,
         };
       }
     });
@@ -841,6 +818,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           view_count,
           tags,
           created_at,
+          base_price_cents,
+          package_type,
+          is_bookable,
+          estimated_hours,
           user:users!content_posts_user_id_fkey(
             id, name, avatar_url, role,
             cleaner_profiles(
@@ -908,6 +889,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           view_count,
           tags,
           created_at,
+          base_price_cents,
+          package_type,
+          is_bookable,
+          estimated_hours,
           user:users!content_posts_user_id_fkey(
             id, name, avatar_url, role,
             cleaner_profiles(
@@ -954,15 +939,174 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const loadRealContent = async (cursor?: string, append: boolean = false) => {
     try {
       markPreFetch();
-      console.log('🌐 Loading real content from database...');
+      console.log('🌐 Loading ranked content from algorithm service...');
 
+      // Use the ranking algorithm when we know the user
+      if (user?.id) {
+        try {
+          // Try user's stored address for server-side RPC (better scale)
+          let userLocation: { latitude: number; longitude: number } | undefined;
+          const { data: addr } = await supabase
+            .from('addresses')
+            .select('latitude, longitude')
+            .eq('user_id', user.id)
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .limit(1)
+            .maybeSingle();
+          if (addr?.latitude != null && addr?.longitude != null) {
+            userLocation = { latitude: Number(addr.latitude), longitude: Number(addr.longitude) };
+          }
+
+          const rankedItems = await videoFeedAlgorithmService.getRankedFeed(
+            user.id,
+            userLocation,
+            { limit: 20 }
+          );
+
+          if (rankedItems && rankedItems.length > 0) {
+            // Map EnhancedVideoItem → FeedItem shape (include provider_metadata for display + booking)
+            const items: FeedItem[] = rankedItems.map((v) => {
+              const packageCents = v.base_price_cents ?? null;
+              const hourlyRate = v.cleaner.hourly_rate ?? 0;
+              const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
+              const distanceMiles = v.cleaner.distance_km != null && v.cleaner.distance_km > 0
+                ? v.cleaner.distance_km * 0.621371
+                : null;
+              return {
+                post_id: v.id,
+                provider_id: v.cleaner_id,
+                video_source: v.media_url,
+                thumbnail_url: v.thumbnail_url,
+                description: v.description,
+                tags: [],
+                provider_metadata: {
+                  name: v.cleaner.name,
+                  rating: v.cleaner.rating_average ?? 0,
+                  base_price: basePrice,
+                  total_jobs: v.cleaner.total_jobs ?? 0,
+                  distance_miles: distanceMiles,
+                  package_id: v.is_bookable ? v.id : undefined,
+                  package_type: v.package_type ?? undefined,
+                  base_price_cents: packageCents,
+                  estimated_hours: v.estimated_hours ?? null,
+                },
+                engagement: {
+                  like_count: v.like_count,
+                  view_count: v.view_count,
+                  comment_count: v.comment_count,
+                  view_display: `${v.view_count}`,
+                },
+                booking: {
+                  service_type: 'standard_clean',
+                  estimated_duration: 120,
+                  base_price: basePrice,
+                  cleaner_name: v.cleaner.name,
+                  cleaner_rating: v.cleaner.rating_average,
+                  is_available: v.cleaner.is_available,
+                },
+                interaction_state: { is_liked: false, is_viewed: false },
+              };
+            });
+
+            const uiMap: Record<string, ProviderUI> = {};
+            rankedItems.forEach((v) => {
+              const packageCents = v.base_price_cents ?? null;
+              const hourlyRate = v.cleaner.hourly_rate ?? 0;
+              const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
+              const estHours = v.estimated_hours ?? null;
+              const distanceMiles = v.cleaner.distance_km != null && v.cleaner.distance_km > 0
+                ? v.cleaner.distance_km * 0.621371
+                : null;
+              uiMap[v.cleaner_id] = {
+                name: v.cleaner.name,
+                username: `@${v.cleaner.name.toLowerCase().replace(/\s+/g, '')}`,
+                avatar_url: v.cleaner.avatar_url,
+                rating_average: v.cleaner.rating_average,
+                total_jobs: v.cleaner.total_jobs ?? 0,
+                distance_miles: distanceMiles,
+                hourly_rate: basePrice,
+                verification_status: 'verified',
+                service_title: v.title,
+                description: v.description,
+                estimated_duration: estHours != null ? `Est. ${estHours} hrs` : '2-3 hrs',
+              };
+            });
+
+            setFeedData(items, uiMap, { append, nextCursor: undefined, hasMore: false });
+            return;
+          }
+        } catch (algoError) {
+          console.warn('⚠️ Algorithm feed failed, falling back to raw feed:', algoError);
+        }
+      }
+
+      // Fallback: raw feed from contentService
       const response = await contentService.getFeed(
         { limit: 10, cursor },
         undefined
       );
 
       if (response.success && response.data?.posts && response.data.posts.length > 0) {
-        const { items, uiMap } = buildFeedItemsFromPosts(response.data.posts);
+        let { items, uiMap } = buildFeedItemsFromPosts(response.data.posts);
+
+        // Enrich with distance when user has location (client-side fallback)
+        if (user?.id) {
+          const { data: userAddr } = await supabase
+            .from('addresses')
+            .select('latitude, longitude')
+            .eq('user_id', user.id)
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .limit(1)
+            .maybeSingle();
+          if (userAddr?.latitude != null && userAddr?.longitude != null) {
+            const providerIds = [...new Set(items.map((i) => i.provider_id))];
+            const { data: cleanerAddrs } = await supabase
+              .from('addresses')
+              .select('user_id, latitude, longitude')
+              .in('user_id', providerIds)
+              .not('latitude', 'is', null)
+              .not('longitude', 'is', null)
+              .order('is_default', { ascending: false });
+            const addrMap = new Map<string, { latitude: number; longitude: number }>();
+            (cleanerAddrs || []).forEach((a: { user_id: string; latitude: number; longitude: number }) => {
+              if (!addrMap.has(a.user_id)) addrMap.set(a.user_id, a);
+            });
+            const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+              const R = 6371;
+              const dLat = ((lat2 - lat1) * Math.PI) / 180;
+              const dLon = ((lon2 - lon1) * Math.PI) / 180;
+              const a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+              return R * c;
+            };
+            const userLat = Number(userAddr.latitude);
+            const userLng = Number(userAddr.longitude);
+            items = items.map((it) => {
+              const addr = addrMap.get(it.provider_id);
+              const distanceMiles =
+                addr && addr.latitude != null && addr.longitude != null
+                  ? (haversineKm(userLat, userLng, Number(addr.latitude), Number(addr.longitude)) * 0.621371)
+                  : null;
+              return {
+                ...it,
+                provider_metadata: { ...it.provider_metadata, distance_miles: distanceMiles },
+              };
+            });
+            uiMap = { ...uiMap };
+            Object.keys(uiMap).forEach((pid) => {
+              const addr = addrMap.get(pid);
+              const distanceMiles =
+                addr && addr.latitude != null && addr.longitude != null
+                  ? (haversineKm(userLat, userLng, Number(addr.latitude), Number(addr.longitude)) * 0.621371)
+                  : null;
+              uiMap[pid] = { ...uiMap[pid], distance_miles: distanceMiles };
+            });
+          }
+        }
 
         setFeedData(items, uiMap, {
           append,
@@ -972,7 +1116,43 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         return;
       }
 
+      // Fallback: show sample videos when feed is empty (cold start / no seeded content)
       if (!append) {
+        try {
+          const sampleVideos = await guestModeService.getGuestVideos();
+          if (sampleVideos && sampleVideos.length > 0) {
+            const items: FeedItem[] = sampleVideos.map((v) => ({
+              post_id: v.id,
+              provider_id: v.id,
+              video_source: v.video_url,
+              provider_metadata: {
+                name: v.cleaner_name,
+                rating: 4.5,
+                base_price: 55,
+              },
+              interaction_state: { is_liked: false, is_viewed: false },
+            }));
+            const uiMap: Record<string, ProviderUI> = {};
+            sampleVideos.forEach((v) => {
+              uiMap[v.id] = {
+                name: v.cleaner_name,
+                avatar_url: v.cleaner_avatar,
+                rating_average: 4.5,
+                hourly_rate: 55,
+                verification_status: 'verified',
+                service_title: v.title,
+                description: v.description,
+                estimated_duration: '2-3 hrs',
+              };
+            });
+            setFeedData(items, uiMap, { append: false, hasMore: false });
+            console.log('📺 Showing sample videos (feed empty)');
+            markActive();
+            return;
+          }
+        } catch (sampleErr) {
+          console.warn('Sample video fallback failed:', sampleErr);
+        }
         setFeedItems([]);
       }
       setHasMore(false);
@@ -1307,18 +1487,28 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             },
           ]}
         >
-          {/* Top Section - Creator pill */}
-          <CreatorFollowPill
-            avatarUrl={providerUi?.avatar_url || undefined}
-            username={providerUi?.username || `@${item.provider_metadata.name.toLowerCase().replace(/\s+/g, '')}`}
-            serviceTitle={providerUi?.service_title || 'Cleaning Service'}
-            verified={providerUi?.verification_status === 'verified'}
-            isFollowing={followedProviders.has(item.provider_id)}
-            onPressProfile={() => item.provider_id && navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
-            onToggleFollow={() => item.provider_id && handleFollow(item.provider_id)}
-            height={layout.creatorPill.height}
-            maxWidth={layout.creatorPill.maxWidth}
-          />
+          {/* Top Section - Creator pill + distance */}
+          <View style={styles.creatorRow}>
+            <CreatorFollowPill
+              avatarUrl={providerUi?.avatar_url || undefined}
+              username={providerUi?.username || `@${item.provider_metadata.name.toLowerCase().replace(/\s+/g, '')}`}
+              serviceTitle={providerUi?.service_title || 'Cleaning Service'}
+              verified={providerUi?.verification_status === 'verified'}
+              isFollowing={followedProviders.has(item.provider_id)}
+              onPressProfile={() => item.provider_id && navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
+              onToggleFollow={() => item.provider_id && handleFollow(item.provider_id)}
+              height={layout.creatorPill.height}
+              maxWidth={layout.creatorPill.maxWidth}
+            />
+            {item.provider_metadata.distance_miles != null && item.provider_metadata.distance_miles > 0 && (
+              <View style={styles.distancePill}>
+                <Ionicons name="location" size={12} color="#FFFFFF" />
+                <Text style={styles.distancePillText}>
+                  {item.provider_metadata.distance_miles.toFixed(1)} mi
+                </Text>
+              </View>
+            )}
+          </View>
 
           {/* Middle Section - Action Bubbles Integrated */}
           <Animated.View
@@ -1368,6 +1558,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                 </View>
                 <Text style={styles.tikTokActionLabel}>
                   {item.provider_metadata.rating ? item.provider_metadata.rating.toFixed(1) : 'New'}
+                  {item.provider_metadata.total_jobs != null && item.provider_metadata.total_jobs > 0
+                    ? ` • ${item.provider_metadata.total_jobs} jobs`
+                    : ''}
                 </Text>
                     </TouchableOpacity>
                 </View>
@@ -1458,23 +1651,46 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             {/* Inline Booking CTA */}
             <View style={styles.inlineBookingContainer}>
               <View>
-                <Text style={styles.inlineBookingLabel}>Starting</Text>
                 <Text style={styles.inlineBookingPrice}>
-                  {item.provider_metadata.base_price ? `$${item.provider_metadata.base_price}/hr` : 'Contact'}
+                  {item.provider_metadata.base_price
+                    ? item.provider_metadata.package_type === 'fixed'
+                      ? `$${item.provider_metadata.base_price}`
+                      : item.provider_metadata.estimated_hours != null
+                        ? `$${item.provider_metadata.base_price}/hr • Est. ${item.provider_metadata.estimated_hours} hrs`
+                        : `$${item.provider_metadata.base_price}/hr`
+                    : 'Message for quote'}
                 </Text>
               </View>
               <TouchableOpacity
-                style={styles.inlineBookButton}
+                style={[styles.inlineBookButton, !item.provider_metadata.base_price && styles.inlineBookButtonSecondary]}
                 onPress={() => {
                   if (!user?.id) {
                     requireAuth('BOOK', item.provider_id);
                     return;
                   }
+                  if (!item.provider_metadata.base_price) {
+                    navigation.navigate('IndividualChat' as any, {
+                      cleanerId: item.provider_id,
+                      bookingId: 'general',
+                    });
+                    return;
+                  }
                   handleBooking(item.provider_id);
-                  openBookingSheet(item);
+                  // Package-based flow: go directly to BookingSummary (skip deprecated service-selector sheet)
+                  navigation.navigate('BookingSummary' as any, {
+                    cleanerId: item.provider_id,
+                    cleanerName: item.provider_metadata.name,
+                    hourlyRate: item.provider_metadata.base_price ?? 0,
+                    packageId: item.provider_metadata.package_id ?? undefined,
+                    packageType: item.provider_metadata.package_type ?? undefined,
+                    packageBasePriceCents: item.provider_metadata.base_price_cents ?? undefined,
+                    estimatedHours: item.provider_metadata.estimated_hours ?? undefined,
+                  });
                 }}
               >
-                <Text style={styles.inlineBookButtonText}>Book Now</Text>
+                <Text style={styles.inlineBookButtonText}>
+                  {item.provider_metadata.base_price ? 'Book Now' : 'Message'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1659,91 +1875,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           userId={user.id}
         />
       )}
-      <Modal transparent visible={bookingSheetVisible} animationType="none" onRequestClose={() => setBookingSheetVisible(false)}>
-        <View style={styles.sheetBackdrop}>
-          <TouchableWithoutFeedback onPress={() => setBookingSheetVisible(false)}>
-            <View style={StyleSheet.absoluteFillObject} />
-          </TouchableWithoutFeedback>
-          <Animated.View
-            style={[
-              styles.sheetContainer,
-              {
-                transform: [
-                  {
-                    translateY: bookingSheetTranslate.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [BOOKING_SHEET_HEIGHT, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>
-              {`Schedule with ${bookingSheetProvider?.provider_metadata.name || 'Pro'}`}
-            </Text>
-            <Text style={styles.sheetSubtitle}>Pick a service and time</Text>
-
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Service</Text>
-              <View style={styles.sheetOptionsRow}>
-                {BOOKING_SERVICES.map(service => (
-                  <TouchableOpacity
-                    key={service}
-                    style={[
-                      styles.sheetOptionChip,
-                      selectedService === service && styles.sheetOptionChipActive,
-                    ]}
-                    onPress={() => setSelectedService(service)}
-                  >
-                    <Text
-                      style={[
-                        styles.sheetOptionText,
-                        selectedService === service && styles.sheetOptionTextActive,
-                      ]}
-                    >
-                      {service}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <View style={styles.sheetSection}>
-              <Text style={styles.sheetSectionTitle}>Availability</Text>
-              <View style={styles.sheetOptionsRow}>
-                {BOOKING_TIMES.map(time => (
-                  <TouchableOpacity
-                    key={time}
-                    style={[
-                      styles.sheetOptionChip,
-                      selectedTime === time && styles.sheetOptionChipActive,
-                    ]}
-                    onPress={() => setSelectedTime(time)}
-                  >
-                    <Text
-                      style={[
-                        styles.sheetOptionText,
-                        selectedTime === time && styles.sheetOptionTextActive,
-                      ]}
-                    >
-                      {time}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.sheetPrimaryButton}
-              onPress={handleBookingConfirmation}
-            >
-              <Text style={styles.sheetPrimaryButtonText}>Confirm</Text>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-      </Modal>
       <Modal
         transparent
         visible={commentOverlayVisible}
@@ -1800,8 +1931,8 @@ const styles = StyleSheet.create({
   // Source-specific header styles
   sourceHeader: {
     position: 'absolute',
-    top: 50,
-    left: 16,
+    top: hp('6%'),
+    left: wp('4%'),
     zIndex: 100,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1821,20 +1952,20 @@ const styles = StyleSheet.create({
   },
   sourceTitleContainer: {
     position: 'absolute',
-    top: 50,
-    right: 16,
+    top: hp('6%'),
+    right: wp('4%'),
     borderRadius: 16,
     overflow: 'hidden',
     zIndex: 99,
   },
   sourceTitleBlur: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('0.7%'),
     borderRadius: 16,
   },
   sourceTitleText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   loadingContainer: {
@@ -1845,8 +1976,8 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     color: 'white',
-    fontSize: 16,
-    marginTop: 16,
+    fontSize: wp('4%'),
+    marginTop: hp('2%'),
   },
   videoContainer: {
     width,
@@ -1885,8 +2016,8 @@ const styles = StyleSheet.create({
   pauseIndicator: {
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderRadius: 30,
-    width: 60,
-    height: 60,
+    width: wp('15%'),
+    height: wp('15%'),
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1895,7 +2026,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 150, // Larger area for better fade
+    height: hp('18%'),
     zIndex: 3, // Above video, below UI
   },
   bottomVideoGradient: {
@@ -1903,7 +2034,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 280, // Much larger area to cover booking + nav + padding
+    height: hp('34%'),
     zIndex: 3, // Above video, below UI
   },
   videoCenterTouch: {
@@ -1951,8 +2082,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   playPauseButton: {
-    width: 80,
-    height: 80,
+    width: wp('20%'),
+    height: wp('20%'),
     borderRadius: 40,
     backgroundColor: 'transparent',
     justifyContent: 'center',
@@ -1970,8 +2101,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: wp('4%'),
+    paddingTop: hp('2%'),
     zIndex: 30,
   },
   topSearchButton: {
@@ -1995,10 +2126,10 @@ const styles = StyleSheet.create({
   // Social buttons styles
   socialButtonsContainer: {
     position: 'absolute',
-    right: 16,
-    bottom: 140,
+    right: wp('4%'),
+    bottom: hp('17%'),
     alignItems: 'center',
-    gap: 16,
+    gap: hp('2%'),
     zIndex: 20,
   },
   socialButton: {
@@ -2016,7 +2147,7 @@ const styles = StyleSheet.create({
   },
   socialButtonText: {
     color: 'white',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
     textShadowColor: 'rgba(0, 0, 0, 0.8)',
     textShadowOffset: { width: 0, height: 1 },
@@ -2026,16 +2157,16 @@ const styles = StyleSheet.create({
   // Cleaner Profile Header
   cleanerProfileHeader: {
     position: 'absolute',
-    top: 60,
-    left: 20,
+    top: hp('7%'),
+    left: wp('5%'),
     flexDirection: 'row',
     alignItems: 'center',
     zIndex: 35, // Increased to be higher than headerControls (zIndex: 30)
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('3%'),
     borderRadius: 28,
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // Clean white background
-    minWidth: 220, // Ensure adequate touch area
+    minWidth: wp('55%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -2054,18 +2185,18 @@ const styles = StyleSheet.create({
   },
   cleanerProfileInfo: {
     flex: 1,
-    minWidth: 120,
+    minWidth: wp('30%'),
   },
   cleanerProfileUsername: {
     color: '#0F172A',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     letterSpacing: -0.3,
     maxWidth: 200,
   },
   cleanerProfileBio: {
     color: '#64748B',
-    fontSize: 13,
+    fontSize: wp('3.2%'),
     fontWeight: '500',
     marginTop: 2,
     maxWidth: 220,
@@ -2082,29 +2213,29 @@ const styles = StyleSheet.create({
     width: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: wp('10%'),
   },
   globalBanner: {
     position: 'absolute',
     alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
     borderRadius: 16,
     zIndex: 30,
   },
   globalBannerText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     textAlign: 'center',
   },
   emptyStateIconContainer: {
-    marginBottom: 30,
+    marginBottom: hp('4%'),
   },
   emptyStateIconGradient: {
-    width: 120,
-    height: 120,
+    width: wp('30%'),
+    height: wp('30%'),
     borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
@@ -2115,36 +2246,36 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   emptyStateTitle: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '800',
     color: '#ffffff',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
   },
   emptyStateSubtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 40,
+    lineHeight: wp('6%'),
+    marginBottom: hp('5%'),
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
   emptyStateFeatures: {
     alignItems: 'flex-start',
-    marginBottom: 40,
+    marginBottom: hp('5%'),
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   featureText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: 'rgba(255, 255, 255, 0.95)',
     fontWeight: '600',
     marginLeft: 12,
@@ -2156,8 +2287,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
+    paddingHorizontal: wp('8%'),
+    paddingVertical: hp('2%'),
     borderRadius: 25,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
@@ -2166,7 +2297,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   exploreButtonText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#0891b2',
     marginRight: 8,
@@ -2175,9 +2306,9 @@ const styles = StyleSheet.create({
   // Enhanced service card styles with white glass effect to match nav
   serviceCardWrapper: {
     position: 'absolute',
-    bottom: 120,
-    left: 20,
-    right: 80,
+    bottom: hp('15%'),
+    left: wp('5%'),
+    right: wp('20%'),
     zIndex: 20,
   },
   serviceCard: {
@@ -2192,10 +2323,10 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 15,
     width: '75%',
-    marginLeft: 20,
+    marginLeft: wp('5%'),
   },
   serviceCardContent: {
-    padding: 12,
+    padding: wp('3%'),
     backgroundColor: 'transparent',
   },
   serviceHeader: {
@@ -2211,13 +2342,13 @@ const styles = StyleSheet.create({
   },
   serviceTitle: {
     color: '#1F2937',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     flex: 1,
   },
   servicePrice: {
     color: '#dc9a00',
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
   },
   serviceDetails: {
@@ -2727,6 +2858,26 @@ const styles = StyleSheet.create({
   },
 
   // Unified Feed Overlay - Standardized Grid System
+  creatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'flex-start',
+  },
+  distancePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 18,
+  },
+  distancePillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   unifiedFeedOverlay: {
     position: 'absolute',
     top: 0,
@@ -2776,109 +2927,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: 12,
+    gap: wp('3%'),
     marginLeft: 0,
     alignSelf: 'flex-start',
   },
   inlineBookingLabel: {
     color: '#E5E7EB',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   inlineBookingPrice: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '800',
     marginTop: 2,
+    textShadowColor: 'rgba(0,0,0,0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   inlineBookButton: {
     backgroundColor: '#26B7C9',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('0.7%'),
     borderRadius: 999,
+  },
+  inlineBookButtonSecondary: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   inlineBookButtonText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: wp('3.2%'),
     fontWeight: '700',
-  },
-  sheetBackdrop: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
-  sheetContainer: {
-    height: BOOKING_SHEET_HEIGHT,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 24,
-  },
-  sheetHandle: {
-    width: 44,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D1D5DB',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  sheetTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  sheetSubtitle: {
-    fontSize: 13,
-    color: '#6B7280',
-    marginTop: 4,
-    marginBottom: 16,
-  },
-  sheetSection: {
-    marginBottom: 16,
-  },
-  sheetSectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  sheetOptionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  sheetOptionChip: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  sheetOptionChipActive: {
-    backgroundColor: '#26B7C9',
-    borderColor: '#26B7C9',
-  },
-  sheetOptionText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-  },
-  sheetOptionTextActive: {
-    color: '#FFFFFF',
-  },
-  sheetPrimaryButton: {
-    marginTop: 8,
-    backgroundColor: '#26B7C9',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  sheetPrimaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 15,
   },
   commentOverlayBackdrop: {
     flex: 1,
@@ -2886,8 +2967,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   commentOverlayCard: {
-    marginHorizontal: 20,
-    padding: 14,
+    marginHorizontal: wp('5%'),
+    padding: wp('3.5%'),
     borderRadius: 18,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderWidth: 1,
@@ -2901,7 +2982,7 @@ const styles = StyleSheet.create({
   },
   commentOverlayTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
   },
   commentOverlaySubtitle: {
@@ -2927,15 +3008,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
     borderRadius: DESIGN_TOKENS.radius.round,
-    paddingHorizontal: DESIGN_TOKENS.spacing.md, // Reduced from lg
-    paddingVertical: DESIGN_TOKENS.spacing.sm, // Reduced from md
-    height: 52, // Reduced from 64 for thinner look
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.8%'),
+    height: hp('6.5%'),
     ...DESIGN_TOKENS.shadow.lg,
     borderWidth: 2,
     borderColor: DESIGN_TOKENS.colors.brandLight,
     alignSelf: 'flex-start', // Prevent full width stretch
-    maxWidth: width - 140, // Leave room for smart button (width - smart button width - margins)
-    minWidth: 280, // Minimum width to prevent cramping
+    maxWidth: width - wp('35%'),
+    minWidth: wp('70%'),
   },
   modernAvatarContainer: {
     position: 'relative',

@@ -22,6 +22,8 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { useRoute, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { useStripe } from '@stripe/stripe-react-native';
+import { wp, hp } from '../../utils/responsive';
 
 // Theme colors
 const THEMES = {
@@ -41,6 +43,7 @@ const THEMES = {
 
 type StackParamList = {
   PaymentScreen: {
+    bookingId?: string;
     bookingTotal?: number;
     cleanerId?: string;
     fromBooking?: boolean;
@@ -82,8 +85,9 @@ interface BillingAddress {
 }
 
 const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
-  const { bookingTotal, cleanerId, fromBooking, paymentIntent } = route.params || {};
+  const { bookingId, bookingTotal, cleanerId, fromBooking, paymentIntent } = route.params || {};
   const { user, isCleaner } = useAuth();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   
   // Dynamic theme based on user role
   const theme = isCleaner ? THEMES.cleaner : THEMES.customer;
@@ -283,29 +287,71 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   };
 
   const handleProcessPayment = async () => {
-    if (!selectedMethodId) {
+    if (!selectedMethodId && !fromBooking) {
       Alert.alert('No Payment Method', 'Please select a payment method');
       return;
     }
 
     setIsProcessing(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      const paymentId = `pay_${Date.now()}`;
-      const bookingId = `booking_${Date.now()}`;
-      
-      if (fromBooking) {
+      // Secure payment flow: requires bookingId (amount computed server-side)
+      if (fromBooking && bookingId && user?.id) {
+        // 1. Create payment intent via Supabase edge function (secure: only bookingId, amount server-side)
+        const { data: intentData, error: intentError } = await supabase.functions.invoke(
+          'create-payment-intent',
+          {
+            body: { bookingId },
+          }
+        );
+
+        if (intentError || !intentData?.clientSecret) {
+          throw new Error(intentError?.message || intentData?.error || 'Failed to create payment intent');
+        }
+
+        const { clientSecret } = intentData;
+
+        // 2. Initialize Stripe PaymentSheet
+        const { error: initError } = await initPaymentSheet({
+          merchantDisplayName: 'ChoreHero',
+          paymentIntentClientSecret: clientSecret,
+          allowsDelayedPaymentMethods: false,
+          defaultBillingDetails: {
+            name: user?.name || '',
+          },
+        });
+
+        if (initError) throw new Error(initError.message);
+
+        // 3. Present PaymentSheet — this is where the user enters/confirms card
+        const { error: paymentError } = await presentPaymentSheet();
+
+        if (paymentError) {
+          if (paymentError.code === 'Canceled') {
+            // User dismissed — not an error
+            setIsProcessing(false);
+            return;
+          }
+          // Mark booking payment as failed
+          await supabase
+            .from('bookings')
+            .update({ payment_status: 'failed', status: 'payment_failed' })
+            .eq('stripe_payment_intent_id', clientSecret.split('_secret_')[0]);
+          throw new Error(paymentError.message);
+        }
+
+        // 4. Payment confirmed by Stripe — webhook will finalize booking
+        const paymentId = clientSecret.split('_secret_')[0]; // payment intent id
         navigation.navigate('BookingConfirmation', {
-          bookingId,
+          bookingId: bookingId || 'pending',
           paymentId,
         });
       } else {
+        // Payment methods management only (no actual charge)
         Alert.alert('Success', 'Payment method updated successfully');
         navigation.goBack();
       }
     } catch (error) {
-      Alert.alert('Payment Failed', 'Please try again or use a different payment method');
+      Alert.alert('Payment Failed', error instanceof Error ? error.message : 'Please try again or use a different payment method');
     } finally {
       setIsProcessing(false);
     }
@@ -458,7 +504,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
           </View>
           
           <View style={styles.inputRow}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
               <Text style={styles.inputLabel}>Expiry Date</Text>
               <TextInput
                 style={styles.textInput}
@@ -535,7 +581,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       <Text style={styles.sectionTitle}>Billing Address</Text>
       
       <View style={styles.inputRow}>
-        <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
+        <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
           <Text style={styles.inputLabel}>First Name</Text>
           <TextInput
             style={styles.textInput}
@@ -576,7 +622,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       </View>
       
       <View style={styles.inputRow}>
-        <View style={[styles.inputGroup, { flex: 2, marginRight: 12 }]}>
+        <View style={[styles.inputGroup, { flex: 2, marginRight: wp('3%') }]}>
           <Text style={styles.inputLabel}>City</Text>
           <TextInput
             style={styles.textInput}
@@ -585,7 +631,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
             placeholder="San Francisco"
           />
         </View>
-        <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
+        <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
           <Text style={styles.inputLabel}>State</Text>
           <TextInput
             style={styles.textInput}
@@ -750,46 +796,46 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
   backButton: {
-    width: 44,
-    height: 44,
+    width: wp('11%'),
+    height: wp('11%'),
     borderRadius: 22,
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   totalContainer: {
     backgroundColor: '#0891b2', // Will be overridden dynamically
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     alignItems: 'center',
   },
   totalLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 4,
   },
   totalAmount: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -804,15 +850,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('3%'),
   },
   activeTab: {
     borderBottomWidth: 2,
     borderBottomColor: '#0891b2', // Will be overridden dynamically
   },
   tabText: {
-    fontSize: 13,
+    fontSize: wp('3.2%'),
     fontWeight: '600',
     color: '#6B7280',
     marginLeft: 6,
@@ -829,16 +875,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   methodsContainer: {
-    padding: 20,
+    padding: wp('5%'),
   },
   methodsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -846,21 +892,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#E0F7FA', // Will be overridden dynamically
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderRadius: wp('5%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
   },
   addButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#0891b2', // Will be overridden dynamically
     marginLeft: 6,
   },
   paymentMethodCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: wp('4%'),
+    padding: wp('5%'),
+    marginBottom: hp('2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -871,7 +917,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   methodLeft: {
     flexDirection: 'row',
@@ -879,30 +925,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   methodIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: wp('12%'),
+    height: wp('12%'),
+    borderRadius: wp('3%'),
     backgroundColor: '#E0F7FA', // Will be overridden dynamically
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: wp('4%'),
   },
   methodInfo: {
     flex: 1,
   },
   methodProvider: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 4,
   },
   methodDetails: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginBottom: 2,
   },
   methodNickname: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
   },
   methodRight: {
@@ -910,13 +956,13 @@ const styles = StyleSheet.create({
   },
   defaultBadge: {
     backgroundColor: '#0891b2', // Will be overridden dynamically
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
     marginBottom: 8,
   },
   defaultText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -940,17 +986,17 @@ const styles = StyleSheet.create({
   },
   methodActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   actionButton: {
     flex: 1,
     backgroundColor: '#F3F4F6',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.5%'),
     alignItems: 'center',
   },
   actionButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
   },
@@ -962,28 +1008,28 @@ const styles = StyleSheet.create({
   },
   emptyMethods: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: hp('5%'),
   },
   emptyMethodsText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
     marginTop: 16,
     marginBottom: 8,
   },
   emptyMethodsSubtext: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
   },
   billingForm: {
-    padding: 20,
+    padding: wp('5%'),
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
     marginBottom: 8,
@@ -991,10 +1037,10 @@ const styles = StyleSheet.create({
   textInput: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
+    fontSize: wp('4%'),
     color: '#1F2937',
     backgroundColor: '#FFFFFF',
   },
@@ -1005,41 +1051,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: hp('2%'),
   },
   switchLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
     flex: 1,
-    marginRight: 16,
+    marginRight: wp('4%'),
   },
   historyContainer: {
-    padding: 20,
+    padding: wp('5%'),
   },
   emptyHistory: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: hp('5%'),
   },
   emptyHistoryText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
     marginTop: 16,
     marginBottom: 8,
   },
   emptyHistorySubtext: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
   },
   bottomContainer: {
-    height: 100,
+    height: hp('12%'),
   },
   bottomBlur: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     justifyContent: 'center',
   },
   processButton: {
@@ -1047,8 +1093,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0891b2', // Will be overridden dynamically
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: wp('4%'),
+    paddingVertical: hp('2%'),
     gap: 8,
     shadowColor: '#0891b2', // Will be overridden dynamically
     shadowOffset: { width: 0, height: 4 },
@@ -1057,7 +1103,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   processButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -1073,10 +1119,10 @@ const styles = StyleSheet.create({
   },
   addCardForm: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    borderTopLeftRadius: wp('6%'),
+    borderTopRightRadius: wp('6%'),
+    paddingHorizontal: wp('5%'),
+    paddingBottom: hp('2.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.1,
@@ -1087,23 +1133,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: hp('2.5%'),
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   formTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   formContent: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   addCardButton: {
     backgroundColor: '#0891b2', // Will be overridden dynamically
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: wp('4%'),
+    paddingVertical: hp('2%'),
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#0891b2', // Will be overridden dynamically
@@ -1113,7 +1159,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   addCardButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },

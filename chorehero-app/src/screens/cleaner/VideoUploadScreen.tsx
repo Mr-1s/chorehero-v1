@@ -16,6 +16,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Switch,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -78,7 +79,7 @@ interface UploadedVideo {
 const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const NAV_CLEARANCE = 110; // CleanerFloatingNavigation: height ~80 + bottom offset ~30
-  const { user } = useAuth();
+  const { user, refreshSession } = useAuth();
   const { showToast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -96,6 +97,12 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
   const [pendingVideoUri, setPendingVideoUri] = useState<string | null>(null);
   const [videoThumbnailUri, setVideoThumbnailUri] = useState<string | null>(null);
   const [showServiceTypePicker, setShowServiceTypePicker] = useState(false);
+
+  // Package fields for bookable content
+  const [isBookable, setIsBookable] = useState(true);
+  const [packageType, setPackageType] = useState<'fixed' | 'hourly'>('hourly');
+  const [basePrice, setBasePrice] = useState('');
+  const [estimatedHours, setEstimatedHours] = useState('2');
 
   // Service type options for categorizing videos
   const SERVICE_TYPE_OPTIONS = [
@@ -523,6 +530,10 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
     setVideoDescription('');
     setVideoServiceType('');
     setVideoThumbnailUri(null);
+    setIsBookable(true);
+    setPackageType('hourly');
+    setBasePrice('');
+    setEstimatedHours('2');
   };
 
   const handleVideoUpload = async (videoUri: string) => {
@@ -533,7 +544,8 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
 
     try {
       console.log('🎬 Starting video upload process for:', videoUri);
-      
+      await refreshSession();
+
       // Validate the video (soft validation - don't block on errors)
       try {
       const validation = await uploadService.validateFile(videoUri, {
@@ -610,15 +622,27 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
               }
             }
             
-            const contentResponse = await contentService.createPost(user.id, {
+            const postData: Parameters<typeof contentService.createPost>[1] = {
               title: videoTitle || 'New Cleaning Video',
               description: videoDescription || 'Check out my latest cleaning work!',
               content_type: 'video' as const,
               media_url: response.url,
-              thumbnail_url: thumbnailUrl, // Include the thumbnail
+              thumbnail_url: thumbnailUrl,
               status: 'published' as const,
-              tags: tags
-            });
+              tags: tags,
+            };
+
+            if (isBookable) {
+              const priceCents = basePrice ? Math.round(parseFloat(basePrice) * 100) : undefined;
+              const hours = estimatedHours ? parseFloat(estimatedHours) : undefined;
+              postData.is_bookable = true;
+              postData.package_type = packageType;
+              if (priceCents && priceCents > 0) postData.base_price_cents = priceCents;
+              if (hours && hours > 0) postData.estimated_hours = hours;
+              postData.service_radius_miles = 25;
+            }
+
+            const contentResponse = await contentService.createPost(user.id, postData);
 
             if (contentResponse.success) {
               console.log('✅ Content post created successfully');
@@ -1501,6 +1525,65 @@ const VideoUploadScreen: React.FC<VideoUploadProps> = ({ navigation }) => {
                 <Text style={styles.charCount}>{videoDescription.length}/500</Text>
               </View>
 
+              {/* Make Bookable Section */}
+              <View style={styles.inputGroup}>
+                <View style={styles.bookableRow}>
+                  <Text style={styles.inputLabel}>Make this bookable</Text>
+                  <Switch
+                    value={isBookable}
+                    onValueChange={setIsBookable}
+                    trackColor={{ false: '#E5E7EB', true: '#FDE68A' }}
+                    thumbColor={isBookable ? '#F59E0B' : '#9CA3AF'}
+                  />
+                </View>
+                {isBookable && (
+                  <View style={styles.packageFields}>
+                    <View style={styles.packageRow}>
+                      <Text style={styles.packageLabel}>Price type</Text>
+                      <View style={styles.packageTypeRow}>
+                        {(['hourly', 'fixed'] as const).map((t) => (
+                          <TouchableOpacity
+                            key={t}
+                            style={[styles.packageTypeChip, packageType === t && styles.packageTypeChipActive]}
+                            onPress={() => setPackageType(t)}
+                          >
+                            <Text style={[styles.packageTypeText, packageType === t && styles.packageTypeTextActive]}>
+                              {t === 'hourly' ? 'Hourly' : 'Fixed'}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                    <View style={styles.packageRow}>
+                      <Text style={styles.packageLabel}>
+                        {packageType === 'hourly' ? 'Rate ($/hr)' : 'Base price ($)'}
+                      </Text>
+                      <TextInput
+                        style={styles.priceInput}
+                        placeholder={packageType === 'hourly' ? 'e.g. 45' : 'e.g. 120'}
+                        placeholderTextColor="#9CA3AF"
+                        value={basePrice}
+                        onChangeText={setBasePrice}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    {packageType === 'hourly' && (
+                      <View style={styles.packageRow}>
+                        <Text style={styles.packageLabel}>Est. hours</Text>
+                        <TextInput
+                          style={styles.priceInput}
+                          placeholder="e.g. 2"
+                          placeholderTextColor="#9CA3AF"
+                          value={estimatedHours}
+                          onChangeText={setEstimatedHours}
+                          keyboardType="decimal-pad"
+                        />
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+
               {/* Tips */}
               <View style={styles.tipsCard}>
                 <Ionicons name="bulb-outline" size={20} color="#F59E0B" />
@@ -2102,6 +2185,57 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'right',
     marginTop: 4,
+  },
+  bookableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  packageFields: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  packageRow: {
+    marginBottom: 12,
+  },
+  packageLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+    marginBottom: 6,
+  },
+  packageTypeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  packageTypeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  packageTypeChipActive: {
+    backgroundColor: '#FDE68A',
+  },
+  packageTypeText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  packageTypeTextActive: {
+    color: '#92400E',
+    fontWeight: '600',
+  },
+  priceInput: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
   },
   tipsCard: {
     flexDirection: 'row',

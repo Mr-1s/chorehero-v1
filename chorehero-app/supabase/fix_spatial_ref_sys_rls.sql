@@ -1,0 +1,10 @@
+-- spatial_ref_sys: Security Advisor warning - IGNORE, do NOT enable RLS
+--
+-- Enabling RLS on PostGIS system tables breaks ST_Transform, SRID lookups,
+-- and other spatial functions. The Security Advisor warning is a false positive.
+--
+-- If you accidentally enabled RLS, revert immediately:
+--   ALTER TABLE public.spatial_ref_sys DISABLE ROW LEVEL SECURITY;
+--
+-- Safe alternatives: restrict via REVOKE/GRANT on roles, or create a limited
+-- view for your app. Do not alter PostGIS system tables.

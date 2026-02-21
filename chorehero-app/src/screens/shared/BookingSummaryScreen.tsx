@@ -25,12 +25,17 @@ import { PLATFORM_CONFIG } from '../../utils/constants';
 import AuthModal from '../../components/AuthModal';
 import type { Address, PaymentMethod } from '../../types/user';
 import { notificationService } from '../../services/notificationService';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   BookingSummary: {
     cleanerId: string;
     cleanerName?: string;
     hourlyRate?: number;
+    packageId?: string;
+    packageType?: 'fixed' | 'estimate' | 'hourly';
+    packageBasePriceCents?: number;
+    estimatedHours?: number;
     selectedService?: string;
     selectedTime?: string;
   };
@@ -42,6 +47,7 @@ type StackParamList = {
     scheduledTime: string;
   };
   PaymentScreen: {
+    bookingId?: string;
     bookingTotal?: number;
     cleanerId?: string;
     fromBooking?: boolean;
@@ -65,7 +71,27 @@ const BATHROOM_OPTIONS = [1, 1.5, 2, 2.5, 3];
 
 const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route }) => {
   const { user } = useAuth();
-  const { cleanerId, cleanerName, hourlyRate = 0, selectedService, selectedTime } = route.params || {};
+  const {
+    cleanerId,
+    cleanerName,
+    hourlyRate = 0,
+    packageId,
+    packageType,
+    packageBasePriceCents,
+    estimatedHours,
+    selectedService,
+    selectedTime,
+  } = route.params || {};
+
+  // Legacy flow guard: package-based booking should pass packageId
+  useEffect(() => {
+    if (!packageId && hourlyRate > 0) {
+      console.warn(
+        '[BookingSummary] Legacy hourly-only flow detected. Book from feed or cleaner profile for package-based pricing.'
+      );
+    }
+  }, [packageId, hourlyRate]);
+
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [profileLoading, setProfileLoading] = useState(true);
   const [hideInputs, setHideInputs] = useState(false);
@@ -79,7 +105,19 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
   const [entryInstructions, setEntryInstructions] = useState('');
   const [bedrooms, setBedrooms] = useState(1);
   const [bathrooms, setBathrooms] = useState(1);
-  const [serviceDuration, setServiceDuration] = useState(DEFAULT_HOURS);
+  const initialDuration =
+    packageType === 'hourly' && estimatedHours != null && estimatedHours > 0 && estimatedHours >= MIN_HOURS
+      ? estimatedHours
+      : DEFAULT_HOURS;
+  const [serviceDuration, setServiceDuration] = useState(initialDuration);
+
+  useEffect(() => {
+    if (packageType === 'hourly' && estimatedHours != null && estimatedHours > 0 && estimatedHours >= MIN_HOURS) {
+      setServiceDuration(estimatedHours);
+    } else {
+      setServiceDuration(DEFAULT_HOURS);
+    }
+  }, [packageType, estimatedHours]);
   const [useSavedAddress, setUseSavedAddress] = useState(false);
   const [savedAddresses, setSavedAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -89,8 +127,14 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
   const successScale = useRef(new Animated.Value(0.6)).current;
+  const [packageDetails, setPackageDetails] = useState<{ title?: string; included_tasks?: string[] } | null>(null);
 
-  const subtotal = useMemo(() => hourlyRate * serviceDuration, [hourlyRate, serviceDuration]);
+  const subtotal = useMemo(() => {
+    if (packageType === 'fixed' && packageBasePriceCents != null) {
+      return packageBasePriceCents / 100;
+    }
+    return hourlyRate * serviceDuration;
+  }, [hourlyRate, serviceDuration, packageType, packageBasePriceCents]);
   const serviceFee = useMemo(
     () => subtotal * PLATFORM_CONFIG.commission_rate,
     [subtotal]
@@ -100,6 +144,19 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
     [subtotal, serviceFee]
   );
   const hasPaymentMethod = Boolean(selectedPaymentMethodId);
+
+  useEffect(() => {
+    if (!packageId) return;
+    const loadPackage = async () => {
+      const { data } = await supabase
+        .from('content_posts')
+        .select('title, included_tasks')
+        .eq('id', packageId)
+        .single();
+      if (data) setPackageDetails({ title: data.title, included_tasks: data.included_tasks ?? undefined });
+    };
+    loadPackage();
+  }, [packageId]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -243,9 +300,14 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
     if (!hasPaymentMethod) {
       return;
     }
+    const needsPropertyDetails = packageType !== 'fixed' && !hideInputs;
     if (!hideInputs) {
-      if (!addressLine1 || !propertyType || !squareFeet) {
-        Alert.alert('Missing details', 'Please complete the address and household fields.');
+      if (!addressLine1) {
+        Alert.alert('Missing address', 'Please enter your address.');
+        return;
+      }
+      if (needsPropertyDetails && (!propertyType || !squareFeet)) {
+        Alert.alert('Missing details', 'Please complete the property type and square feet.');
         return;
       }
     }
@@ -321,27 +383,35 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
           .eq('user_id', user.id);
       }
 
+      if (!addressId) {
+        throw new Error('Address required');
+      }
+
       const bookingResponse = await bookingService.createBooking({
         customer_id: user.id,
         cleaner_id: cleanerId,
         service_type: mapServiceType(),
         address_id: addressId,
         scheduled_time: parseScheduledTime(),
-        estimated_duration: Math.round(serviceDuration * 60),
+        estimated_duration: packageType === 'fixed' ? 60 : Math.round(serviceDuration * 60),
         add_ons: [],
         access_instructions: entryInstructions.trim(),
         bedrooms,
         bathrooms,
-        square_feet: Number.parseInt(squareFeet, 10) || null,
+        square_feet: Number.parseInt(squareFeet, 10) || undefined,
         has_pets: hasPets,
         pet_details: null,
         payment_method_id: selectedPaymentMethodId || 'uncollected',
+        package_id: packageId,
+        service_base_price_cents: packageId ? Math.round(subtotal * 100) : undefined,
       });
 
       if (!bookingResponse.success || !bookingResponse.data) {
         console.error('❌ Booking creation failed:', bookingResponse.error);
         throw new Error(bookingResponse.error || 'Booking failed');
       }
+
+      const newBookingId = bookingResponse.data.booking.id;
 
       await notificationService.sendNotification({
         type: 'booking',
@@ -350,11 +420,11 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
         fromUserId: cleanerId,
         fromUserName: cleanerName || 'ChoreHero',
         toUserId: user.id,
-        relatedId: bookingResponse.data.booking.id,
+        relatedId: newBookingId,
       });
 
       setSuccessVisible(true);
-      const bookingId = bookingResponse.data.booking.id;
+      const bookingId = newBookingId;
       const addressSummary = [addressLine1, city, stateValue, zipCode].filter(Boolean).join(', ');
       setTimeout(() => {
         setSuccessVisible(false);
@@ -375,7 +445,7 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
           bookingId,
           service: {
             title: selectedService || 'Standard Cleaning',
-            duration: `${formatDuration(serviceDuration)} hrs`,
+            duration: packageType === 'fixed' ? 'Fixed session' : `${formatDuration(serviceDuration)} hrs`,
             price: estimatedTotal,
           },
           cleaner: {
@@ -398,37 +468,89 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
 
   const placesApiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
+  // Block estimate packages — custom quotes coming post-launch
+  if (packageType === 'estimate') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.estimateBlock}>
+          <Text style={styles.estimateBlockTitle}>Custom Quotes Coming Soon</Text>
+          <Text style={styles.estimateBlockText}>
+            This cleaner offers custom quote packages. We're adding that feature soon. In the meantime, browse their fixed price options.
+          </Text>
+          <TouchableOpacity
+            style={styles.estimateBlockButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.estimateBlockButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={24} color="#0F172A" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {cleanerName ? `Book with ${cleanerName}` : 'Book Service'}
+          </Text>
+        </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.title}>Service Configuration</Text>
+          <Text style={styles.title}>
+            {packageDetails?.title || selectedService || 'Cleaning Service'}
+          </Text>
           <Text style={styles.subtitle}>
-            Set the details so your ChoreHero arrives ready and the pricing is accurate.
+            {packageType === 'fixed' && packageBasePriceCents != null
+              ? `$${(packageBasePriceCents / 100).toFixed(0)} • Fixed price`
+              : packageType === 'hourly' && hourlyRate > 0
+                ? `$${hourlyRate.toFixed(0)}/hr • Est. ${estimatedHours ?? serviceDuration} hrs`
+                : 'Set the details so your ChoreHero arrives ready and the pricing is accurate.'}
           </Text>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Service Duration</Text>
-            <View style={styles.durationRow}>
-              <TouchableOpacity
-                style={[styles.durationButton, serviceDuration <= MIN_HOURS && styles.durationButtonDisabled]}
-                onPress={() => updateDuration(-HOUR_STEP)}
-                disabled={serviceDuration <= MIN_HOURS}
-              >
-                <Ionicons name="remove" size={18} color="#0F172A" />
-              </TouchableOpacity>
-              <View style={styles.durationValue}>
-                <Text style={styles.durationText}>{formatDuration(serviceDuration)} hrs</Text>
-              </View>
-              <TouchableOpacity style={styles.durationButton} onPress={() => updateDuration(HOUR_STEP)}>
-                <Ionicons name="add" size={18} color="#0F172A" />
-              </TouchableOpacity>
+          {packageDetails?.included_tasks && packageDetails.included_tasks.length > 0 && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>What&apos;s included</Text>
+              {packageDetails.included_tasks.map((task, i) => (
+                <View key={i} style={styles.includedTaskRow}>
+                  <Ionicons name="checkmark-circle" size={18} color="#26B7C9" style={styles.includedTaskIcon} />
+                  <Text style={styles.includedTaskText}>{task}</Text>
+                </View>
+              ))}
             </View>
-            <Text style={styles.durationHint}>Minimum 2 hours, 30 min increments.</Text>
-          </View>
+          )}
+
+          {packageType === 'hourly' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Duration</Text>
+              <View style={styles.durationRow}>
+                <TouchableOpacity
+                  style={[styles.durationButton, serviceDuration <= MIN_HOURS && styles.durationButtonDisabled]}
+                  onPress={() => updateDuration(-HOUR_STEP)}
+                  disabled={serviceDuration <= MIN_HOURS}
+                >
+                  <Ionicons name="remove" size={18} color="#0F172A" />
+                </TouchableOpacity>
+                <View style={styles.durationValue}>
+                  <Text style={styles.durationText}>{formatDuration(serviceDuration)} hrs</Text>
+                </View>
+                <TouchableOpacity style={styles.durationButton} onPress={() => updateDuration(HOUR_STEP)}>
+                  <Ionicons name="add" size={18} color="#0F172A" />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.durationHint}>Minimum 2 hours, 30 min increments.</Text>
+            </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Address & Access</Text>
@@ -537,78 +659,84 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
             />
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Property Details</Text>
-            <Text style={styles.label}>Property Type</Text>
-            <View style={styles.pillRow}>
-              {(['Apartment', 'House', 'Condo'] as const).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.pill, propertyType === type && styles.pillActive]}
-                  onPress={() => setPropertyType(type)}
-                >
-                  <Text style={[styles.pillText, propertyType === type && styles.pillTextActive]}>{type}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Bedrooms</Text>
-            <View style={styles.pillRow}>
-              {BEDROOM_OPTIONS.map((count) => (
-                <TouchableOpacity
-                  key={`bed-${count}`}
-                  style={[styles.pill, bedrooms === count && styles.pillActive]}
-                  onPress={() => setBedrooms(count)}
-                >
-                  <Text style={[styles.pillText, bedrooms === count && styles.pillTextActive]}>{count}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.label}>Bathrooms</Text>
-            <View style={styles.pillRow}>
-              {BATHROOM_OPTIONS.map((count) => (
-                <TouchableOpacity
-                  key={`bath-${count}`}
-                  style={[styles.pill, bathrooms === count && styles.pillActive]}
-                  onPress={() => setBathrooms(count)}
-                >
-                  <Text style={[styles.pillText, bathrooms === count && styles.pillTextActive]}>{count}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={styles.propertyGrid}>
-              <View style={styles.propertyCell}>
-                <Text style={styles.label}>Square Feet</Text>
-                <TextInput
-                  style={styles.input}
-                  value={squareFeet}
-                  onChangeText={(text) => setSquareFeet(text.replace(/\\D/g, ''))}
-                  placeholder="1200"
-                  keyboardType="number-pad"
-                />
+          {packageType !== 'fixed' && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Property Details</Text>
+              <Text style={styles.label}>Property Type</Text>
+              <View style={styles.pillRow}>
+                {(['Apartment', 'House', 'Condo'] as const).map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.pill, propertyType === type && styles.pillActive]}
+                    onPress={() => setPropertyType(type)}
+                  >
+                    <Text style={[styles.pillText, propertyType === type && styles.pillTextActive]}>{type}</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-              <View style={styles.propertyCell}>
-                <Text style={styles.label}>Pets</Text>
-                <View style={styles.switchRow}>
-                  <Text style={styles.switchLabel}>{hasPets ? 'Yes' : 'No'}</Text>
-                  <Switch value={hasPets} onValueChange={setHasPets} />
+
+              <Text style={styles.label}>Bedrooms</Text>
+              <View style={styles.pillRow}>
+                {BEDROOM_OPTIONS.map((count) => (
+                  <TouchableOpacity
+                    key={`bed-${count}`}
+                    style={[styles.pill, bedrooms === count && styles.pillActive]}
+                    onPress={() => setBedrooms(count)}
+                  >
+                    <Text style={[styles.pillText, bedrooms === count && styles.pillTextActive]}>{count}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Bathrooms</Text>
+              <View style={styles.pillRow}>
+                {BATHROOM_OPTIONS.map((count) => (
+                  <TouchableOpacity
+                    key={`bath-${count}`}
+                    style={[styles.pill, bathrooms === count && styles.pillActive]}
+                    onPress={() => setBathrooms(count)}
+                  >
+                    <Text style={[styles.pillText, bathrooms === count && styles.pillTextActive]}>{count}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.propertyGrid}>
+                <View style={styles.propertyCell}>
+                  <Text style={styles.label}>Square Feet</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={squareFeet}
+                    onChangeText={(text) => setSquareFeet(text.replace(/\\D/g, ''))}
+                    placeholder="1200"
+                    keyboardType="number-pad"
+                  />
+                </View>
+                <View style={styles.propertyCell}>
+                  <Text style={styles.label}>Pets</Text>
+                  <View style={styles.switchRow}>
+                    <Text style={styles.switchLabel}>{hasPets ? 'Yes' : 'No'}</Text>
+                    <Switch value={hasPets} onValueChange={setHasPets} />
+                  </View>
                 </View>
               </View>
             </View>
-          </View>
+          )}
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Price Summary</Text>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryText}>
-                ${hourlyRate.toFixed(0)}/hr x {formatDuration(serviceDuration)} hrs
+                {packageType === 'fixed'
+                  ? 'Service'
+                  : `$${hourlyRate.toFixed(0)}/hr x ${formatDuration(serviceDuration)} hrs`}
               </Text>
               <Text style={styles.summaryValue}>${subtotal.toFixed(0)}</Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryText}>Service Fee</Text>
+              <Text style={styles.summaryText}>
+                Service fee ({Math.round(PLATFORM_CONFIG.commission_rate * 100)}%)
+              </Text>
               <Text style={styles.summaryValue}>${serviceFee.toFixed(0)}</Text>
             </View>
             <View style={styles.summaryTotalRow}>
@@ -677,25 +805,47 @@ const BookingSummaryScreen: React.FC<BookingSummaryProps> = ({ navigation, route
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  content: { padding: 20, paddingBottom: 40 },
-  title: { fontSize: 24, fontWeight: '800', color: '#0F172A' },
-  subtitle: { marginTop: 6, fontSize: 14, color: '#64748B' },
-  card: {
-    marginTop: 20,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
     backgroundColor: '#ffffff',
-    borderRadius: 18,
-    padding: 18,
+  },
+  backButton: {
+    padding: wp('2%'),
+    marginRight: wp('2%'),
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: wp('4.2%'),
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  includedTaskRow: { flexDirection: 'row', alignItems: 'center', marginBottom: hp('1%') },
+  includedTaskIcon: { marginRight: wp('2%') },
+  includedTaskText: { fontSize: wp('3.5%'), color: '#334155', flex: 1 },
+  content: { padding: wp('5%'), paddingBottom: hp('5%') },
+  title: { fontSize: wp('6%'), fontWeight: '800', color: '#0F172A' },
+  subtitle: { marginTop: hp('0.7%'), fontSize: wp('3.5%'), color: '#64748B' },
+  card: {
+    marginTop: hp('2.5%'),
+    backgroundColor: '#ffffff',
+    borderRadius: wp('4.5%'),
+    padding: wp('4.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 6,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#0F172A', marginBottom: 12 },
+  sectionTitle: { fontSize: wp('4%'), fontWeight: '700', color: '#0F172A', marginBottom: hp('1.5%') },
   durationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   durationButton: {
-    width: 40,
-    height: 40,
+    width: wp('10%'),
+    height: wp('10%'),
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -706,37 +856,37 @@ const styles = StyleSheet.create({
   durationButtonDisabled: { opacity: 0.4 },
   durationValue: {
     flex: 1,
-    marginHorizontal: 12,
-    paddingVertical: 12,
+    marginHorizontal: wp('3%'),
+    paddingVertical: hp('1.5%'),
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignItems: 'center',
     backgroundColor: '#ffffff',
   },
-  durationText: { fontSize: 16, fontWeight: '700', color: '#0F172A' },
-  durationHint: { marginTop: 8, fontSize: 12, color: '#64748B' },
-  label: { fontSize: 13, color: '#334155', marginBottom: 6, fontWeight: '600' },
+  durationText: { fontSize: wp('4%'), fontWeight: '700', color: '#0F172A' },
+  durationHint: { marginTop: hp('1%'), fontSize: wp('3%'), color: '#64748B' },
+  label: { fontSize: wp('3.2%'), color: '#334155', marginBottom: hp('0.7%'), fontWeight: '600' },
   input: {
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1.2%'),
+    fontSize: wp('3.5%'),
     color: '#0F172A',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     backgroundColor: '#ffffff',
   },
-  row: { flexDirection: 'row', gap: 8 },
+  row: { flexDirection: 'row', gap: wp('2%') },
   halfInput: { flex: 1 },
   quarterInput: { flex: 0.5 },
-  pillRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  pillRow: { flexDirection: 'row', gap: wp('2%'), marginBottom: hp('1.5%') },
   pill: {
     borderWidth: 1,
     borderColor: '#CBD5F5',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('3%'),
     borderRadius: 999,
   },
   pillActive: { backgroundColor: '#3ad3db', borderColor: '#3ad3db' },
@@ -745,40 +895,40 @@ const styles = StyleSheet.create({
   addressPill: {
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('2.5%'),
     borderRadius: 999,
     backgroundColor: '#ffffff',
   },
   addressPillActive: { backgroundColor: '#0EA5E9', borderColor: '#0EA5E9' },
-  addressPillText: { color: '#334155', fontWeight: '600', fontSize: 12 },
+  addressPillText: { color: '#334155', fontWeight: '600', fontSize: wp('3%') },
   addressPillTextActive: { color: '#ffffff' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  switchLabel: { fontSize: 13, color: '#334155', fontWeight: '600' },
-  propertyGrid: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: hp('1%') },
+  switchLabel: { fontSize: wp('3.2%'), color: '#334155', fontWeight: '600' },
+  propertyGrid: { flexDirection: 'row', gap: wp('3%'), marginTop: hp('1%') },
   propertyCell: { flex: 1 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  summaryText: { color: '#64748B', fontSize: 14 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: hp('1.2%') },
+  summaryText: { color: '#64748B', fontSize: wp('3.5%') },
   summaryValue: { color: '#0F172A', fontWeight: '700' },
-  summaryTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
-  summaryTotal: { color: '#0F172A', fontSize: 16, fontWeight: '800' },
-  paymentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  summaryTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: hp('1.2%') },
+  summaryTotal: { color: '#0F172A', fontSize: wp('4%'), fontWeight: '800' },
+  paymentRow: { flexDirection: 'row', alignItems: 'center', gap: wp('2%') },
   paymentText: { color: '#0F172A', fontWeight: '600' },
   addCardButton: {
     borderWidth: 1,
     borderColor: '#3ad3db',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.5%'),
     alignItems: 'center',
   },
   addCardText: { color: '#0F172A', fontWeight: '700' },
-  primaryButton: { marginTop: 24, borderRadius: 16, overflow: 'hidden' },
+  primaryButton: { marginTop: hp('3%'), borderRadius: wp('4%'), overflow: 'hidden' },
   primaryButtonDisabled: { opacity: 0.5 },
-  primaryGradient: { paddingVertical: 16, alignItems: 'center' },
-  primaryText: { color: '#ffffff', fontWeight: '800', fontSize: 16 },
-  prefillSummary: { gap: 6 },
-  prefillText: { color: '#334155', fontSize: 14, fontWeight: '600' },
-  placesList: { borderRadius: 12 },
+  primaryGradient: { paddingVertical: hp('2%'), alignItems: 'center' },
+  primaryText: { color: '#ffffff', fontWeight: '800', fontSize: wp('4%') },
+  prefillSummary: { gap: hp('0.7%') },
+  prefillText: { color: '#334155', fontSize: wp('3.5%'), fontWeight: '600' },
+  placesList: { borderRadius: wp('3%') },
   successOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
@@ -787,14 +937,29 @@ const styles = StyleSheet.create({
   },
   successCard: {
     backgroundColor: '#ffffff',
-    padding: 24,
-    borderRadius: 20,
+    padding: wp('6%'),
+    borderRadius: wp('5%'),
     alignItems: 'center',
-    minWidth: 220,
+    minWidth: wp('55%'),
   },
-  successEmoji: { fontSize: 40 },
-  successTitle: { fontSize: 20, fontWeight: '800', marginTop: 8, color: '#0F172A' },
-  successSubtitle: { fontSize: 14, color: '#64748B', marginTop: 4 },
+  successEmoji: { fontSize: wp('10%') },
+  successTitle: { fontSize: wp('5%'), fontWeight: '800', marginTop: hp('1%'), color: '#0F172A' },
+  successSubtitle: { fontSize: wp('3.5%'), color: '#64748B', marginTop: hp('0.5%') },
+  estimateBlock: {
+    flex: 1,
+    padding: wp('6%'),
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  estimateBlockTitle: { fontSize: wp('5%'), fontWeight: '800', color: '#0F172A', textAlign: 'center', marginBottom: hp('1.5%') },
+  estimateBlockText: { fontSize: wp('3.8%'), color: '#64748B', textAlign: 'center', lineHeight: wp('5.5%'), marginBottom: hp('3%') },
+  estimateBlockButton: {
+    backgroundColor: '#F59E0B',
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('7%'),
+    borderRadius: wp('3%'),
+  },
+  estimateBlockButtonText: { color: '#ffffff', fontWeight: '700', fontSize: wp('4%') },
 });
 
 export default BookingSummaryScreen;

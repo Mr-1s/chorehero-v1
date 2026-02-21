@@ -21,13 +21,22 @@ BEGIN
     );
 
     ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+  END IF;
+END $$;
 
+-- Ensure policies exist (idempotent)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'user_profiles') THEN
+    DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles;
     CREATE POLICY "Users can view own profile" ON public.user_profiles
       FOR SELECT USING (auth.uid() = user_id);
 
+    DROP POLICY IF EXISTS "Users can update own profile" ON public.user_profiles;
     CREATE POLICY "Users can update own profile" ON public.user_profiles
       FOR UPDATE USING (auth.uid() = user_id);
 
+    DROP POLICY IF EXISTS "Users can insert own profile" ON public.user_profiles;
     CREATE POLICY "Users can insert own profile" ON public.user_profiles
       FOR INSERT WITH CHECK (auth.uid() = user_id);
   END IF;

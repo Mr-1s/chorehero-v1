@@ -43,6 +43,7 @@ import AuthScreen from './screens/shared/AuthScreen';
 import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectionScreen';
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
+import OnboardingCompleteScreen from './screens/onboarding/OnboardingCompleteScreen';
 import LocationLockScreen from './screens/onboarding/LocationLockScreen';
 import WaitlistScreen from './screens/onboarding/WaitlistScreen';
 import NewBookingFlowScreen from './screens/booking/NewBookingFlowScreen';
@@ -85,6 +86,7 @@ type StackParamList = {
   AccountTypeSelection: undefined;
   CustomerOnboarding: undefined;
   CleanerOnboarding: undefined;
+  OnboardingComplete: undefined;
   LocationLock: undefined;
   Waitlist: { zip: string; city?: string; state?: string };
   NewBookingFlow: {
@@ -183,6 +185,7 @@ const AppNavigator = () => {
   const [guestZip, setGuestZip] = useState<string | null>(null);
   const [cleanerOnboardingOverride, setCleanerOnboardingOverride] = useState(false);
   const [pendingRole, setPendingRole] = useState<'customer' | 'cleaner' | null>(null);
+  const [bootstrapReady, setBootstrapReady] = useState(false);
 
   const inferredRole =
     user?.role ||
@@ -198,9 +201,9 @@ const AppNavigator = () => {
 
   const isCleanerComplete =
     inferredRole === 'cleaner' &&
-    (user.cleaner_onboarding_state === 'STAGING' ||
-      user.cleaner_onboarding_state === 'LIVE' ||
-      (user.cleaner_onboarding_step !== undefined && user.cleaner_onboarding_step >= 6) ||
+    (user?.cleaner_onboarding_state === 'STAGING' ||
+      user?.cleaner_onboarding_state === 'LIVE' ||
+      (user?.cleaner_onboarding_step !== undefined && user.cleaner_onboarding_step >= 6) ||
       cleanerOnboardingOverride ||
       getCleanerOnboardingOverride());
 
@@ -252,6 +255,8 @@ const AppNavigator = () => {
         setCleanerOnboardingOverride(storedCleanerOverride === 'true');
       } catch (error) {
         console.warn('⚠️ Failed to restore last route:', error);
+      } finally {
+        setBootstrapReady(true);
       }
     };
     loadLastRoute();
@@ -272,9 +277,12 @@ const AppNavigator = () => {
     if (shouldBypassLocationLock && restoredRoute?.name === 'LocationLock') {
       return { name: 'MainTabs' };
     }
+    // Only use restored route when user has chosen a role; new signups must see AccountTypeSelection
+    const hasChosenRole = !!(user?.role || pendingRole);
     if (
       restoredRoute?.name &&
-      !['AuthScreen', 'AccountTypeSelection'].includes(restoredRoute.name)
+      !['AuthScreen', 'AccountTypeSelection'].includes(restoredRoute.name) &&
+      hasChosenRole
     ) {
       return restoredRoute;
     }
@@ -283,7 +291,7 @@ const AppNavigator = () => {
 
   // Handle navigation when auth state changes (after loading)
   useEffect(() => {
-    if (isLoading || !navigationRef.current) {
+    if (isLoading || !bootstrapReady || !navigationRef.current) {
       return;
     }
     const nextRoute = getSafeRoute();
@@ -296,7 +304,7 @@ const AppNavigator = () => {
         routes: [{ name: nextRoute.name, params: nextRoute.params }],
       })
     );
-  }, [isLoading, isAuthenticated, user?.role, pendingRole, isCustomerComplete, isCleanerComplete, restoredRoute]);
+  }, [isLoading, bootstrapReady, isAuthenticated, user?.role, pendingRole, isCustomerComplete, isCleanerComplete, restoredRoute]);
 
   // Initialize services when user is authenticated
   React.useEffect(() => {
@@ -354,6 +362,7 @@ const AppNavigator = () => {
           <Stack.Screen name="AccountTypeSelection" component={AccountTypeSelectionScreen} />
           <Stack.Screen name="CustomerOnboarding" component={CustomerOnboardingScreen} />
           <Stack.Screen name="CleanerOnboarding" component={CleanerOnboardingScreen} />
+          <Stack.Screen name="OnboardingComplete" component={OnboardingCompleteScreen} />
           <Stack.Screen
             name="LocationLock"
             component={LocationLockScreen}

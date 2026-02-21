@@ -13,6 +13,7 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../services/supabase';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
@@ -36,7 +37,7 @@ type JobDetailsScreenProps = {
 
 interface JobDetails {
   id: string;
-  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'accepted' | 'on_the_way' | 'in_progress' | 'completed' | 'cancelled';
   customer: {
     id: string;
     name: string;
@@ -144,10 +145,10 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     // Check active bookings first (accepted, on_the_way, in_progress)
     const activeBooking = activeBookings.find(b => b.id === jobId);
     if (activeBooking) {
-      // Map booking status to job status
+      // Map booking status to job status (preserve on_the_way for Start Job button)
       switch (activeBooking.status) {
         case 'accepted': return 'accepted';
-        case 'on_the_way': return 'accepted'; // Treat as accepted for display
+        case 'on_the_way': return 'on_the_way';
         case 'in_progress': return 'in_progress';
         default: return 'accepted';
       }
@@ -177,7 +178,23 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       // Find the booking in the store to get actual data
       const allBookings = [...availableBookings, ...activeBookings, ...pastBookings];
       const storeBooking = allBookings.find(b => b.id === jobId);
-      
+
+      // Fetch real coordinates from DB (addresses table)
+      let lat = 37.7749;
+      let lng = -122.4194;
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId);
+      if (isValidUUID) {
+        const { data: bookingRow } = await supabase
+          .from('bookings')
+          .select('address_id, address:addresses(latitude, longitude)')
+          .eq('id', jobId)
+          .single();
+        if (bookingRow?.address && (bookingRow.address as { latitude?: number; longitude?: number }).latitude != null) {
+          lat = Number((bookingRow.address as { latitude: number }).latitude);
+          lng = Number((bookingRow.address as { longitude: number }).longitude);
+        }
+      }
+
       // Build job details from store booking using correct Booking field names
       if (!storeBooking) {
         // No booking found - show error
@@ -204,10 +221,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         },
         location: {
           address: storeBooking.addressLine1,
-          coordinates: {
-            latitude: 37.7749,
-            longitude: -122.4194,
-          },
+          coordinates: { latitude: lat, longitude: lng },
           accessInstructions: storeBooking.accessInstructions || undefined,
         },
         schedule: {
@@ -244,6 +258,65 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   // Get store actions
   const { acceptBooking, declineBooking, startTraveling, markInProgress, markCompleted } = useCleanerStore();
 
+  const handleRunningLate = async () => {
+    if (!job) return;
+    Alert.alert(
+      'Running Late',
+      'Notify the customer how many minutes you\'ll be late:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: '15 min',
+          onPress: () => notifyCustomerDelay(15),
+        },
+        {
+          text: '30 min',
+          onPress: () => notifyCustomerDelay(30),
+        },
+      ]
+    );
+  };
+
+  const notifyCustomerDelay = async (delayMinutes: number) => {
+    if (!job) return;
+    try {
+      const { error } = await supabase.rpc('notify_customer_delay', {
+        p_booking_id: job.id,
+        p_delay_minutes: delayMinutes,
+      });
+      if (error) throw error;
+      Alert.alert('Customer Notified', `Customer has been notified you're running ~${delayMinutes} min late.`);
+    } catch (e) {
+      console.error('notify_customer_delay failed:', e);
+      Alert.alert('Error', 'Could not send delay notification.');
+    }
+  };
+
+  const handleStartTraveling = async () => {
+    if (!job) return;
+
+    setActionLoading(true);
+    try {
+      await startTraveling(job.id);
+      setJob(prev => prev ? { ...prev, status: 'on_the_way' } : null);
+
+      // Open maps for directions
+      const { latitude, longitude } = job.location.coordinates;
+      const url = `maps://app?daddr=${latitude},${longitude}`;
+      Linking.openURL(url).catch(() => {
+        const webUrl = `https://maps.google.com/?daddr=${latitude},${longitude}`;
+        Linking.openURL(webUrl);
+      });
+
+      Alert.alert('On Your Way', 'You\'re now en route. The customer has been notified.');
+    } catch (error) {
+      console.error('Error starting travel:', error);
+      Alert.alert('Error', 'Failed to start traveling. Please try again.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleAcceptJob = async () => {
     if (!job) return;
 
@@ -262,7 +335,8 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
               Alert.alert('Job Accepted', 'You have successfully accepted this job. The customer has been notified.');
             } catch (error) {
               console.error('Error accepting job:', error);
-              Alert.alert('Error', 'Failed to accept job');
+              const msg = error instanceof Error ? error.message : 'Failed to accept job';
+              Alert.alert('Error', msg);
             } finally {
               setActionLoading(false);
             }
@@ -380,6 +454,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     switch (status) {
       case 'pending': return '#FBBF24';      // Amber 400 - light yellow-orange
       case 'accepted': return '#F59E0B';     // Amber 500 - main orange
+      case 'on_the_way': return '#D97706';   // Amber 600 - en route
       case 'in_progress': return '#D97706';  // Amber 600 - darker orange
       case 'completed': return '#92400E';    // Amber 800 - deep brown
       case 'cancelled': return '#DC2626';    // Red 600
@@ -391,6 +466,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     switch (status) {
       case 'pending': return 'Pending Acceptance';
       case 'accepted': return 'Accepted';
+      case 'on_the_way': return 'En Route';
       case 'in_progress': return 'In Progress';
       case 'completed': return 'Completed';
       case 'cancelled': return 'Cancelled';
@@ -644,10 +720,46 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       {job.status === 'accepted' && (
         <View style={styles.actionButtons}>
           <TouchableOpacity
+            style={[styles.actionButton, styles.secondaryButton]}
+            onPress={handleRunningLate}
+          >
+            <Text style={styles.secondaryButtonText}>Running Late</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.startButton]}
+            onPress={handleStartTraveling}
+            disabled={actionLoading}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="navigate" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.startButtonText}>Start Traveling</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {job.status === 'on_the_way' && (
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.secondaryButton]}
+            onPress={handleRunningLate}
+          >
+            <Text style={styles.secondaryButtonText}>Running Late</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.actionButton, styles.startButton]}
             onPress={handleStartJob}
+            disabled={actionLoading}
           >
-            <Text style={styles.startButtonText}>Start Job</Text>
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.startButtonText}>Start Job</Text>
+            )}
           </TouchableOpacity>
         </View>
       )}
@@ -1016,6 +1128,16 @@ const styles = StyleSheet.create({
   },
   startButton: {
     backgroundColor: '#F59E0B',
+  },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  secondaryButtonText: {
+    color: '#F59E0B',
+    fontSize: 16,
+    fontWeight: '600',
   },
   startButtonText: {
     color: '#FFFFFF',

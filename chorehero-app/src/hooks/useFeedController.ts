@@ -8,6 +8,8 @@ export interface ProviderUI {
   username?: string;
   avatar_url?: string | null;
   rating_average?: number;
+  total_jobs?: number;
+  distance_miles?: number | null;
   hourly_rate?: number;
   verification_status?: 'verified' | 'pending' | 'rejected';
   service_title?: string;
@@ -23,6 +25,12 @@ export interface FeedItem {
     name: string;
     rating: number;
     base_price: number;
+    total_jobs?: number;
+    distance_miles?: number | null;
+    package_id?: string;
+    package_type?: 'fixed' | 'estimate' | 'hourly' | null;
+    base_price_cents?: number | null;
+    estimated_hours?: number | null;
   };
   interaction_state: {
     is_liked: boolean;
