@@ -8,6 +8,11 @@ import {
   Alert,
   StatusBar,
   Animated,
+  KeyboardAvoidingView,
+  ScrollView,
+  Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -190,103 +195,120 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#06b6d4" />
       <LinearGradient colors={['#06b6d4', '#0891b2']} style={styles.gradient}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => {
-              if (navigation?.canGoBack?.()) {
-                navigation.goBack();
-                return;
-              }
-              navigation.navigate('AccountTypeSelection');
-            }}
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoid}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
           >
-            <Ionicons name="arrow-back" size={22} color="#0891b2" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.title}>Find a ChoreHero</Text>
-          <Text style={styles.subtitle}>Enter your ZIP code to see availability.</Text>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View>
+                <View style={styles.header}>
+                  <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      if (navigation?.canGoBack?.()) {
+                        navigation.goBack();
+                        return;
+                      }
+                      navigation.navigate('AccountTypeSelection');
+                    }}
+                  >
+                    <Ionicons name="arrow-back" size={22} color="#0891b2" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.card}>
+                  <Text style={styles.title}>Find a ChoreHero</Text>
+                  <Text style={styles.subtitle}>Enter your ZIP code to see availability.</Text>
 
-          <View style={styles.inputRow}>
-            <Ionicons name="location-outline" size={18} color="#6B7280" />
-            <TextInput
-              style={styles.input}
-              placeholder="Zip Code"
-              placeholderTextColor="#9CA3AF"
-              keyboardType="number-pad"
-              maxLength={5}
-              value={zip}
-              onChangeText={(text) => {
-                const digits = text.replace(/\D/g, '').slice(0, 5);
-                setZip(digits);
-              }}
-              autoFocus
-              ref={zipInputRef}
-            />
-          </View>
+                  <View style={styles.inputRow}>
+                    <Ionicons name="location-outline" size={18} color="#6B7280" />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Zip Code"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      value={zip}
+                      onChangeText={(text) => {
+                        const digits = text.replace(/\D/g, '').slice(0, 5);
+                        setZip(digits);
+                      }}
+                      autoFocus
+                      ref={zipInputRef}
+                    />
+                  </View>
 
-          {isResolving && <Text style={styles.helper}>Checking location…</Text>}
-          {cityState && (
-            <Text style={styles.helper}>
-              {cityState.city}, {cityState.state}
-            </Text>
-          )}
+                  {isResolving && <Text style={styles.helper}>Checking location…</Text>}
+                  {cityState && (
+                    <Text style={styles.helper}>
+                      {cityState.city}, {cityState.state}
+                    </Text>
+                  )}
 
-          {showManualCityState && (
-            <View style={styles.manualRow}>
-              <TextInput
-                style={[styles.manualInput, styles.manualInputLeft]}
-                placeholder="City"
-                placeholderTextColor="#9CA3AF"
-                value={manualCity}
-                onChangeText={setManualCity}
-              />
-              <TextInput
-                style={[styles.manualInput, styles.manualInputRight]}
-                placeholder="State"
-                placeholderTextColor="#9CA3AF"
-                value={manualState}
-                onChangeText={setManualState}
-                maxLength={2}
-                autoCapitalize="characters"
-              />
-            </View>
-          )}
+                  {showManualCityState && (
+                    <View style={styles.manualRow}>
+                      <TextInput
+                        style={[styles.manualInput, styles.manualInputLeft]}
+                        placeholder="City"
+                        placeholderTextColor="#9CA3AF"
+                        value={manualCity}
+                        onChangeText={setManualCity}
+                      />
+                      <TextInput
+                        style={[styles.manualInput, styles.manualInputRight]}
+                        placeholder="State"
+                        placeholderTextColor="#9CA3AF"
+                        value={manualState}
+                        onChangeText={setManualState}
+                        maxLength={2}
+                        autoCapitalize="characters"
+                      />
+                    </View>
+                  )}
 
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleUseCurrentLocation}>
-            <Ionicons name="navigate" size={16} color="#0891b2" />
-            <Text style={styles.secondaryButtonText}>Use Current Location</Text>
-          </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryButton} onPress={handleUseCurrentLocation}>
+                    <Ionicons name="navigate" size={16} color="#0891b2" />
+                    <Text style={styles.secondaryButtonText}>Use Current Location</Text>
+                  </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.primaryButton, (!isValidZip(zip) || isChecking) && styles.primaryButtonDisabled]}
-            onPress={handleContinue}
-            disabled={!isValidZip(zip) || isChecking}
-          >
-            {isChecking ? (
-              <View style={styles.shimmerContainer}>
-                <Text style={styles.primaryButtonText}>Checking…</Text>
-                <Animated.View
-                  pointerEvents="none"
-                  style={[
-                    styles.shimmerOverlay,
-                    { transform: [{ translateX: shimmerTranslate }] },
-                  ]}
-                >
-                  <LinearGradient
-                    colors={['transparent', 'rgba(255,255,255,0.5)', 'transparent']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.shimmerGradient}
-                  />
-                </Animated.View>
+                  <TouchableOpacity
+                    style={[styles.primaryButton, (!isValidZip(zip) || isChecking) && styles.primaryButtonDisabled]}
+                    onPress={handleContinue}
+                    disabled={!isValidZip(zip) || isChecking}
+                  >
+                    {isChecking ? (
+                      <View style={styles.shimmerContainer}>
+                        <Text style={styles.primaryButtonText}>Checking…</Text>
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            styles.shimmerOverlay,
+                            { transform: [{ translateX: shimmerTranslate }] },
+                          ]}
+                        >
+                          <LinearGradient
+                            colors={['transparent', 'rgba(255,255,255,0.5)', 'transparent']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.shimmerGradient}
+                          />
+                        </Animated.View>
+                      </View>
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Continue</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-            ) : (
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            </TouchableWithoutFeedback>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </LinearGradient>
     </View>
   );
@@ -294,7 +316,13 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  gradient: { flex: 1, justifyContent: 'center', padding: 20 },
+  gradient: { flex: 1, padding: 20 },
+  keyboardAvoid: { flex: 1 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 320,
+    justifyContent: 'center',
+  },
   header: {
     paddingTop: 6,
     paddingBottom: 12,
