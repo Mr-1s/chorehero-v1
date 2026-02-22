@@ -14,7 +14,10 @@ import {
   Switch,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +27,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
 import { useStripe } from '@stripe/stripe-react-native';
 import { wp, hp } from '../../utils/responsive';
+
+const PAYMENT_METHODS_STORAGE_KEY = 'chorehero_saved_payment_methods';
 
 // Theme colors
 const THEMES = {
@@ -146,14 +151,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   const loadPaymentData = async () => {
     setIsLoading(true);
     try {
-      // TODO: Integrate with Stripe to fetch real payment methods
-      // For now, start with empty state - users will add their own cards
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setPaymentMethods([]);
-      setSelectedMethodId(null);
-      
-      // Empty billing address for user to fill
+      const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
+      const stored = await AsyncStorage.getItem(storageKey);
+      const methods: PaymentMethod[] = stored ? JSON.parse(stored) : [];
+      setPaymentMethods(methods);
+      setSelectedMethodId(methods.find(m => m.isDefault)?.id || methods[0]?.id || null);
+
       setBillingAddress({
         firstName: '',
         lastName: '',
@@ -165,7 +168,8 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         country: 'US',
       });
     } catch (error) {
-      Alert.alert('Error', 'Failed to load payment information');
+      setPaymentMethods([]);
+      setSelectedMethodId(null);
     } finally {
       setIsLoading(false);
     }
@@ -207,18 +211,16 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
 
   const handleAddCard = async () => {
     if (!validateCard()) return;
-    
+
     setIsProcessing(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
       const lastFour = newCard.number.replace(/\s/g, '').slice(-4);
       const [month, year] = newCard.expiry.split('/');
-      
+
       const newMethod: PaymentMethod = {
         id: Date.now().toString(),
         type: 'card',
-        provider: 'Visa', // Would be detected from card number
+        provider: 'Visa',
         brand: 'visa',
         last4: lastFour,
         expiryMonth: parseInt(month),
@@ -226,8 +228,9 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         isDefault: paymentMethods.length === 0,
         nickname: newCard.nickname || `Card ending in ${lastFour}`,
       };
-      
-      setPaymentMethods(prev => [...prev, newMethod]);
+
+      const updated = [...paymentMethods, newMethod];
+      setPaymentMethods(updated);
       setSelectedMethodId(newMethod.id);
       setShowAddCard(false);
       setNewCard({
@@ -238,7 +241,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         nickname: '',
         saveCard: true,
       });
-      
+
+      if (newCard.saveCard) {
+        const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
+        await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+      }
+
       if (user?.id && user.role === 'customer') {
         await supabase
           .from('users')
@@ -249,7 +257,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
           .eq('id', user.id);
       }
 
-      Alert.alert('Success', 'Payment method added successfully');
+      Alert.alert('Success', newCard.saveCard ? 'Payment method saved for future use' : 'Payment method added');
     } catch (error) {
       Alert.alert('Error', 'Failed to add payment method');
     } finally {
@@ -257,12 +265,23 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     }
   };
 
+  const persistPaymentMethods = async (methods: PaymentMethod[]) => {
+    try {
+      const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
+      await AsyncStorage.setItem(storageKey, JSON.stringify(methods));
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSetDefault = async (methodId: string) => {
-    setPaymentMethods(prev => prev.map(method => ({
+    const updated = paymentMethods.map(method => ({
       ...method,
       isDefault: method.id === methodId,
-    })));
+    }));
+    setPaymentMethods(updated);
     setSelectedMethodId(methodId);
+    await persistPaymentMethods(updated);
   };
 
   const handleDeleteMethod = (methodId: string) => {
@@ -274,12 +293,11 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            setPaymentMethods(prev => prev.filter(m => m.id !== methodId));
-            if (selectedMethodId === methodId) {
-              const remaining = paymentMethods.filter(m => m.id !== methodId);
-              setSelectedMethodId(remaining[0]?.id || null);
-            }
+          onPress: async () => {
+            const updated = paymentMethods.filter(m => m.id !== methodId);
+            setPaymentMethods(updated);
+            setSelectedMethodId(updated[0]?.id || null);
+            await persistPaymentMethods(updated);
           },
         },
       ]
@@ -482,96 +500,108 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         }
       ]}
     >
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView 
+        style={styles.addCardKeyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
         <View style={styles.formHeader}>
           <Text style={styles.formTitle}>Add Payment Method</Text>
-          <TouchableOpacity onPress={() => setShowAddCard(false)}>
+          <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowAddCard(false); }}>
             <Ionicons name="close" size={24} color="#6B7280" />
           </TouchableOpacity>
         </View>
-        
-        <View style={styles.formContent}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Card Number</Text>
-            <TextInput
-              style={styles.textInput}
-              value={newCard.number}
-              onChangeText={(text) => setNewCard(prev => ({ ...prev, number: formatCardNumber(text) }))}
-              placeholder="1234 5678 9012 3456"
-              keyboardType="numeric"
-              maxLength={19}
-            />
-          </View>
-          
-          <View style={styles.inputRow}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
-              <Text style={styles.inputLabel}>Expiry Date</Text>
-              <TextInput
-                style={styles.textInput}
-                value={newCard.expiry}
-                onChangeText={(text) => setNewCard(prev => ({ ...prev, expiry: formatExpiry(text) }))}
-                placeholder="MM/YY"
-                keyboardType="numeric"
-                maxLength={5}
-              />
-            </View>
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.inputLabel}>CVC</Text>
-              <TextInput
-                style={styles.textInput}
-                value={newCard.cvc}
-                onChangeText={(text) => setNewCard(prev => ({ ...prev, cvc: text.replace(/\D/g, '') }))}
-                placeholder="123"
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-              />
-            </View>
-          </View>
-          
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Cardholder Name</Text>
-            <TextInput
-              style={styles.textInput}
-              value={newCard.name}
-              onChangeText={(text) => setNewCard(prev => ({ ...prev, name: text }))}
-              placeholder="John Doe"
-              autoCapitalize="words"
-            />
-          </View>
-          
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Nickname (Optional)</Text>
-            <TextInput
-              style={styles.textInput}
-              value={newCard.nickname}
-              onChangeText={(text) => setNewCard(prev => ({ ...prev, nickname: text }))}
-              placeholder="Personal Card"
-            />
-          </View>
-          
-          <View style={styles.switchContainer}>
-            <Text style={styles.switchLabel}>Save this card for future use</Text>
-            <Switch
-              value={newCard.saveCard}
-              onValueChange={(value) => setNewCard(prev => ({ ...prev, saveCard: value }))}
-              trackColor={{ false: '#E5E7EB', true: theme.primary }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-        </View>
-        
-        <TouchableOpacity 
-          style={[styles.addCardButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
-          onPress={handleAddCard}
-          disabled={isProcessing}
+
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.addCardScrollContent}
         >
-          {isProcessing ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.addCardButtonText}>Add Payment Method</Text>
-          )}
-        </TouchableOpacity>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.formContent}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Card Number</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newCard.number}
+                  onChangeText={(text) => setNewCard(prev => ({ ...prev, number: formatCardNumber(text) }))}
+                  placeholder="1234 5678 9012 3456"
+                  keyboardType="numeric"
+                  maxLength={19}
+                />
+              </View>
+
+              <View style={styles.inputRow}>
+                <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
+                  <Text style={styles.inputLabel}>Expiry Date</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={newCard.expiry}
+                    onChangeText={(text) => setNewCard(prev => ({ ...prev, expiry: formatExpiry(text) }))}
+                    placeholder="MM/YY"
+                    keyboardType="numeric"
+                    maxLength={5}
+                  />
+                </View>
+                <View style={[styles.inputGroup, { flex: 1 }]}>
+                  <Text style={styles.inputLabel}>CVC</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={newCard.cvc}
+                    onChangeText={(text) => setNewCard(prev => ({ ...prev, cvc: text.replace(/\D/g, '') }))}
+                    placeholder="123"
+                    keyboardType="numeric"
+                    maxLength={4}
+                    secureTextEntry
+                  />
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Cardholder Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newCard.name}
+                  onChangeText={(text) => setNewCard(prev => ({ ...prev, name: text }))}
+                  placeholder="John Doe"
+                  autoCapitalize="words"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Nickname (Optional)</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newCard.nickname}
+                  onChangeText={(text) => setNewCard(prev => ({ ...prev, nickname: text }))}
+                  placeholder="Personal Card"
+                />
+              </View>
+
+              <View style={styles.switchContainer}>
+                <Text style={styles.switchLabel}>Save this card for future use</Text>
+                <Switch
+                  value={newCard.saveCard}
+                  onValueChange={(value) => setNewCard(prev => ({ ...prev, saveCard: value }))}
+                  trackColor={{ false: '#E5E7EB', true: theme.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
+              <TouchableOpacity 
+                style={[styles.addCardButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
+                onPress={handleAddCard}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.addCardButtonText}>Add Payment Method</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Animated.View>
   );
@@ -775,7 +805,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
           <BlurView intensity={50} style={styles.overlayBlur}>
             <TouchableOpacity 
               style={styles.overlayTouchable}
-              onPress={() => setShowAddCard(false)}
+              onPress={() => { Keyboard.dismiss(); setShowAddCard(false); }}
             />
             {renderAddCardForm()}
           </BlurView>
@@ -1128,6 +1158,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 8,
+    maxHeight: '90%',
+  },
+  addCardKeyboardAvoid: {
+    flex: 1,
+    maxHeight: '100%',
+  },
+  addCardScrollContent: {
+    paddingBottom: 320,
   },
   formHeader: {
     flexDirection: 'row',
@@ -1147,6 +1185,7 @@ const styles = StyleSheet.create({
     marginBottom: hp('2.5%'),
   },
   addCardButton: {
+    marginTop: hp('1.5%'),
     backgroundColor: '#0891b2', // Will be overridden dynamically
     borderRadius: wp('4%'),
     paddingVertical: hp('2%'),
