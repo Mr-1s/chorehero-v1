@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 export interface EmptyStateFeature {
@@ -30,7 +29,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   icon,
   title,
   subtitle,
-  gradientColors = ['#3ad3db', '#2BC8D4'] as const,
+  gradientColors = ['#26B7C9', '#047B9B'] as const,
   features = [],
   actions = [],
   showFeatures = true,
@@ -39,12 +38,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     <View style={styles.emptyState}>
       {/* Icon */}
       <View style={styles.emptyIconContainer}>
-        <LinearGradient
-          colors={gradientColors as any}
-          style={styles.emptyIconGradient}
-        >
-          <Ionicons name={icon as any} size={64} color="#ffffff" />
-        </LinearGradient>
+        <View style={[styles.emptyIconCircle, { backgroundColor: '#F1F5F9' }]}>
+          <Ionicons name={icon as any} size={26} color={gradientColors[0]} />
+        </View>
       </View>
 
       {/* Title & Subtitle */}
@@ -98,60 +94,56 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 64,
-    paddingHorizontal: 20,
+    paddingVertical: 36,
+    paddingHorizontal: 24,
   },
   emptyIconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 14,
   },
-  emptyIconGradient: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
   },
   emptyStateTitle: {
-    fontSize: 24,
+    fontSize: 17,
     fontWeight: '700',
-    color: '#1F2937',
-    marginBottom: 12,
+    color: '#0F172A',
+    marginBottom: 6,
     textAlign: 'center',
   },
   emptyStateSubtitle: {
-    fontSize: 16,
-    color: '#6B7280',
+    fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
+    lineHeight: 19,
+    marginBottom: 18,
+    maxWidth: 280,
   },
   emptyStateFeatures: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 18,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     backgroundColor: '#F8FAFC',
-    borderRadius: 24,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   featureText: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '500',
     color: '#475569',
-    marginLeft: 12,
+    marginLeft: 8,
   },
   emptyStateActions: {
     flexDirection: 'row',
@@ -162,7 +154,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -183,13 +175,13 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
   },
   secondaryCTAText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 4,
@@ -203,11 +195,11 @@ export const EmptyStateConfigs = {
     icon: 'calendar-outline',
     title: 'No upcoming bookings',
     subtitle: 'Book your next cleaning service and relax while we handle the rest.',
-    gradientColors: ['#3ad3db', '#2BC8D4'] as const,
+    gradientColors: ['#26B7C9', '#047B9B'] as const,
     features: [
-      { icon: 'flash', text: 'Book in 60 seconds', color: '#3ad3db' },
-      { icon: 'shield-checkmark', text: 'Verified cleaners', color: '#3ad3db' },
-      { icon: 'star', text: '5-star guarantee', color: '#3ad3db' },
+      { icon: 'flash', text: 'Book in 60 seconds', color: '#26B7C9' },
+      { icon: 'shield-checkmark', text: 'Verified cleaners', color: '#26B7C9' },
+      { icon: 'star', text: '5-star guarantee', color: '#26B7C9' },
     ],
   },
   
@@ -252,11 +244,11 @@ export const EmptyStateConfigs = {
     icon: 'time-outline',
     title: 'No active jobs',
     subtitle: 'Your accepted jobs will appear here. Check the available jobs to start earning.',
-    gradientColors: ['#0891b2', '#0E7490'] as const,
+    gradientColors: ['#047B9B', '#0E7490'] as const,
     features: [
-      { icon: 'chatbubble', text: 'Customer chat', color: '#0891b2' },
-      { icon: 'location', text: 'GPS navigation', color: '#0891b2' },
-      { icon: 'checkmark', text: 'Easy completion', color: '#0891b2' },
+      { icon: 'chatbubble', text: 'Customer chat', color: '#047B9B' },
+      { icon: 'location', text: 'GPS navigation', color: '#047B9B' },
+      { icon: 'checkmark', text: 'Easy completion', color: '#047B9B' },
     ],
   },
 
@@ -352,11 +344,11 @@ export const EmptyStateConfigs = {
     icon: 'calendar-outline',
     title: 'No bookings yet',
     subtitle: 'Book your first cleaning service and experience the convenience of ChoreHero.',
-    gradientColors: ['#3ad3db', '#2BC8D4'] as const,
+    gradientColors: ['#26B7C9', '#047B9B'] as const,
     features: [
-      { icon: 'flash', text: 'Book instantly', color: '#3ad3db' },
-      { icon: 'shield-checkmark', text: 'Insured cleaners', color: '#3ad3db' },
-      { icon: 'star', text: 'Satisfaction guaranteed', color: '#3ad3db' },
+      { icon: 'flash', text: 'Book instantly', color: '#26B7C9' },
+      { icon: 'shield-checkmark', text: 'Insured cleaners', color: '#26B7C9' },
+      { icon: 'star', text: 'Satisfaction guaranteed', color: '#26B7C9' },
     ],
   },
 

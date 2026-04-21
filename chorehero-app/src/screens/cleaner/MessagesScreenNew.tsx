@@ -37,8 +37,9 @@ import { cleanerTheme } from '../../utils/theme';
 
 // Types
 import type { Conversation } from '../../types/cleaner';
+import { wp, hp } from '../../utils/responsive';
 
-const { colors, typography, spacing, radii, shadows } = cleanerTheme;
+const { colors, spacing } = cleanerTheme;
 
 type StackParamList = {
   Messages: undefined;
@@ -112,6 +113,7 @@ const MessagesScreenNew: React.FC<MessagesScreenProps> = ({ navigation }) => {
         <PressableScale
           onPress={() => handleConversationPress(item)}
           style={styles.conversationWrapper}
+          activeOpacity={0.82}
         >
           <View style={[styles.conversationCard, hasUnread && styles.conversationCardUnread]}>
             {/* Avatar */}
@@ -248,21 +250,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingHorizontal: wp('6%'),
+    paddingTop: hp('1.8%'),
+    paddingBottom: hp('1.2%'),
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '700',
     color: '#1F2937',
     letterSpacing: -0.5,
   },
   headerBadge: {
     backgroundColor: colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: wp('3.5%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('5%'),
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -277,48 +279,44 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: '#F8FAFC',
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.25%'),
+    borderRadius: 14,
+    gap: wp('2.5%'),
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#1F2937',
     letterSpacing: -0.2,
   },
   listContent: {
     paddingHorizontal: spacing.xl,
-    paddingBottom: 120, // Account for bottom nav
+    paddingBottom: 130, // Account for bottom nav
+    paddingTop: hp('0.5%'),
   },
   loadingContainer: {
     flex: 1,
     paddingHorizontal: spacing.xl,
   },
   conversationWrapper: {
-    marginBottom: spacing.md,
+    marginBottom: hp('1%'),
   },
   conversationCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.cardBg,
-    borderRadius: 20,
-    padding: 18,
-    gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: 14,
+    paddingVertical: hp('1.6%'),
+    paddingHorizontal: wp('3.8%'),
+    gap: wp('3%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   conversationCardUnread: {
     backgroundColor: '#FFFBF5', // Warm highlight for unread
@@ -329,9 +327,9 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: colors.metaBg,
   },
   avatarPlaceholder: {
@@ -341,7 +339,7 @@ const styles = StyleSheet.create({
   },
   conversationContent: {
     flex: 1,
-    gap: 4,
+    gap: wp('1%'),
   },
   conversationHeader: {
     flexDirection: 'row',
@@ -350,7 +348,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   participantName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
@@ -362,14 +360,14 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   timestamp: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: '#9CA3AF',
   },
   messagePreview: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#6B7280',
-    lineHeight: 20,
+    lineHeight: 18,
     letterSpacing: -0.2,
   },
   messagePreviewUnread: {
@@ -383,7 +381,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -399,16 +397,16 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
+    paddingVertical: hp('10%'),
   },
   emptyIconContainer: {
     width: 88,
     height: 88,
-    borderRadius: 44,
+    borderRadius: wp('11%'),
     backgroundColor: '#FFF7ED',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -416,17 +414,17 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     letterSpacing: -0.3,
   },
   emptySubtitle: {
     fontSize: 15,
     color: '#6B7280',
     textAlign: 'center',
-    paddingHorizontal: 48,
+    paddingHorizontal: wp('12%'),
     lineHeight: 22,
   },
 });

@@ -39,6 +39,8 @@ import { ServiceCard } from '../../components/ServiceCard';
 import { serviceCardService } from '../../services/serviceCardService';
 import { ServiceCardData } from '../../types/serviceCard';
 import { zipLookupService } from '../../services/zipLookupService';
+import { wp, hp } from '../../utils/responsive';
+import { updateGuestSession } from '../../utils/guestSession';
 
 
 
@@ -49,11 +51,12 @@ type TabParamList = {
   Messages: undefined;
   Profile: undefined;
   CleanerProfile: { cleanerId: string };
-  NewBookingFlow: {
+  UnifiedBooking: {
     cleanerId?: string;
     serviceType?: string;
     serviceName?: string;
     basePrice?: number;
+    duration?: number;
   };
   ServiceDetail: {
     serviceId: string;
@@ -61,6 +64,8 @@ type TabParamList = {
     category: string;
   };
   NotificationsScreen: undefined;
+  PostJob: undefined;
+  QuoteList: { jobId: string };
 };
 
 type DiscoverScreenNavigationProp = NavigationProp<TabParamList>;
@@ -396,8 +401,26 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         console.log(`✅ Loaded ${videos.length} real videos for category: ${category || 'Featured'}`);
         setFeaturedVideos(videos);
       } else {
-        console.log(`📭 No videos found for category: ${category || 'Featured'}`);
-        setFeaturedVideos([]);
+        // Fallback: always show content - use demo videos so users never see "No videos available"
+        const demoVideos = guestModeService.getDemoVideos().slice(0, 6);
+        const videos = demoVideos.map((v) => ({
+          id: v.id,
+          title: v.title,
+          description: v.description,
+          media_url: v.video_url,
+          thumbnail_url: v.thumbnail_url,
+          user: {
+            id: v.cleaner_id ?? v.id,
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            role: 'cleaner',
+          },
+          view_count: v.view_count || 0,
+          like_count: v.like_count || 0,
+          created_at: v.created_at,
+        }));
+        console.log(`📺 Using ${videos.length} demo videos (feed empty)`);
+        setFeaturedVideos(videos);
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
@@ -582,6 +605,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       ['guest_city', city || ''],
       ['guest_state', state || ''],
     ]);
+    await updateGuestSession({ location: { zip, city: city || undefined, state: state || undefined } });
     setStoredZip(zip);
     setStoredCity(city || null);
     setStoredState(state || null);
@@ -737,33 +761,42 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   // Use dynamic categories from uploaded videos, fallback to Featured only if no videos
   const categories = videoCategories.length > 1 ? videoCategories : ['Featured'];
 
-  const renderCategoryTab = (category: string) => (
-    <TouchableOpacity
-      key={category}
-      style={[
-        styles.categoryTab,
-        selectedCategory === category && styles.categoryTabActive,
-      ]}
-      onPress={() => {
-        setSelectedCategory(category);
-        const tag = category === 'Featured' ? undefined : category.toLowerCase().replace(/\s+/g, '_');
-        setSearchState(prev => ({
-          ...prev,
-          active_filters: {
-            ...prev.active_filters,
-            service_tags: tag ? [tag] : undefined,
-          },
-        }));
-      }}
-      activeOpacity={0.7}
-    >
-      <Text style={[
-        styles.categoryTabText,
-        selectedCategory === category && styles.categoryTabTextActive,
-      ]}>
-        {category}
-      </Text>
-    </TouchableOpacity>
+  const renderCategoryTab = (category: string) => {
+    const isActive = selectedCategory === category;
+    return (
+      <TouchableOpacity
+        key={category}
+        style={styles.categoryTabNew}
+        onPress={() => {
+          setSelectedCategory(category);
+          const tag = category === 'Featured' ? undefined : category.toLowerCase().replace(/\s+/g, '_');
+          setSearchState(prev => ({
+            ...prev,
+            active_filters: {
+              ...prev.active_filters,
+              service_tags: tag ? [tag] : undefined,
+            },
+          }));
+        }}
+        activeOpacity={0.7}
+      >
+        <Text style={[styles.categoryTabTextNew, isActive && styles.categoryTabTextNewActive]}>
+          {category}
+        </Text>
+        {isActive && <View style={styles.categoryTabUnderline} />}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSectionHeader = (title: string, onMore?: () => void) => (
+    <View style={styles.sectionHeaderRow}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {onMore ? (
+        <TouchableOpacity onPress={onMore} style={styles.sectionMoreButton} activeOpacity={0.7}>
+          <Ionicons name="arrow-forward" size={14} color="#0F172A" />
+        </TouchableOpacity>
+      ) : null}
+    </View>
   );
 
   const renderServiceCard = (service: CategoryService | GuestService, isPopular = false) => {
@@ -807,7 +840,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       const cleanerId = cardData.provider?.cleaner_id || cardData.actions?.navigation_params?.cleanerId || cardData.id;
       navigation.navigate('CleanerProfile', { cleanerId });
     } else if (cardData.actions.primary_action === 'book_now') {
-      navigation.navigate('NewBookingFlow', {
+      navigation.navigate('UnifiedBooking', {
+        cleanerId: cardData.provider?.cleaner_id || cardData.actions?.navigation_params?.cleanerId,
         serviceId: cardData.id,
         serviceName: cardData.title,
         basePrice: cardData.pricing.base_price ? cardData.pricing.base_price / 100 : 0,
@@ -850,7 +884,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         />
         {imageLoadingStates[cleaner.id] && (
           <View style={styles.cleanerImageSkeleton}>
-            <ActivityIndicator size="small" color="#3ad3db" />
+            <ActivityIndicator size="small" color="#26B7C9" />
           </View>
         )}
         <View style={styles.trendingCleanerRing} />
@@ -925,27 +959,39 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       </TouchableOpacity>
     );
   };
-    // Transform guest service to standardized service card format
-    const serviceCategoryCardData = serviceCardService.createServiceCard({
-      id: service.id,
-      title: service.name,
-      description: service.description,
-      category: service.category,
-      price_range: service.price_range,
-      rating: service.rating,
-      custom_image: service.image_url,
-      is_featured: false
-    });
-
+    // DoorDash-style clean category tile — icon + title + price range
+    const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
+      cleaning: 'sparkles-outline',
+      outdoor: 'leaf-outline',
+      moving: 'cube-outline',
+      handyman: 'construct-outline',
+      automotive: 'car-outline',
+      pets: 'paw-outline',
+    };
+    const iconName = iconMap[service.category?.toLowerCase()] || 'sparkles-outline';
     return (
-      <ServiceCard
+      <TouchableOpacity
         key={service.id}
-        data={serviceCategoryCardData}
-        variant="compact"
-        onPress={(data) => handleServicePress(data)}
-        onSecondaryAction={(data) => handleSaveService(data)}
-        style={{ marginBottom: 16 }}
-      />
+        style={styles.categoryTile}
+        activeOpacity={0.85}
+        onPress={() =>
+          handleServicePress({
+            id: service.id,
+            title: service.name,
+            category: service.category,
+            pricing: { base_price: 0 },
+            actions: { primary_action: 'browse_cleaners', navigation_params: {} },
+          } as any)
+        }
+      >
+        <View style={styles.categoryTileIcon}>
+          <Ionicons name={iconName} size={24} color="#047B9B" />
+        </View>
+        <Text style={styles.categoryTileTitle} numberOfLines={1}>{service.name}</Text>
+        <Text style={styles.categoryTileMeta} numberOfLines={1}>
+          {service.price_range || 'View pros'}
+        </Text>
+      </TouchableOpacity>
     );
   };
 
@@ -977,7 +1023,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
               <View style={styles.locationDot} />
             </View>
             <Text style={styles.locationText}>{locationText}</Text>
-            <Ionicons name="chevron-down" size={12} color="#00BFA6" />
+            <Ionicons name="chevron-down" size={12} color="#26B7C9" />
           </TouchableOpacity>
         </View>
         
@@ -989,7 +1035,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
               <Switch 
                 value={useMockData} 
                 onValueChange={setUseMockData}
-                trackColor={{ false: '#D1D5DB', true: '#3ad3db' }}
+                trackColor={{ false: '#D1D5DB', true: '#26B7C9' }}
                 thumbColor={useMockData ? '#ffffff' : '#f4f3f4'}
                 ios_backgroundColor="#D1D5DB"
                 style={styles.switch}
@@ -1018,7 +1064,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
             <Text style={styles.sectionTitle}>Search Results</Text>
             {isSearching ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="#3ad3db" />
+                <ActivityIndicator size="small" color="#26B7C9" />
                 <Text style={styles.loadingText}>Searching...</Text>
               </View>
             ) : searchResults.length > 0 ? (
@@ -1039,6 +1085,26 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
             )}
           </View>
         ) : null}
+        {/* Post a Job CTA */}
+        <TouchableOpacity
+          style={styles.postJobBanner}
+          onPress={() => navigation.navigate('PostJob' as any)}
+          activeOpacity={0.9}
+        >
+          <LinearGradient
+            colors={['#26B7C9', '#047B9B']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.postJobGradient}
+          >
+            <Ionicons name="videocam" size={28} color="#fff" />
+            <View style={styles.postJobText}>
+              <Text style={styles.postJobTitle}>Post a Job & Get Quotes</Text>
+              <Text style={styles.postJobSubtitle}>Pros send you 60-sec video quotes</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.9)" />
+          </LinearGradient>
+        </TouchableOpacity>
         {/* Filter Tabs */}
         <View style={styles.filterSection}>
           <ScrollView
@@ -1052,12 +1118,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Videos Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            {selectedCategory === 'Featured' ? 'Featured Videos' : `${selectedCategory} Videos`}
-          </Text>
+          {renderSectionHeader(selectedCategory === 'Featured' ? 'Featured Videos' : `${selectedCategory} Videos`)}
           {loadingVideos ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3ad3db" />
+              <ActivityIndicator size="small" color="#26B7C9" />
               <Text style={styles.loadingText}>Loading videos...</Text>
             </View>
           ) : featuredVideos.length > 0 ? (
@@ -1081,14 +1145,14 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Service Categories */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Popular Services</Text>
+          {renderSectionHeader('Popular Services')}
           {serviceCategories.length > 0 ? (
             <View style={styles.serviceCategoriesGrid}>
               {serviceCategories.map(renderServiceCategoryCard)}
             </View>
           ) : (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3ad3db" />
+              <ActivityIndicator size="small" color="#26B7C9" />
               <Text style={styles.loadingText}>Loading services...</Text>
             </View>
           )}
@@ -1096,7 +1160,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Additional Services */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>More Services</Text>
+          {renderSectionHeader('More Services')}
           {popularServices.length > 0 ? (
             <View style={styles.popularServicesGrid}>
               {popularServices.map(service => renderServiceCard(service, true))}
@@ -1114,12 +1178,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Trending Cleaners */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Trending {selectedCategory !== 'Featured' ? selectedCategory : ''} Cleaners
-          </Text>
+          {renderSectionHeader(`Trending ${selectedCategory !== 'Featured' ? selectedCategory + ' ' : ''}Cleaners`.trim())}
           {loading || loadingServices ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#3ad3db" />
+              <ActivityIndicator size="small" color="#26B7C9" />
               <Text style={styles.loadingText}>Loading cleaners...</Text>
             </View>
           ) : trendingCleaners.length > 0 ? (
@@ -1147,7 +1209,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
 
         {/* Recommended For You */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recommended For You</Text>
+          {renderSectionHeader('Recommended For You')}
           {recommendedServices.length > 0 ? (
             <View style={styles.recommendedServicesContainer}>
               {recommendedServices.map(service => renderServiceCard(service, false))}
@@ -1174,7 +1236,7 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         <View style={styles.offerSection}>
           <View style={styles.specialOfferCard}>
             <LinearGradient
-              colors={['#3ad3db', '#1ca7b7']}
+              colors={['#26B7C9', '#1ca7b7']}
               style={styles.specialOfferGradient}
             >
               <View style={styles.specialOfferContent}>
@@ -1262,9 +1324,9 @@ const styles = StyleSheet.create({
   },
   topBar: {
     backgroundColor: '#F9F9F9',
-    paddingTop: 80,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingTop: hp('6.5%'),
+    paddingHorizontal: wp('5%'),
+    paddingBottom: hp('1.4%'),
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
@@ -1275,49 +1337,42 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   searchIcon: {
     position: 'absolute',
-    left: 16,
-    top: 14,
+    left: 18,
+    top: 16,
     zIndex: 1,
   },
   searchInput: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E5EA',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingLeft: 48,
-    paddingRight: 16,
-    fontSize: 16,
+    borderRadius: 999,
+    paddingVertical: hp('1.5%'),
+    paddingLeft: wp('12%'),
+    paddingRight: wp('4%'),
+    fontSize: wp('4%'),
     color: '#1C1C1E',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
     elevation: 3,
   },
   locationPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
+    borderRadius: 999,
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderColor: '#E5E5EA',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
   },
   featuredVideoCard: {
     marginRight: 16,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -1329,7 +1384,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   locationEmoji: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
   },
   locationDot: {
     position: 'absolute',
@@ -1338,12 +1393,12 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34C759',
+    backgroundColor: '#10B981',
     borderWidth: 1,
     borderColor: '#FFFFFF',
   },
   locationText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#1C1C1E',
     fontWeight: '600',
     marginRight: 4,
@@ -1358,62 +1413,62 @@ const styles = StyleSheet.create({
   zipModalCard: {
     width: '100%',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: wp('4.5%'),
     padding: 20,
   },
   zipModalTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   zipModalInput: {
     borderWidth: 1,
     borderColor: '#E5E5EA',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    marginBottom: 16,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1.2%'),
+    fontSize: wp('4%'),
+    marginBottom: hp('2%'),
   },
   zipModalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
+    gap: wp('3%'),
   },
   zipModalSecondary: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('3%'),
     backgroundColor: '#F3F4F6',
   },
   zipModalSecondaryText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#4B5563',
   },
   zipModalPrimary: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('3%'),
     backgroundColor: '#26B7C9',
   },
   zipModalPrimaryText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
   headerControls: {
     alignItems: 'flex-start',
-    gap: 12,
+    gap: wp('3%'),
   },
   demoToggle: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: wp('5%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -1421,7 +1476,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   demoToggleLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1C1C1E',
     marginRight: 8,
@@ -1432,13 +1487,10 @@ const styles = StyleSheet.create({
   notificationButton: {
     position: 'relative',
     padding: 8,
-    borderRadius: 20,
+    borderRadius: 999,
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   notificationBadge: {
     position: 'absolute',
@@ -1446,7 +1498,7 @@ const styles = StyleSheet.create({
     right: 6,
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     backgroundColor: '#FF3B30',
   },
   scrollView: {
@@ -1456,38 +1508,47 @@ const styles = StyleSheet.create({
     paddingBottom: 90,
   },
   filterSection: {
-    paddingTop: 8,
-    paddingBottom: 20,
+    paddingTop: hp('0.2%'),
+    paddingBottom: hp('1.2%'),
   },
+  postJobBanner: {
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('1.2%'),
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#0ea5b8',
+  },
+  postJobGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: wp('4%'),
+    gap: wp('3%'),
+  },
+  postJobText: { flex: 1 },
+  postJobTitle: { fontSize: wp('4.5%'), fontWeight: '700', color: '#fff' },
+  postJobSubtitle: { fontSize: wp('3.5%'), color: 'rgba(255,255,255,0.9)', marginTop: 2 },
   filterContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    gap: 12,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: 0,
+    gap: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
   categoryTab: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 22,
+    paddingVertical: hp('1.05%'),
+    paddingHorizontal: wp('4.5%'),
+    borderRadius: 999,
     backgroundColor: '#FFFFFF',
-    shadowColor: 'rgba(0, 0, 0, 0.08)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
-    elevation: 3,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.03)',
+    borderColor: '#E2E8F0',
   },
   categoryTabActive: {
-    backgroundColor: '#3ad3db',
-    shadowColor: 'rgba(58, 211, 219, 0.25)',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
   },
   categoryTabText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#6B7280',
     letterSpacing: 0.3,
@@ -1496,25 +1557,66 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
+  categoryTabNew: {
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: 2,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  categoryTabTextNew: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#64748B',
+    letterSpacing: -0.1,
+  },
+  categoryTabTextNewActive: {
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  categoryTabUnderline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -1,
+    height: 2,
+    backgroundColor: '#0F172A',
+    borderRadius: 1,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: wp('5%'),
+    marginBottom: hp('1.2%'),
+  },
+  sectionMoreButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   section: {
-    marginBottom: 32,
+    marginBottom: hp('2.6%'),
   },
   sectionTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#1C1C1E',
-    marginBottom: 20,
-    paddingHorizontal: 20,
+    color: '#0F172A',
+    letterSpacing: -0.3,
   },
   popularServicesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: wp('5%'),
+    gap: wp('4%'),
   },
   serviceCard: {
     width: (width - 56) / 2,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
@@ -1559,13 +1661,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4%'),
   },
   serviceBadgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     marginLeft: 4,
   },
@@ -1574,7 +1676,7 @@ const styles = StyleSheet.create({
     bottom: 80,
     left: 16,
     right: 16,
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
     textShadowColor: 'rgba(0,0,0,0.6)',
@@ -1586,7 +1688,7 @@ const styles = StyleSheet.create({
     bottom: 60,
     left: 16,
     right: 16,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
     opacity: 0.9,
@@ -1601,10 +1703,10 @@ const styles = StyleSheet.create({
     right: 16,
   },
   browseButtonOverlay: {
-    backgroundColor: '#3ad3db',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 24,
+    backgroundColor: '#26B7C9',
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('6%'),
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1614,12 +1716,12 @@ const styles = StyleSheet.create({
   },
   browseButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   trendingCleanersContainer: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: wp('5%'),
+    gap: wp('4%'),
   },
   trendingCleanerCard: {
     width: 120,
@@ -1627,7 +1729,7 @@ const styles = StyleSheet.create({
   },
   trendingCleanerImageContainer: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   trendingCleanerImage: {
     width: 70,
@@ -1653,80 +1755,77 @@ const styles = StyleSheet.create({
     bottom: -3,
     borderRadius: 38,
     borderWidth: 2,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     opacity: 0.3,
   },
   trendingCleanerName: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1C1C1E',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
     textAlign: 'center',
   },
   trendingCleanerRating: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   trendingCleanerRatingText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#8E8E93',
     marginLeft: 2,
   },
   trendingCleanerSpecialty: {
-    fontSize: 12,
-    color: '#3ad3db',
+    fontSize: wp('3%'),
+    color: '#26B7C9',
     textAlign: 'center',
   },
   recommendedServicesContainer: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: wp('5%'),
+    gap: wp('4%'),
   },
   recommendationReason: {
     marginTop: -8,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   recommendationReasonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#8E8E93',
     fontStyle: 'italic',
   },
   offerSection: {
-    marginBottom: 20,
-    marginTop: 12,
+    marginBottom: hp('2.5%'),
+    marginTop: hp('1.5%'),
   },
   searchResultCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('1%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   searchResultHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   searchResultIdentity: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   searchResultAvatar: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
   },
   searchResultAvatarFallback: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1734,20 +1833,20 @@ const styles = StyleSheet.create({
   searchResultAvatarText: {
     color: '#374151',
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: wp('3%'),
   },
   searchResultTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#1C1C1E',
   },
   searchResultRating: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   searchResultRatingText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#8E8E93',
     fontWeight: '600',
   },
@@ -1756,35 +1855,35 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   specialOfferCard: {
-    marginHorizontal: 20,
-    borderRadius: 24,
+    marginHorizontal: wp('5%'),
+    borderRadius: wp('6%'),
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.25,
     shadowRadius: 20,
     elevation: 12,
   },
   specialOfferGradient: {
-    paddingHorizontal: 24,
-    paddingVertical: 28,
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('3.5%'),
   },
   specialOfferContent: {
     alignItems: 'center',
   },
   offerHeaderContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   offerBadge: {
     fontSize: 11,
     fontWeight: '800',
     color: '#000000',
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 8,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
+    marginBottom: hp('1%'),
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     shadowColor: '#F59E0B',
@@ -1798,10 +1897,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     backgroundColor: '#1ca7b7',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 8,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
+    marginBottom: hp('1%'),
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     shadowColor: '#1ca7b7',
@@ -1811,16 +1910,16 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   specialOfferTitle: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '800',
     color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   specialOfferSubtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#FFFFFF',
-    marginBottom: 24,
+    marginBottom: hp('3%'),
     textAlign: 'center',
     opacity: 0.95,
     fontWeight: '500',
@@ -1829,11 +1928,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     backgroundColor: '#1ca7b7',
-    paddingHorizontal: 10,
+    paddingHorizontal: wp('2.5%'),
     paddingVertical: 3,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -1841,7 +1940,7 @@ const styles = StyleSheet.create({
   },
   claimOfferButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    borderRadius: wp('7%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
@@ -1850,7 +1949,7 @@ const styles = StyleSheet.create({
   },
   claimOfferButtonClaimed: {
     backgroundColor: '#1ca7b7',
-    borderRadius: 28,
+    borderRadius: wp('7%'),
     shadowColor: '#1ca7b7',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
@@ -1858,15 +1957,15 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   claimOfferButtonInner: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('8%'),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 160,
   },
   claimOfferButtonText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontSize: 17,
     fontWeight: '800',
     marginRight: 8,
@@ -1880,13 +1979,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   buttonArrow: {
-    color: '#3ad3db',
-    fontSize: 18,
+    color: '#26B7C9',
+    fontSize: wp('4.5%'),
     fontWeight: '700',
   },
   buttonCheckmark: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
   },
   bottomSpacing: {
@@ -1896,35 +1995,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
+    paddingVertical: hp('2.5%'),
   },
   loadingText: {
     color: '#8E8E93',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     marginLeft: 8,
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: hp('5%'),
+    paddingHorizontal: wp('5%'),
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#8E8E93',
     textAlign: 'center',
   },
   
   // Video card styles
   videosContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    gap: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1%'),
+    gap: wp('4%'),
   },
   videoCard: {
     width: 140,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1964,7 +2063,7 @@ const styles = StyleSheet.create({
   videoPlayButton: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1974,45 +2073,45 @@ const styles = StyleSheet.create({
     bottom: 8,
     right: 8,
     flexDirection: 'row',
-    gap: 8,
+    gap: wp('2%'),
   },
   videoStat: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingHorizontal: 6,
+    paddingHorizontal: wp('1.5%'),
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     gap: 2,
   },
   videoStatText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
   },
   videoInfo: {
     padding: 12,
   },
   videoTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1C1C1E',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     lineHeight: 18,
   },
   videoCreator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   videoCreatorAvatar: {
     width: 16,
     height: 16,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     backgroundColor: '#F2F2F7',
   },
   videoCreatorName: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#8E8E93',
     fontWeight: '500',
   },
@@ -2020,21 +2119,51 @@ const styles = StyleSheet.create({
   serviceCategoriesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     gap: 12,
+  },
+  categoryTile: {
+    flexBasis: '48%',
+    flexGrow: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  categoryTileIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E6F9FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  categoryTileTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  categoryTileMeta: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
   },
   serviceCategoryCard: {
     width: (width - 56) / 2, // Account for container padding + gap (16px*2 + 12px gap)
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   serviceCategoryImageContainer: {
     position: 'relative',
@@ -2065,33 +2194,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
     gap: 3,
   },
   serviceCategoryRatingText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
   },
   serviceCategoryContent: {
     padding: 14,
-    paddingTop: 10,
-    paddingBottom: 16,
+    paddingTop: hp('1.2%'),
+    paddingBottom: hp('2%'),
   },
   serviceCategoryTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#1C1C1E',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
     lineHeight: 20,
   },
   serviceCategoryDescription: {
     fontSize: 13,
     color: '#8E8E93',
     lineHeight: 18,
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     fontWeight: '500',
   },
   serviceCategoryFooter: {
@@ -2102,19 +2231,19 @@ const styles = StyleSheet.create({
   serviceCategoryPrice: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   serviceCategoryButton: {
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('3%'),
     alignSelf: 'stretch',
     alignItems: 'center',
   },
   serviceCategoryButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
   },
 });

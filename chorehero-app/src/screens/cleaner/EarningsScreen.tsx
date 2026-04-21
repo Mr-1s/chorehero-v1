@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -16,6 +17,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { wp, hp } from '../../utils/responsive';
 
 const { width } = Dimensions.get('window');
 
@@ -54,12 +56,20 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
   
   const [earningsHistory, setEarningsHistory] = useState<EarningData[]>([]);
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
+  const [pendingPayouts, setPendingPayouts] = useState<{ id: string; amount_cents: number; scheduled_at: string; booking_id: string }[]>([]);
+  const [paidPayouts, setPaidPayouts] = useState<{ id: string; amount_cents: number; created_at: string; booking_id: string }[]>([]);
 
   const { currentBalance, pendingBalance, totalEarnings } = earningsData;
 
   useEffect(() => {
     loadEarningsData();
   }, [user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) loadEarningsData();
+    }, [user?.id])
+  );
 
   const loadEarningsData = async () => {
     if (!user?.id) return;
@@ -82,7 +92,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
       // Fetch completed bookings for this cleaner
       const { data: completedBookings, error: completedError } = await supabase
         .from('bookings')
-        .select('id, total_amount, cleaner_earnings, scheduled_time, status, address, special_requests')
+        .select('id, total_amount, cleaner_earnings, scheduled_time, status, special_instructions, address:addresses!address_id(street, city, state, zip_code)')
         .eq('cleaner_id', user.id)
         .eq('status', 'completed')
         .order('scheduled_time', { ascending: false });
@@ -98,17 +108,39 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
 
       if (pendingError) throw pendingError;
 
+      // Fetch payout_queue (pending payouts - 48h after job complete)
+      const { data: payoutQueueData } = await supabase
+        .from('payout_queue')
+        .select('id, amount_cents, scheduled_at, booking_id')
+        .eq('cleaner_id', user.id)
+        .eq('status', 'pending')
+        .order('scheduled_at', { ascending: true });
+
+      setPendingPayouts(payoutQueueData || []);
+
+      // Fetch transactions (completed payouts)
+      const { data: transactionsData } = await supabase
+        .from('transactions')
+        .select('id, amount_cents, created_at, booking_id')
+        .eq('pro_id', user.id)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      setPaidPayouts(transactionsData || []);
+
       // Calculate totals
       const totalEarned = (completedBookings || []).reduce((sum, b) => 
         sum + (b.cleaner_earnings || b.total_amount * 0.81 || 0), 0
       );
       
-      const pendingAmount = (pendingBookings || []).reduce((sum, b) => 
+      const pendingFromBookings = (pendingBookings || []).reduce((sum, b) =>
         sum + (b.cleaner_earnings || b.total_amount * 0.81 || 0), 0
       );
+      const pendingFromQueue = (payoutQueueData || []).reduce((sum, p) => sum + p.amount_cents / 100, 0);
+      const pendingAmount = pendingFromBookings + pendingFromQueue;
 
-      // For now, available balance = total - pending (in reality this comes from Stripe)
-      const availableBalance = totalEarned; // Simplified - in production use Stripe balance
+      const availableBalance = totalEarned;
 
       setEarningsData({
         currentBalance: availableBalance,
@@ -156,7 +188,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
         amount: b.cleaner_earnings || b.total_amount * 0.81 || 0,
         type: 'earning' as const,
         status: 'completed' as const,
-        description: b.special_requests?.split('.')[0] || b.address || 'Cleaning service',
+        description: b.special_instructions?.split('.')[0] || (b.address ? [b.address.street, b.address.city, b.address.state].filter(Boolean).join(', ') : null) || 'Cleaning service',
       }));
 
       setPaymentHistory(history);
@@ -200,6 +232,17 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
       case 'pending': return 'Pending';
       default: return 'Unknown';
     }
+  };
+
+  const formatPayoutCountdown = (scheduledAt: string): string => {
+    const scheduled = new Date(scheduledAt);
+    const now = new Date();
+    const diffMs = scheduled.getTime() - now.getTime();
+    if (diffMs <= 0) return 'Processing...';
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `Payout in ${days}d ${hours % 24}h`;
+    return `Payout in ${hours}h`;
   };
 
   if (loading && !refreshing) {
@@ -269,6 +312,22 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Pending Payouts (payout_queue - 48h after job complete) */}
+        {pendingPayouts.length > 0 && (
+          <View style={styles.analyticsContainer}>
+            <Text style={styles.sectionTitle}>Pending Payouts</Text>
+            <Text style={styles.sectionSubtitle}>Payouts are sent 48 hours after job completion</Text>
+            {pendingPayouts.map((p) => (
+              <View key={p.id} style={styles.analyticsCard}>
+                <View style={styles.analyticsHeader}>
+                  <Text style={styles.periodText}>${(p.amount_cents / 100).toFixed(2)}</Text>
+                  <Text style={[styles.amountText, { fontSize: wp('3.5%') }]}>{formatPayoutCountdown(p.scheduled_at)}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Earnings Analytics */}
         <View style={styles.analyticsContainer}>
           <Text style={styles.sectionTitle}>Earnings Breakdown</Text>
@@ -304,6 +363,30 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
             </View>
           )}
         </View>
+
+        {/* Paid Payouts (transactions) */}
+        {paidPayouts.length > 0 && (
+          <View style={styles.historyContainer}>
+            <Text style={styles.sectionTitle}>Paid Payouts</Text>
+            {paidPayouts.map((t) => (
+              <View key={t.id} style={styles.historyItem}>
+                <View style={styles.historyIcon}>
+                  <Ionicons name="checkmark-circle" size={24} color="#4ECDC4" />
+                </View>
+                <View style={styles.historyDetails}>
+                  <Text style={styles.historyDescription}>Payout to bank</Text>
+                  <Text style={styles.historyDate}>{new Date(t.created_at).toLocaleDateString()}</Text>
+                </View>
+                <View style={styles.historyAmount}>
+                  <Text style={[styles.historyAmountText, { color: '#4ECDC4' }]}>+${(t.amount_cents / 100).toFixed(2)}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: '#4ECDC4' }]}>
+                    <Text style={styles.statusText}>Paid</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Payment History */}
         <View style={styles.historyContainer}>
@@ -378,21 +461,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#4ECDC4',
-    paddingTop: 60,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.5%'),
+    backgroundColor: '#26B7C9',
+    paddingTop: hp('6%'),
   },
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '600',
     color: '#ffffff',
   },
@@ -400,43 +483,38 @@ const styles = StyleSheet.create({
     width: 40,
   },
   balanceContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     marginTop: 0,
-    paddingTop: 20,
+    paddingTop: hp('2.5%'),
   },
   balanceCard: {
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
+    borderRadius: 18,
+    padding: 20,
+    marginBottom: hp('1.8%'),
   },
   balanceLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   balanceAmount: {
-    fontSize: 36,
+    fontSize: wp('9%'),
     fontWeight: '700',
     color: '#ffffff',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   withdrawButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('6%'),
   },
   withdrawText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     marginLeft: 8,
   },
@@ -447,61 +525,61 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    marginHorizontal: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    marginHorizontal: wp('1.5%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   statValue: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#2d3748',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
   },
   analyticsContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     marginTop: 30,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
+  },
+  sectionSubtitle: {
+    fontSize: wp('3.5%'),
+    color: '#718096',
+    marginBottom: hp('1.5%'),
   },
   analyticsCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: hp('1%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   analyticsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   periodText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
   },
   amountText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#4ECDC4',
+    color: '#26B7C9',
   },
   analyticsDetails: {
     flexDirection: 'row',
@@ -512,26 +590,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   analyticsLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
     marginLeft: 6,
   },
   historyContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     marginTop: 30,
   },
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: hp('1%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   historyIcon: {
     marginRight: 12,
@@ -540,67 +615,64 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   historyDescription: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   historyDate: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
   },
   historyAmount: {
     alignItems: 'flex-end',
   },
   historyAmountText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
   },
   statusText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#ffffff',
   },
   taxContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     marginTop: 30,
   },
   taxCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   taxInfo: {
     flex: 1,
     marginLeft: 16,
   },
   taxTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   taxSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
   },
   taxButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(255, 107, 107, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -614,34 +686,34 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#718096',
   },
   // Empty State Styles
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: hp('5%'),
+    paddingHorizontal: wp('5%'),
   },
   emptyIcon: {
     width: 80,
     height: 80,
-    borderRadius: 40,
+    borderRadius: wp('10%'),
     backgroundColor: '#F7FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#2D3748',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     textAlign: 'center',
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
     textAlign: 'center',
     lineHeight: 20,

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMessages } from '../context/MessageContext';
 import { useAuth } from '../hooks/useAuth';
 import { notificationService } from '../services/notificationService';
+import { jobQuoteService } from '../services/jobQuoteService';
 
 const { width } = Dimensions.get('window');
 const BRAND_TEAL = '#26B7C9';
@@ -38,8 +39,9 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
   glassOpacity = 0.85,
 }) => {
   const { unreadCount } = useMessages();
-  const { user } = useAuth();
+  const { user, isCustomer } = useAuth();
   const [hasBookingAlert, setHasBookingAlert] = useState(false);
+  const [newQuotesCount, setNewQuotesCount] = useState(0);
   const insets = useSafeAreaInsets();
   const resolveNavigatorFor = (name: string) => {
     let current: any = navigation;
@@ -72,6 +74,18 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
     };
     loadBookingAlerts();
   }, [user?.id, unreadCount, currentScreen]);
+
+  useEffect(() => {
+    const loadNewQuotesCount = async () => {
+      if (!user?.id || !isCustomer) {
+        setNewQuotesCount(0);
+        return;
+      }
+      const res = await jobQuoteService.getCustomerQuotes(user.id);
+      if (res.success && res.data) setNewQuotesCount(res.data.length);
+    };
+    loadNewQuotesCount();
+  }, [user?.id, isCustomer, currentScreen]);
   const isTransparent = variant === 'transparent';
   const isDarkSurface = currentScreen === 'Content';
   const safeBottomPadding = Math.max(insets.bottom, 26);
@@ -124,9 +138,61 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
     }
   };
 
+  const renderTab = (
+    screen: keyof TabParamList,
+    label: string,
+    options?: { badgeCount?: number; showDot?: boolean; onPress?: () => void; flex?: number }
+  ) => {
+    const isActive = currentScreen === screen;
+    const color = isActive
+      ? BRAND_TEAL
+      : isTransparent
+        ? '#FFFFFF'
+        : isDarkSurface
+          ? 'rgba(255, 255, 255, 0.65)'
+          : '#64748B';
+    const labelColor = isActive
+      ? isDarkSurface || isTransparent
+        ? '#FFFFFF'
+        : BRAND_TEAL
+      : isTransparent
+        ? '#FFFFFF'
+        : isDarkSurface
+          ? 'rgba(255, 255, 255, 0.7)'
+          : '#64748B';
+    return (
+      <TouchableOpacity
+        key={screen}
+        style={[styles.tabItem, options?.flex ? { flex: options.flex } : null]}
+        activeOpacity={0.7}
+        onPress={options?.onPress ?? (() => safeNavigate(screen))}
+      >
+        <View style={[styles.iconPill, isActive && styles.iconPillActive]}>
+          <Ionicons name={getIconName(screen)} size={24} color={color} />
+          {options?.badgeCount && options.badgeCount > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{options.badgeCount > 9 ? '9+' : options.badgeCount}</Text>
+            </View>
+          ) : options?.showDot ? (
+            <View style={styles.dotBadge} />
+          ) : null}
+        </View>
+        {!shouldHideLabels && (
+          <Text
+            style={[styles.tabLabel, { color: labelColor, fontWeight: isActive ? '700' : '500' }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.1}
+          >
+            {label}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View
-      style={[styles.navigationWrapper, { height: 90 + safeBottomPadding }]}
+      style={[styles.navigationWrapper, { height: 58 + safeBottomPadding }]}
       pointerEvents="box-none"
     >
       <View
@@ -146,89 +212,23 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
                     ? 'rgba(0, 0, 0, 0.85)'
                     : '#FFFFFF',
                   borderTopWidth: 1,
-                  borderTopColor: '#EEEEEE',
+                  borderTopColor: isDarkSurface ? 'rgba(255,255,255,0.08)' : '#F1F5F9',
                 }
               : null,
           ]}
         >
           <View style={styles.navigationContent}>
-          <TouchableOpacity 
-            style={currentScreen === 'Content' ? styles.activeNavButton : styles.navButton} 
-            onPress={() =>
-              safeNavigate('Content', { scrollToTop: currentScreen === 'Content' })
-            }
-          >
-            <View style={[styles.iconWrapper, getIconStyle('Content')]}>
-              <Ionicons name={getIconName('Content')} size={26} color={getButtonColor('Content')} />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Content')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Chores
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Discover')} 
-            onPress={() => safeNavigate('Discover')}
-          >
-            <View style={styles.iconWrapper}>
-              <Ionicons name={getIconName('Discover')} size={26} color={getButtonColor('Discover')} />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Discover')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Discover
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[getButtonStyle('Bookings'), styles.centerNavButton]} 
-            onPress={() => safeNavigate('Bookings')}
-          >
-            <View style={styles.iconWrapper}>
-              <Ionicons name={getIconName('Bookings')} size={26} color={getButtonColor('Bookings')} />
-              {(hasBookingAlert || unreadCount > 0) && <View style={styles.dotBadge} />}
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Bookings')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Bookings
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Messages')} 
-            onPress={() => safeNavigate('Messages')}
-          >
-            <View style={styles.iconWrapper}>
-              <Ionicons name={getIconName('Messages')} size={26} color={getButtonColor('Messages')} />
-              {unreadCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{unreadCount}</Text>
-                </View>
-              )}
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Messages')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Messages
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Profile')} 
-            onPress={() => safeNavigate('Profile')}
-          >
-            <View style={styles.iconWrapper}>
-              <Ionicons name={getIconName('Profile')} size={26} color={getButtonColor('Profile')} />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Profile')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Profile
-              </Text>
-            )}
-          </TouchableOpacity>
+            {renderTab('Content', 'Chores', {
+              onPress: () => safeNavigate('Content', { scrollToTop: currentScreen === 'Content' }),
+            })}
+            {renderTab('Discover', 'Discover')}
+            {renderTab('Bookings', 'Bookings', {
+              badgeCount: newQuotesCount,
+              showDot: hasBookingAlert && newQuotesCount === 0,
+              flex: 1.05,
+            })}
+            {renderTab('Messages', 'Messages', { badgeCount: unreadCount })}
+            {renderTab('Profile', 'Profile')}
           </View>
         </BlurView>
       </View>
@@ -242,19 +242,18 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 90,
     zIndex: 9999,
     elevation: 10,
   },
   navigationContainer: {
     flex: 1,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 10,
     overflow: 'hidden',
   },
   navigationContainerTransparent: {
@@ -271,7 +270,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   blurGlass: {
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: '#FFFFFF',
   },
   blurTransparent: {
     backgroundColor: 'rgba(255, 255, 255, 0)',
@@ -281,123 +280,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 8,
-    backgroundColor: 'transparent',
-  },
-  navButton: {
-    alignItems: 'center',
-    flex: 1,
-    paddingVertical: 12,
     paddingHorizontal: 4,
-    borderRadius: 12,
-    backgroundColor: 'transparent',
-    marginHorizontal: 2,
-    justifyContent: 'center',
+    paddingTop: 2,
   },
-  centerNavButton: {
-    flex: 1.1,
-  },
-  activeNavButton: {
-    alignItems: 'center',
+  tabItem: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    backgroundColor: 'transparent',
-    marginHorizontal: 2,
+    alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 2,
   },
-  activeButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: BRAND_TEAL,
-    paddingTop: 5,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  activeButtonTextTransparent: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: BRAND_TEAL,
-    paddingTop: 5,
-    textAlign: 'center',
-    includeFontPadding: false,
-    textShadowColor: 'rgba(0, 0, 0, 0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  navButtonTextLight: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#444444',
-    paddingTop: 5,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  navButtonTextDark: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.6)',
-    paddingTop: 5,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  navButtonTextTransparent: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#FFFFFF',
-    paddingTop: 5,
-    textAlign: 'center',
-    includeFontPadding: false,
-    textShadowColor: 'rgba(0, 0, 0, 0.4)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  iconWrapper: {
+  iconPill: {
+    width: 56,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    elevation: 3,
   },
-  iconDefault: {
-    transform: [{ scale: 1 }],
+  iconPillActive: {
+    backgroundColor: '#E6FAFB',
   },
-  activeContentIcon: {
-    transform: [{ scale: 1.1 }],
+  tabLabel: {
+    fontSize: 11,
+    marginTop: 2,
+    letterSpacing: -0.1,
+    includeFontPadding: false,
   },
   dotBadge: {
     position: 'absolute',
-    right: -2,
-    top: -2,
+    right: 10,
+    top: 2,
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#EF4444',
+    backgroundColor: BRAND_TEAL,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   badge: {
     position: 'absolute',
-    right: -6,
-    top: -3,
-    backgroundColor: '#FF4F5E',
+    right: 4,
+    top: -2,
+    backgroundColor: BRAND_TEAL,
     borderRadius: 10,
-    width: 20,
-    height: 20,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: '#FF4F5E',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   badgeText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: 'bold',
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
 

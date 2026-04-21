@@ -43,13 +43,15 @@ import { videoFeedAlgorithmService } from '../../services/videoFeedAlgorithmServ
 import { guestModeService } from '../../services/guestModeService';
 import { useAuth } from '../../hooks/useAuth';
 import { useDeviceStabilization, getVideoFeedLayout } from '../../utils/deviceStabilization';
+import { useLocationDetection } from '../../hooks/useLocationDetection';
 import { wp, hp } from '../../utils/responsive';
 import StabilizedText from '../../components/StabilizedText';
-import CreatorFollowPill from '../../components/CreatorFollowPill';
 import BookingBubble from '../../components/BookingBubble';
 import { useFeedController, FeedItem, ProviderUI } from '../../hooks/useFeedController';
+import { useFeedPopulation, FeedBanner } from '../../hooks/useFeedPopulation';
 import AuthModal from '../../components/AuthModal';
-import { getOrCreateGuestId } from '../../utils/guestSession';
+import { getOrCreateGuestId, appendViewedVideo, createGuestSession } from '../../utils/guestSession';
+import GuestPromptModal, { GuestPromptType } from '../../components/GuestPromptModal';
 import { setPendingAuthAction, setPostAuthRoute } from '../../utils/authPendingAction';
 import { send_notification } from '../../services/notificationService';
 
@@ -60,11 +62,14 @@ type TabParamList = {
   Messages: undefined;
   Profile: undefined;
   CleanerProfile: { cleanerId: string };
-  NewBookingFlow: {
+  UnifiedBooking: {
     cleanerId?: string;
-    serviceType?: string;
-    fromVideoFeed?: boolean;
-    videoTitle?: string;
+    cleanerName?: string;
+    hourlyRate?: number;
+    packageId?: string;
+    packageType?: 'fixed' | 'estimate' | 'hourly';
+    packageBasePriceCents?: number;
+    estimatedHours?: number;
   };
   VideoFeed: {
     source?: 'main' | 'featured' | 'cleaner' | 'global';
@@ -111,8 +116,8 @@ const DESIGN_TOKENS = {
   },
   // Colors
   colors: {
-    brand: '#3ad3db',
-    brandLight: 'rgba(58, 211, 219, 0.2)',
+    brand: '#26B7C9',
+    brandLight: 'rgba(38, 183, 201, 0.2)',
     white: '#FFFFFF',
     whiteAlpha95: 'rgba(255, 255, 255, 0.95)',
     text: {
@@ -350,7 +355,7 @@ const ExpoVideoPlayer: React.FC<{
           <View style={styles.videoErrorOverlay}>
             <Ionicons name="alert-circle" size={64} color="rgba(255, 100, 100, 0.8)" />
             <Text style={styles.videoErrorText}>Video Unavailable</Text>
-            <Text style={[styles.videoErrorText, { fontSize: 12, marginTop: 5 }]}>
+            <Text style={[styles.videoErrorText, { fontSize: wp('3%'), marginTop: 5 }]}>
               File may have been deleted
             </Text>
           </View>
@@ -513,13 +518,18 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const [feedTitle, setFeedTitle] = useState<string | null>(null);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [interactionStorageKey, setInteractionStorageKey] = useState<string | null>(null);
-  const [globalView, setGlobalView] = useState(false);
   const [guestCity, setGuestCity] = useState<string | null>(null);
   const [guestState, setGuestState] = useState<string | null>(null);
+  const [isShowingAreaFallback, setIsShowingAreaFallback] = useState(false);
+  const [feedBanner, setFeedBanner] = useState<FeedBanner | null>(null);
   const [isUserPaused, setIsUserPaused] = useState(false);
   const [suppressAutoPlay, setSuppressAutoPlay] = useState(false);
   const [commentOverlayVisible, setCommentOverlayVisible] = useState(false);
   const [commentOverlayProviderId, setCommentOverlayProviderId] = useState<string | null>(null);
+  const [guestPromptVisible, setGuestPromptVisible] = useState(false);
+  const [guestPromptType, setGuestPromptType] = useState<GuestPromptType>('save_favorites');
+  const guestPrompt3ShownRef = useRef(false);
+  const guestPrompt5ShownRef = useRef(false);
   const autoPlayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const insets = useSafeAreaInsets();
   const device = useDeviceStabilization();
@@ -530,8 +540,29 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const videoFeedRef = useRef<View>(null);
   const actionBubblesRef = useRef<View>(null);
   
-  const { user } = useAuth();
+  const { user, isGuestMode } = useAuth();
   const { showUploadButton, isCleaner } = useRoleFeatures();
+  const { userLocation: detectedLocation, userCity: detectedCity } = useLocationDetection();
+
+  const handleAddToWaitlist = React.useCallback(() => {
+    AsyncStorage.multiGet(['guest_zip', 'guest_city', 'guest_state']).then(
+      ([[, zip], [, city], [, state]]) => {
+        (navigation as any).navigate('Waitlist', {
+          zip: zip || '',
+          city: city || '',
+          state: state || '',
+        });
+      }
+    );
+  }, [navigation]);
+
+  const { populateFeed } = useFeedPopulation(
+    user?.id,
+    detectedLocation ?? undefined,
+    guestCity ?? detectedCity,
+    handleAddToWaitlist
+  );
+
   const navigateToDiscover = () => {
     const routes = (navigation as any)?.getState?.()?.routeNames || [];
     if (routes.includes('Discover')) {
@@ -551,11 +582,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       return;
     }
     navigation.navigate('MainTabs' as any);
-  };
-
-  const enterGlobalView = () => {
-    setGlobalView(true);
-    setFeedTitle('Global View');
   };
 
   const requireAuth = async (actionType: 'LIKE' | 'SAVE' | 'FOLLOW' | 'BOOK' | 'COMMENT' | 'SHARE', providerId: string) => {
@@ -593,18 +619,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     loadGuestLocation();
   }, []);
 
-  useEffect(() => {
-    if (source !== 'main') return;
-    if (!loading && feedItems.length === 0 && !globalView) {
-      setGlobalView(true);
-      setFeedTitle('Global View');
-    }
-  }, [feedItems.length, loading, source, globalView]);
-
+  // Removed: global view - treat 'global' source as main feed
   useEffect(() => {
     if (source === 'global') {
-      setGlobalView(true);
-      setFeedTitle('Global View');
+      setFeedTitle(null);
     }
   }, [source]);
 
@@ -621,7 +639,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
 
   useEffect(() => {
     initializeData();
-  }, []);
+  }, [detectedLocation]);
 
   useEffect(() => {
     if (restoredIndexRef.current) return;
@@ -709,33 +727,83 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     console.log('🚀 CleanerId:', cleanerIdParam);
     console.log('🚀 Initial Video:', initialVideoId);
 
+    const LOAD_TIMEOUT_MS = 12000; // Fall back to demo if load hangs (e.g. after re-login)
+
+    const loadWithTimeout = async () => {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Load timeout')), LOAD_TIMEOUT_MS)
+      );
+      const loadPromise = (async () => {
+        if (source === 'cleaner' && cleanerIdParam) {
+          await loadCleanerVideos(cleanerIdParam);
+        } else if (source === 'featured' && preloadedVideos) {
+          await loadFeaturedVideos(preloadedVideos);
+        } else {
+          await loadRealContent();
+        }
+      })();
+      await Promise.race([loadPromise, timeoutPromise]);
+    };
+
     try {
-      // Load videos based on source
       if (source === 'cleaner' && cleanerIdParam) {
-        // Load only this cleaner's videos
-        console.log('👤 Loading cleaner-specific videos...');
         setFeedTitle('Videos');
-        await loadCleanerVideos(cleanerIdParam);
       } else if (source === 'featured' && preloadedVideos) {
-        // Use preloaded featured videos
-        console.log('⭐ Loading featured videos...');
         setFeedTitle('Featured');
-        await loadFeaturedVideos(preloadedVideos);
-      } else if (source === 'global') {
-        console.log('🌍 Loading global feed...');
-        setFeedTitle('Global View');
-        await loadRealContent();
       } else {
-        // Default: load main feed
-        console.log('🌐 Loading main feed...');
         setFeedTitle(null);
-      await loadRealContent();
       }
-      
+      await loadWithTimeout();
       console.log('✅ Content loading completed');
     } catch (error) {
-      console.error('❌ Error loading content:', error);
-      setFeedItems([]);
+      if (String(error).includes('Load timeout')) {
+        console.warn('⏱️ Feed load timed out, showing demo videos');
+        const demoVideos = guestModeService.getDemoVideos();
+        const items: FeedItem[] = demoVideos.map((v) => {
+          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 0);
+          const providerId = v.cleaner_id ?? v.id;
+          return {
+            post_id: v.id,
+            provider_id: providerId,
+            video_source: v.video_url,
+            provider_metadata: {
+              name: v.cleaner_name,
+              rating: 4.5,
+              base_price: basePrice,
+              package_id: v.id,
+              package_type: v.package_type ?? undefined,
+              base_price_cents: v.base_price_cents ?? undefined,
+              estimated_hours: v.estimated_hours ?? undefined,
+            },
+            interaction_state: { is_liked: false, is_viewed: false },
+          };
+        });
+        const uiMap: Record<string, ProviderUI> = {};
+        demoVideos.forEach((v) => {
+          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 55);
+          const estDuration =
+            v.package_type === 'hourly' && v.estimated_hours != null
+              ? `Est. ${v.estimated_hours} hrs`
+              : v.package_type === 'fixed' && v.estimated_hours != null
+                ? `~${v.estimated_hours} hrs`
+                : '2-3 hrs';
+          uiMap[v.id] = {
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            rating_average: 4.5,
+            hourly_rate: basePrice,
+            verification_status: 'verified',
+            service_title: v.title,
+            description: v.description,
+            estimated_duration: estDuration,
+          };
+        });
+        setFeedData(items, uiMap, { append: false, hasMore: false });
+        setIsShowingAreaFallback(true);
+      } else {
+        console.error('❌ Error loading content:', error);
+        setFeedItems([]);
+      }
     } finally {
       setLoading(false);
       console.log('✅ VideoFeedScreen: Data initialization complete');
@@ -759,6 +827,8 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
 
       const estHours = post.estimated_hours ?? null;
+      const metaServiceId = post?.service_id || post?.metadata?.service_id;
+      const metaProServiceId = post?.pro_service_id || post?.metadata?.pro_service_id;
       items.push({
         post_id: post.id,
         provider_id: providerId,
@@ -771,7 +841,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           package_type: post.package_type ?? undefined,
           base_price_cents: packageCents,
           estimated_hours: estHours,
-        },
+          service_id: metaServiceId,
+          pro_service_id: metaProServiceId,
+        } as any,
         interaction_state: {
           is_liked: false,
           is_viewed: false,
@@ -822,6 +894,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           package_type,
           is_bookable,
           estimated_hours,
+          metadata,
+          service_id,
+          pro_service_id,
           user:users!content_posts_user_id_fkey(
             id, name, avatar_url, role,
             cleaner_profiles(
@@ -860,6 +935,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
     }
   };
 
+  const isValidUuid = (id: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
   // Load featured videos from preloaded data
   const loadFeaturedVideos = async (featuredData: any[]) => {
     try {
@@ -872,8 +950,69 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         setFeedItems([]);
         return;
       }
+
+      // Demo videos use non-UUID IDs (e.g. demo-vid-sarah-1). Skip DB query to avoid UUID error.
+      const hasDemoIds = videoIds.some(id => !isValidUuid(id));
+      if (hasDemoIds) {
+        const demoById = Object.fromEntries(guestModeService.getDemoVideos().map(v => [v.id, v]));
+        const demoVideos = videoIds.map(id => demoById[id]).filter(Boolean);
+        if (demoVideos.length === 0) {
+          setFeedItems([]);
+          return;
+        }
+        const items: FeedItem[] = demoVideos.map((v) => {
+          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 0);
+          const providerId = v.cleaner_id ?? v.id;
+          return {
+            post_id: v.id,
+            provider_id: providerId,
+            video_source: v.video_url,
+            provider_metadata: {
+              name: v.cleaner_name,
+              rating: 4.5,
+              base_price: basePrice,
+              package_id: v.id,
+              package_type: v.package_type ?? undefined,
+              base_price_cents: v.base_price_cents ?? undefined,
+              estimated_hours: v.estimated_hours ?? undefined,
+            },
+            interaction_state: { is_liked: false, is_viewed: false },
+          };
+        });
+        const uiMap: Record<string, ProviderUI> = {};
+        demoVideos.forEach((v) => {
+          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 55);
+          const estDuration =
+            v.package_type === 'hourly' && v.estimated_hours != null
+              ? `Est. ${v.estimated_hours} hrs`
+              : v.package_type === 'fixed' && v.estimated_hours != null
+                ? `~${v.estimated_hours} hrs`
+                : '2-3 hrs';
+          uiMap[v.id] = {
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            rating_average: 4.5,
+            hourly_rate: basePrice,
+            verification_status: 'verified',
+            service_title: v.title,
+            description: v.description,
+            estimated_duration: estDuration,
+          };
+        });
+        setFeedItems(items);
+        setProviderUiMap(uiMap);
+        const initialProviderId = initialVideoId
+          ? demoVideos.find((v) => v.id === initialVideoId)?.cleaner_id
+          : undefined;
+        if (initialProviderId) {
+          const startIndex = items.findIndex(item => item.provider_id === initialProviderId);
+          if (startIndex >= 0) resetInitialIndex(startIndex);
+        }
+        console.log(`✅ Loaded ${items.length} demo featured videos`);
+        return;
+      }
       
-      // Fetch full video data from database
+      // Fetch full video data from database (real UUIDs only)
       const { data: posts, error } = await supabase
         .from('content_posts')
         .select(`
@@ -893,6 +1032,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           package_type,
           is_bookable,
           estimated_hours,
+          metadata,
+          service_id,
+          pro_service_id,
           user:users!content_posts_user_id_fkey(
             id, name, avatar_url, role,
             cleaner_profiles(
@@ -939,16 +1081,19 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const loadRealContent = async (cursor?: string, append: boolean = false) => {
     try {
       markPreFetch();
-      console.log('🌐 Loading ranked content from algorithm service...');
+      if (!append) {
+        setIsShowingAreaFallback(false);
+        setFeedBanner(null);
+      }
 
-      // Use the ranking algorithm when we know the user
-      if (user?.id) {
-        try {
-          // Try user's stored address for server-side RPC (better scale)
-          let userLocation: { latitude: number; longitude: number } | undefined;
+      // Main feed: use populateFeed for robust fallback (ALWAYS returns content)
+      if ((source === 'main' || source === 'global') && !append) {
+        let userLocation: { latitude: number; longitude: number } | undefined;
+        let userCity: string | null = guestCity ?? detectedCity;
+        if (user?.id) {
           const { data: addr } = await supabase
             .from('addresses')
-            .select('latitude, longitude')
+            .select('latitude, longitude, city, state')
             .eq('user_id', user.id)
             .not('latitude', 'is', null)
             .not('longitude', 'is', null)
@@ -956,101 +1101,87 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             .maybeSingle();
           if (addr?.latitude != null && addr?.longitude != null) {
             userLocation = { latitude: Number(addr.latitude), longitude: Number(addr.longitude) };
+            userCity = (addr as any).city ?? guestCity ?? detectedCity;
           }
-
-          const rankedItems = await videoFeedAlgorithmService.getRankedFeed(
-            user.id,
-            userLocation,
-            { limit: 20 }
-          );
-
-          if (rankedItems && rankedItems.length > 0) {
-            // Map EnhancedVideoItem → FeedItem shape (include provider_metadata for display + booking)
-            const items: FeedItem[] = rankedItems.map((v) => {
-              const packageCents = v.base_price_cents ?? null;
-              const hourlyRate = v.cleaner.hourly_rate ?? 0;
-              const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
-              const distanceMiles = v.cleaner.distance_km != null && v.cleaner.distance_km > 0
-                ? v.cleaner.distance_km * 0.621371
-                : null;
-              return {
-                post_id: v.id,
-                provider_id: v.cleaner_id,
-                video_source: v.media_url,
-                thumbnail_url: v.thumbnail_url,
-                description: v.description,
-                tags: [],
-                provider_metadata: {
-                  name: v.cleaner.name,
-                  rating: v.cleaner.rating_average ?? 0,
-                  base_price: basePrice,
-                  total_jobs: v.cleaner.total_jobs ?? 0,
-                  distance_miles: distanceMiles,
-                  package_id: v.is_bookable ? v.id : undefined,
-                  package_type: v.package_type ?? undefined,
-                  base_price_cents: packageCents,
-                  estimated_hours: v.estimated_hours ?? null,
-                },
-                engagement: {
-                  like_count: v.like_count,
-                  view_count: v.view_count,
-                  comment_count: v.comment_count,
-                  view_display: `${v.view_count}`,
-                },
-                booking: {
-                  service_type: 'standard_clean',
-                  estimated_duration: 120,
-                  base_price: basePrice,
-                  cleaner_name: v.cleaner.name,
-                  cleaner_rating: v.cleaner.rating_average,
-                  is_available: v.cleaner.is_available,
-                },
-                interaction_state: { is_liked: false, is_viewed: false },
-              };
-            });
-
-            const uiMap: Record<string, ProviderUI> = {};
-            rankedItems.forEach((v) => {
-              const packageCents = v.base_price_cents ?? null;
-              const hourlyRate = v.cleaner.hourly_rate ?? 0;
-              const basePrice = packageCents != null ? packageCents / 100 : hourlyRate;
-              const estHours = v.estimated_hours ?? null;
-              const distanceMiles = v.cleaner.distance_km != null && v.cleaner.distance_km > 0
-                ? v.cleaner.distance_km * 0.621371
-                : null;
-              uiMap[v.cleaner_id] = {
-                name: v.cleaner.name,
-                username: `@${v.cleaner.name.toLowerCase().replace(/\s+/g, '')}`,
-                avatar_url: v.cleaner.avatar_url,
-                rating_average: v.cleaner.rating_average,
-                total_jobs: v.cleaner.total_jobs ?? 0,
-                distance_miles: distanceMiles,
-                hourly_rate: basePrice,
-                verification_status: 'verified',
-                service_title: v.title,
-                description: v.description,
-                estimated_duration: estHours != null ? `Est. ${estHours} hrs` : '2-3 hrs',
-              };
-            });
-
-            setFeedData(items, uiMap, { append, nextCursor: undefined, hasMore: false });
-            return;
-          }
-        } catch (algoError) {
-          console.warn('⚠️ Algorithm feed failed, falling back to raw feed:', algoError);
         }
+        if (!userLocation && detectedLocation) {
+          userLocation = detectedLocation;
+        }
+        const result = await populateFeed(false, { userLocation, userCity });
+        const items: FeedItem[] = result.videos.map((v) => {
+          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : v.hourly_rate);
+          const distanceMiles = v.distance_km != null && v.distance_km > 0 ? v.distance_km * 0.621371 : null;
+          return {
+            post_id: v.id,
+            provider_id: v.cleaner_id,
+            video_source: v.media_url,
+            isDemo: v.isDemo,
+            provider_metadata: {
+              name: v.cleaner_name,
+              rating: v.rating_average,
+              base_price: basePrice,
+              total_jobs: v.total_jobs ?? 0,
+              distance_miles: distanceMiles,
+              package_id: v.is_bookable ? v.id : undefined,
+              package_type: v.package_type ?? undefined,
+              base_price_cents: v.base_price_cents ?? undefined,
+              estimated_hours: v.estimated_hours ?? undefined,
+            },
+            interaction_state: { is_liked: false, is_viewed: false },
+          };
+        });
+        const uiMap: Record<string, ProviderUI> = {};
+        result.videos.forEach((v) => {
+          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : v.hourly_rate;
+          const estDuration =
+            v.package_type === 'hourly' && v.estimated_hours != null
+              ? `Est. ${v.estimated_hours} hrs`
+              : v.package_type === 'fixed' && v.estimated_hours != null
+                ? `~${v.estimated_hours} hrs`
+                : '2-3 hrs';
+          const key = v.cleaner_id;
+          uiMap[key] = {
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            rating_average: v.rating_average,
+            hourly_rate: basePrice,
+            verification_status: 'verified',
+            service_title: v.title,
+            description: v.description,
+            estimated_duration: estDuration,
+          };
+        });
+        setFeedData(items, uiMap, { append: false, hasMore: false });
+        setFeedBanner(result.banner);
+        setIsShowingAreaFallback(Boolean(result.banner?.show));
+        try {
+          if (typeof (global as any).__analytics?.track === 'function') {
+            (global as any).__analytics.track('feed_populated', {
+              source: result.banner ? 'demo' : 'real',
+              city: userCity ?? undefined,
+              videoCount: result.videos.length,
+            });
+          }
+        } catch {
+          // no-op
+        }
+        console.log('📺 Feed populated:', result.videos.length, 'videos, banner:', !!result.banner?.show);
+        markActive();
+        return;
       }
 
-      // Fallback: raw feed from contentService
+      // Cleaner/featured sources use existing logic below
+      console.log('🌐 Loading content for source:', source);
+
+      // Fallback: raw feed from contentService (for append or non-main)
       const response = await contentService.getFeed(
         { limit: 10, cursor },
-        undefined
+        user?.id
       );
 
       if (response.success && response.data?.posts && response.data.posts.length > 0) {
         let { items, uiMap } = buildFeedItemsFromPosts(response.data.posts);
 
-        // Enrich with distance when user has location (client-side fallback)
         if (user?.id) {
           const { data: userAddr } = await supabase
             .from('addresses')
@@ -1116,51 +1247,120 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         return;
       }
 
-      // Fallback: show sample videos when feed is empty (cold start / no seeded content)
+      // Final fallback: demo videos (never show empty)
       if (!append) {
-        try {
-          const sampleVideos = await guestModeService.getGuestVideos();
-          if (sampleVideos && sampleVideos.length > 0) {
-            const items: FeedItem[] = sampleVideos.map((v) => ({
-              post_id: v.id,
-              provider_id: v.id,
-              video_source: v.video_url,
-              provider_metadata: {
-                name: v.cleaner_name,
-                rating: 4.5,
-                base_price: 55,
-              },
-              interaction_state: { is_liked: false, is_viewed: false },
-            }));
-            const uiMap: Record<string, ProviderUI> = {};
-            sampleVideos.forEach((v) => {
-              uiMap[v.id] = {
-                name: v.cleaner_name,
-                avatar_url: v.cleaner_avatar,
-                rating_average: 4.5,
-                hourly_rate: 55,
-                verification_status: 'verified',
-                service_title: v.title,
-                description: v.description,
-                estimated_duration: '2-3 hrs',
-              };
-            });
-            setFeedData(items, uiMap, { append: false, hasMore: false });
-            console.log('📺 Showing sample videos (feed empty)');
-            markActive();
-            return;
-          }
-        } catch (sampleErr) {
-          console.warn('Sample video fallback failed:', sampleErr);
-        }
-        setFeedItems([]);
+        const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
+        const items: FeedItem[] = sampleVideos.map((v) => {
+          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+          const providerId = v.cleaner_id ?? v.id;
+          return {
+            post_id: v.id,
+            provider_id: providerId,
+            video_source: v.video_url,
+            isDemo: true,
+            provider_metadata: {
+              name: v.cleaner_name,
+              rating: 4.5,
+              base_price: basePrice,
+              package_id: v.package_type ? v.id : undefined,
+              package_type: v.package_type ?? undefined,
+              base_price_cents: v.base_price_cents ?? undefined,
+              estimated_hours: v.estimated_hours ?? undefined,
+            },
+            interaction_state: { is_liked: false, is_viewed: false },
+          };
+        });
+        const uiMap: Record<string, ProviderUI> = {};
+        sampleVideos.forEach((v) => {
+          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+          const estDuration =
+            v.package_type === 'hourly' && v.estimated_hours != null
+              ? `Est. ${v.estimated_hours} hrs`
+              : v.package_type === 'fixed' && v.estimated_hours != null
+                ? `~${v.estimated_hours} hrs`
+                : '2-3 hrs';
+          const key = v.cleaner_id ?? v.id;
+          uiMap[key] = {
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            rating_average: 4.5,
+            hourly_rate: basePrice,
+            verification_status: 'verified',
+            service_title: v.title,
+            description: v.description,
+            estimated_duration: estDuration,
+          };
+        });
+        setFeedData(items, uiMap, { append: false, hasMore: false });
+        setFeedBanner({
+          show: true,
+          type: 'waitlist',
+          title: "We aren't in your area yet",
+          subtitle: "See what's coming to your neighborhood",
+          cta: 'Get early access',
+          action: handleAddToWaitlist,
+        });
+        setIsShowingAreaFallback(true);
+        console.log('📺 Showing demo fallback (always show content)');
       }
       setHasMore(false);
       markActive();
     } catch (error) {
       console.error('❌ Error loading real content:', error);
       if (!append) {
-        setFeedItems([]);
+        // Never show empty: fallback to demo
+        const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
+        const items: FeedItem[] = sampleVideos.map((v) => {
+          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+          const providerId = v.cleaner_id ?? v.id;
+          return {
+            post_id: v.id,
+            provider_id: providerId,
+            video_source: v.video_url,
+            isDemo: true,
+            provider_metadata: {
+              name: v.cleaner_name,
+              rating: 4.5,
+              base_price: basePrice,
+              package_id: v.package_type ? v.id : undefined,
+              package_type: v.package_type ?? undefined,
+              base_price_cents: v.base_price_cents ?? undefined,
+              estimated_hours: v.estimated_hours ?? undefined,
+            },
+            interaction_state: { is_liked: false, is_viewed: false },
+          };
+        });
+        const uiMap: Record<string, ProviderUI> = {};
+        sampleVideos.forEach((v) => {
+          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+          const estDuration =
+            v.package_type === 'hourly' && v.estimated_hours != null
+              ? `Est. ${v.estimated_hours} hrs`
+              : v.package_type === 'fixed' && v.estimated_hours != null
+                ? `~${v.estimated_hours} hrs`
+                : '2-3 hrs';
+          const key = v.cleaner_id ?? v.id;
+          uiMap[key] = {
+            name: v.cleaner_name,
+            avatar_url: v.cleaner_avatar,
+            rating_average: 4.5,
+            hourly_rate: basePrice,
+            verification_status: 'verified',
+            service_title: v.title,
+            description: v.description,
+            estimated_duration: estDuration,
+          };
+        });
+        setFeedData(items, uiMap, { append: false, hasMore: false });
+        setFeedBanner({
+          show: true,
+          type: 'waitlist',
+          title: "We aren't in your area yet",
+          subtitle: "See what's coming to your neighborhood",
+          cta: 'Get early access',
+          action: handleAddToWaitlist,
+        });
+        setIsShowingAreaFallback(true);
       }
       markActive();
     }
@@ -1206,12 +1406,51 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   const onViewableItemsChanged = ({ viewableItems }: any) => {
     if (viewableItems.length > 0) {
       const newIndex = viewableItems[0].index;
-      
+      const item = viewableItems[0].item as FeedItem | undefined;
+
+      // Guest mode: track viewed videos and show soft prompts at 3 and 5 views
+      // Run even when newIndex === currentIndex to count first view on feed load
+      if (isGuestMode && item?.post_id) {
+        const trackAndMaybeShowPrompt = async () => {
+          let session = await appendViewedVideo(item.post_id);
+          if (!session) {
+            await createGuestSession();
+            session = await appendViewedVideo(item.post_id);
+          }
+          if (!session) return;
+          const count = session.viewedVideos.length;
+          if (count >= 3 && !guestPrompt3ShownRef.current) {
+            guestPrompt3ShownRef.current = true;
+            try {
+              if (typeof (global as any).__analytics?.track === 'function') {
+                (global as any).__analytics.track('guest_prompt_shown', { trigger: 3, promptType: 'save_favorites' });
+              }
+            } catch {
+              // no-op
+            }
+            setGuestPromptType('save_favorites');
+            setGuestPromptVisible(true);
+          } else if (count >= 5 && !guestPrompt5ShownRef.current) {
+            guestPrompt5ShownRef.current = true;
+            try {
+              if (typeof (global as any).__analytics?.track === 'function') {
+                (global as any).__analytics.track('guest_prompt_shown', { trigger: 5, promptType: 'signup_to_book' });
+              }
+            } catch {
+              // no-op
+            }
+            setGuestPromptType('signup_to_book');
+            setGuestPromptVisible(true);
+          }
+        };
+        trackAndMaybeShowPrompt();
+      }
+
       // Only reset if actually changing to a different video
       if (newIndex !== currentIndex) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         onViewableIndexChange(newIndex);
-        
+
         // Auto-hide description when switching videos
         if (showDescriptionCard) {
           setShowDescriptionCard(false);
@@ -1221,11 +1460,11 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             useNativeDriver: true,
           }).start();
         }
-        
-      // Auto-resume playing when switching to a new video
+
+        // Auto-resume playing when switching to a new video
         if (isScreenFocused && feedState === 'ACTIVE') {
-        setIsUserPaused(false);
-        setIsPlaying(true);
+          setIsUserPaused(false);
+          setIsPlaying(true);
         }
       }
     }
@@ -1380,7 +1619,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
 
 
   const renderVideoItem = ({ item, index }: { item: FeedItem; index: number }) => {
-    const providerUi = providerUiMap[item.provider_id];
+    const providerUi = providerUiMap[item.post_id ?? ''] ?? providerUiMap[item.provider_id];
     const isMetadataReady = Boolean(providerUi);
     const isWithinWindow = Math.abs(index - currentIndex) <= 2;
     const shouldMountPlayer = Math.abs(index - currentIndex) <= 1 && feedState === 'ACTIVE';
@@ -1487,28 +1726,45 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             },
           ]}
         >
-          {/* Top Section - Creator pill + distance */}
-          <View style={styles.creatorRow}>
-            <CreatorFollowPill
-              avatarUrl={providerUi?.avatar_url || undefined}
-              username={providerUi?.username || `@${item.provider_metadata.name.toLowerCase().replace(/\s+/g, '')}`}
-              serviceTitle={providerUi?.service_title || 'Cleaning Service'}
-              verified={providerUi?.verification_status === 'verified'}
-              isFollowing={followedProviders.has(item.provider_id)}
-              onPressProfile={() => item.provider_id && navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
-              onToggleFollow={() => item.provider_id && handleFollow(item.provider_id)}
-              height={layout.creatorPill.height}
-              maxWidth={layout.creatorPill.maxWidth}
+          {/* Pro Profile Section - below header, above video */}
+          <TouchableOpacity
+            style={styles.proProfileRow}
+            onPress={() => item.provider_id && navigation.navigate('CleanerProfile', { cleanerId: item.provider_id })}
+            activeOpacity={0.9}
+          >
+            <Image
+              source={{
+                uri: providerUi?.avatar_url ||
+                  `https://ui-avatars.com/api/?name=${encodeURIComponent(item.provider_metadata.name || 'Pro')}&background=26B7C9&color=fff&size=96`,
+              }}
+              style={styles.proProfileAvatar}
             />
-            {item.provider_metadata.distance_miles != null && item.provider_metadata.distance_miles > 0 && (
-              <View style={styles.distancePill}>
-                <Ionicons name="location" size={12} color="#FFFFFF" />
-                <Text style={styles.distancePillText}>
-                  {item.provider_metadata.distance_miles.toFixed(1)} mi
+            <View style={styles.proProfileCenter}>
+              <View style={styles.proProfileNameRow}>
+                <Text style={styles.proProfileName} numberOfLines={1}>
+                  {item.provider_metadata.name || 'ChoreHero'}
                 </Text>
+                {providerUi?.verification_status === 'verified' && (
+                  <Ionicons name="checkmark-circle" size={18} color="#26B7C9" style={styles.proProfileCheck} />
+                )}
               </View>
-            )}
-          </View>
+              <Text style={styles.proProfileHandle} numberOfLines={1}>
+                @{providerUi?.username || item.provider_metadata.name?.toLowerCase().replace(/\s+/g, '') || 'pro'}
+              </Text>
+            </View>
+            <View style={styles.proProfileRight}>
+              {(item.provider_metadata.rating != null || providerUi?.rating_average != null) && (
+                <Text style={styles.proProfileRating}>
+                  {(item.provider_metadata.rating ?? providerUi?.rating_average ?? 0).toFixed(1)} ★
+                </Text>
+              )}
+              {item.isDemo ? (
+                <View style={styles.proProfileSampleBadge}>
+                  <Text style={styles.proProfileSampleText}>Sample</Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
 
           {/* Middle Section - Action Bubbles Integrated */}
           <Animated.View
@@ -1549,35 +1805,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         </View>
 
             <View style={styles.actionButtonContainer}>
-                    <TouchableOpacity 
-                style={styles.tikTokActionButton}
-                onPress={() => handleViewRatings(item.provider_id)}
-              >
-                <View style={styles.tikTokIconShadow}>
-                  <Ionicons name="star" size={32} color="#FFD700" />
-                </View>
-                <Text style={styles.tikTokActionLabel}>
-                  {item.provider_metadata.rating ? item.provider_metadata.rating.toFixed(1) : 'New'}
-                  {item.provider_metadata.total_jobs != null && item.provider_metadata.total_jobs > 0
-                    ? ` • ${item.provider_metadata.total_jobs} jobs`
-                    : ''}
-                </Text>
-                    </TouchableOpacity>
-                </View>
-                
-            <View style={styles.actionButtonContainer}>
-              <TouchableOpacity
-                style={styles.tikTokActionButton}
-                onPress={() => handleComment(item.provider_id)}
-              >
-                <View style={styles.tikTokIconShadow}>
-                  <Ionicons name="chatbubble-ellipses" size={30} color="#FFFFFF" />
-                </View>
-                <Text style={styles.tikTokActionLabel}>Comment</Text>
-              </TouchableOpacity>
-            </View>
-                
-            <View style={styles.actionButtonContainer}>
               <TouchableOpacity
                 style={styles.tikTokActionButton}
                 onPress={() => handleSave(item.provider_id)}
@@ -1586,7 +1813,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                 <Ionicons
                     name={savedProviders.has(item.provider_id) ? "bookmark" : "bookmark-outline"}
                     size={30}
-                    color={savedProviders.has(item.provider_id) ? "#3AD3DB" : "#FFFFFF"}
+                    color={savedProviders.has(item.provider_id) ? "#26B7C9" : "#FFFFFF"}
                   />
                 </View>
                 <Text style={styles.tikTokActionLabel}>Save</Text>
@@ -1629,7 +1856,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                     {providerUi?.service_title || 'Cleaning Service'}
                 </Text>
                   <View style={styles.durationBadge}>
-                    <Ionicons name="time-outline" size={14} color="#3AD3DB" />
+                    <Ionicons name="time-outline" size={14} color="#26B7C9" />
                     <Text style={styles.durationBadgeText}>
                       {providerUi?.estimated_duration || '2-3 hrs'}
                     </Text>
@@ -1648,51 +1875,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
                 </TouchableOpacity>
             </Animated.View>
 
-            {/* Inline Booking CTA */}
-            <View style={styles.inlineBookingContainer}>
-              <View>
-                <Text style={styles.inlineBookingPrice}>
-                  {item.provider_metadata.base_price
-                    ? item.provider_metadata.package_type === 'fixed'
-                      ? `$${item.provider_metadata.base_price}`
-                      : item.provider_metadata.estimated_hours != null
-                        ? `$${item.provider_metadata.base_price}/hr • Est. ${item.provider_metadata.estimated_hours} hrs`
-                        : `$${item.provider_metadata.base_price}/hr`
-                    : 'Message for quote'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.inlineBookButton, !item.provider_metadata.base_price && styles.inlineBookButtonSecondary]}
-                onPress={() => {
-                  if (!user?.id) {
-                    requireAuth('BOOK', item.provider_id);
-                    return;
-                  }
-                  if (!item.provider_metadata.base_price) {
-                    navigation.navigate('IndividualChat' as any, {
-                      cleanerId: item.provider_id,
-                      bookingId: 'general',
-                    });
-                    return;
-                  }
-                  handleBooking(item.provider_id);
-                  // Package-based flow: go directly to BookingSummary (skip deprecated service-selector sheet)
-                  navigation.navigate('BookingSummary' as any, {
-                    cleanerId: item.provider_id,
-                    cleanerName: item.provider_metadata.name,
-                    hourlyRate: item.provider_metadata.base_price ?? 0,
-                    packageId: item.provider_metadata.package_id ?? undefined,
-                    packageType: item.provider_metadata.package_type ?? undefined,
-                    packageBasePriceCents: item.provider_metadata.base_price_cents ?? undefined,
-                    estimatedHours: item.provider_metadata.estimated_hours ?? undefined,
-                  });
-                }}
-              >
-                <Text style={styles.inlineBookButtonText}>
-                  {item.provider_metadata.base_price ? 'Book Now' : 'Message'}
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
 
         </View>
@@ -1769,81 +1951,175 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         </>
       )}
 
-      {globalView && filteredVideos.length > 0 && (
-        <View style={[styles.globalBanner, { top: insets.top + 12 }]}>
-          <Text style={styles.globalBannerText}>
-            {`We haven't launched in ${guestCity ? `${guestCity}${guestState ? `, ${guestState}` : ''}` : 'your area'} yet. Browse our top pros from other areas!`}
-          </Text>
+      {/* Minimal header - 60px: [Location] City [Search] [Menu] */}
+      {source === 'main' && filteredVideos.length > 0 && (
+        <View style={[styles.minimalHeader, { top: insets.top }]}>
+          <View style={styles.minimalHeaderLeft}>
+            <Ionicons name="location" size={18} color="#FFFFFF" style={styles.minimalHeaderIcon} />
+            <Text style={styles.minimalHeaderCity} numberOfLines={1} ellipsizeMode="tail">
+              {detectedCity || guestCity || 'Your area'}
+            </Text>
+          </View>
+          <View style={styles.minimalHeaderRight}>
+            <TouchableOpacity
+              style={styles.minimalHeaderIconButton}
+              onPress={navigateToDiscover}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="search" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              ref={sortButtonRef}
+              style={styles.minimalHeaderIconButton}
+              onPress={() => {
+                Alert.alert(
+                  'Sort feed',
+                  'Choose how to order cleaners',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Balanced', onPress: () => { setSortPreference('balanced'); loadRealContent(); } },
+                    { text: 'Nearest first', onPress: () => { setSortPreference('proximity'); loadRealContent(); } },
+                    { text: 'Most popular', onPress: () => { setSortPreference('engagement'); loadRealContent(); } },
+                    { text: 'Lowest price', onPress: () => { setSortPreference('price'); loadRealContent(); } },
+                  ]
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="menu" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
+
+      {/* Bottom CTA bar - Book Now $[Price] (never Notify) */}
+      {filteredVideos.length > 0 && (() => {
+        const item = filteredVideos[currentIndex];
+        if (!item) return null;
+        const price = item.provider_metadata.base_price;
+        const ctaLabel = price ? `Book Now $${price}` : 'Request Quote';
+        return (
+          <TouchableOpacity
+            style={[styles.bottomCtaBar, { bottom: 90 + Math.max(insets.bottom, 26) + 20 }]}
+            onPress={() => {
+              if (isGuestMode) {
+                setGuestPromptType('booking_attempt');
+                setGuestPromptVisible(true);
+                return;
+              }
+              if (item.isDemo) {
+                handleAddToWaitlist();
+                return;
+              }
+              if (!user?.id) {
+                requireAuth('BOOK', item.provider_id);
+                return;
+              }
+              if (!item.provider_metadata.base_price) {
+                navigation.navigate('IndividualChat' as any, { cleanerId: item.provider_id, bookingId: 'general' });
+                return;
+              }
+              handleBooking(item.provider_id);
+              const resolvedServiceId =
+                (item as any).provider_metadata?.service_id ||
+                (item as any).metadata?.service_id ||
+                undefined;
+
+              (async () => {
+                if (resolvedServiceId) {
+                  const { data: proRow } = await supabase
+                    .from('pro_services')
+                    .select('id')
+                    .eq('pro_id', item.provider_id)
+                    .eq('service_id', resolvedServiceId)
+                    .eq('is_active', true)
+                    .maybeSingle();
+                  if (!proRow) {
+                    Alert.alert(
+                      'Not bookable yet',
+                      "This pro isn't taking bookings for this service yet. You can request a quote instead.",
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Request Quote',
+                          onPress: () =>
+                            navigation.navigate('IndividualChat' as any, {
+                              cleanerId: item.provider_id,
+                              bookingId: 'quote_request',
+                            }),
+                        },
+                      ]
+                    );
+                    return;
+                  }
+                }
+
+                navigation.navigate('UnifiedBooking' as any, {
+                  serviceId: resolvedServiceId,
+                  proId: item.provider_id,
+                  cleanerId: item.provider_id,
+                  cleanerName: item.provider_metadata.name,
+                  hourlyRate: item.provider_metadata.base_price ?? 0,
+                  packageId: item.provider_metadata.package_id,
+                  packageType: item.provider_metadata.package_type,
+                  packageBasePriceCents: item.provider_metadata.base_price_cents,
+                  estimatedHours: item.provider_metadata.estimated_hours,
+                });
+              })();
+            }}
+          >
+            <Ionicons name="cart" size={24} color="#FFFFFF" style={styles.bottomCtaIcon} />
+            <Text style={styles.bottomCtaText}>{ctaLabel}</Text>
+          </TouchableOpacity>
+        );
+      })()}
+
       
       {filteredVideos.length === 0 ? (
         <View style={styles.emptyStateContainer}>
-          <LinearGradient
-            colors={['#0891b2', '#06b6d4']}
-            style={styles.emptyStateGradient}
+          <View style={styles.emptyStateIconContainer}>
+            <Ionicons name="videocam-outline" size={28} color="#26B7C9" />
+          </View>
+          <Text style={styles.emptyStateTitle}>No videos yet</Text>
+          <Text style={styles.emptyStateSubtitle}>
+            Cleaners in your area will share their work here soon.
+          </Text>
+          <TouchableOpacity
+            style={styles.exploreButton}
+            onPress={() => loadRealContent()}
+            activeOpacity={0.85}
           >
-            <View style={styles.emptyStateIconContainer}>
-              <LinearGradient colors={['#F59E0B', '#F59E0B']} style={styles.emptyStateIconGradient}>
-                <Ionicons name="videocam-outline" size={64} color="#ffffff" />
-              </LinearGradient>
-            </View>
-            <Text style={styles.emptyStateTitle}>Meet our Top Heroes nationwide!</Text>
-            <Text style={styles.emptyStateSubtitle}>
-              Cleaners in your area will share their work here. Check back soon for amazing transformations!
-            </Text>
-            {true && (
-               <View style={styles.emptyStateFeatures}>
-                 <View style={styles.featureItem}>
-                   <Ionicons name="location" size={20} color="#ffffff" />
-                   <Text style={styles.featureText}>Local cleaners near you</Text>
-                 </View>
-                 <View style={styles.featureItem}>
-                   <Ionicons name="play" size={20} color="#ffffff" />
-                   <Text style={styles.featureText}>Real work showcase</Text>
-                 </View>
-                 <View style={styles.featureItem}>
-                   <Ionicons name="heart" size={20} color="#ffffff" />
-                   <Text style={styles.featureText}>Book directly from videos</Text>
-                 </View>
-               </View>
-             )}
-            <TouchableOpacity 
-              style={styles.exploreButton}
-              onPress={() => {
-                enterGlobalView();
-                loadRealContent();
-              }}
-            >
-              <Text style={styles.exploreButtonText}>Explore Cleaners</Text>
-              <Ionicons name="arrow-forward" size={20} color="#0891b2" />
-            </TouchableOpacity>
-          </LinearGradient>
+            <Ionicons name="refresh" size={16} color="#FFFFFF" />
+            <Text style={styles.exploreButtonText}>Refresh feed</Text>
+          </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
-          ref={flatListRef}
-          data={filteredVideos}
-          renderItem={renderVideoItem}
-          keyExtractor={(item, index) => item.post_id || `${item.provider_id}-${index}`}
-          pagingEnabled
-          showsVerticalScrollIndicator={false}
-          snapToInterval={height}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          scrollEnabled={feedState !== 'INTERACTED'}
-          initialScrollIndex={filteredVideos.length > 0 ? Math.min(initialIndex, filteredVideos.length - 1) : 0}
-          onScrollToIndexFailed={() => {}}
-          getItemLayout={(data, index) => ({
-            length: height,
-            offset: height * index,
-            index,
-          })}
-        />
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={filteredVideos}
+            renderItem={renderVideoItem}
+            keyExtractor={(item, index) => item.post_id || `${item.provider_id}-${index}`}
+            ListHeaderComponent={null}
+            pagingEnabled
+            showsVerticalScrollIndicator={false}
+            snapToInterval={height}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            scrollEnabled={feedState !== 'INTERACTED'}
+            initialScrollIndex={filteredVideos.length > 0 ? Math.min(initialIndex, filteredVideos.length - 1) : 0}
+            onScrollToIndexFailed={() => {}}
+            getItemLayout={(data, index) => ({
+              length: height,
+              offset: height * index,
+              index,
+            })}
+          />
+        </View>
       )}
       
       {/* Floating Navigation - Show appropriate navigation based on effective role */}
@@ -1885,7 +2161,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           <View
             style={[
               styles.commentOverlayCard,
-              { marginTop: layout.creatorPill.top + layout.creatorPill.height + 12 },
+              { marginTop: 72 },
             ]}
           >
             <View style={styles.commentOverlayHeader}>
@@ -1917,6 +2193,15 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           navigation.navigate('AuthScreen');
         }}
       />
+      <GuestPromptModal
+        visible={guestPromptVisible}
+        type={guestPromptType}
+        onSignUp={() => {
+          setGuestPromptVisible(false);
+          (navigation as any).navigate('Welcome');
+        }}
+        onDismiss={() => setGuestPromptVisible(false)}
+      />
       </View>
   );
 };
@@ -1940,7 +2225,7 @@ const styles = StyleSheet.create({
   sourceBackButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
   },
   sourceBackBlur: {
@@ -1948,20 +2233,20 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
   },
   sourceTitleContainer: {
     position: 'absolute',
     top: hp('6%'),
     right: wp('4%'),
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     zIndex: 99,
   },
   sourceTitleBlur: {
     paddingHorizontal: wp('3.5%'),
     paddingVertical: hp('0.7%'),
-    borderRadius: 16,
+    borderRadius: wp('4%'),
   },
   sourceTitleText: {
     color: '#FFFFFF',
@@ -2015,7 +2300,7 @@ const styles = StyleSheet.create({
   },
   pauseIndicator: {
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
     width: wp('15%'),
     height: wp('15%'),
     justifyContent: 'center',
@@ -2084,7 +2369,7 @@ const styles = StyleSheet.create({
   playPauseButton: {
     width: wp('20%'),
     height: wp('20%'),
-    borderRadius: 40,
+    borderRadius: wp('10%'),
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2106,12 +2391,12 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   topSearchButton: {
-    marginTop: 20,
+    marginTop: hp('2.5%'),
   },
   topSearchButtonCircle: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -2134,12 +2419,12 @@ const styles = StyleSheet.create({
   },
   socialButton: {
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   socialButtonCircle: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: wp('6%'),
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent', // Remove circular background
@@ -2164,7 +2449,7 @@ const styles = StyleSheet.create({
     zIndex: 35, // Increased to be higher than headerControls (zIndex: 30)
     paddingVertical: hp('1.2%'),
     paddingHorizontal: wp('3%'),
-    borderRadius: 28,
+    borderRadius: wp('7%'),
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // Clean white background
     minWidth: wp('55%'),
     shadowColor: '#000',
@@ -2178,10 +2463,10 @@ const styles = StyleSheet.create({
   cleanerProfileAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     marginRight: 10,
     borderWidth: 2,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
   },
   cleanerProfileInfo: {
     flex: 1,
@@ -2207,6 +2492,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: wp('10%'),
+    backgroundColor: '#FFFFFF',
   },
   emptyStateGradient: {
     flex: 1,
@@ -2215,55 +2502,185 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: wp('10%'),
   },
-  globalBanner: {
+  minimalHeader: {
     position: 'absolute',
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('1%'),
-    borderRadius: 16,
-    zIndex: 30,
+    left: 0,
+    right: 0,
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 40,
+    zIndex: 50,
   },
-  globalBannerText: {
+  minimalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  minimalHeaderIcon: {
+    flexShrink: 0,
+  },
+  minimalHeaderCity: {
     color: '#FFFFFF',
-    fontSize: wp('3%'),
+    fontSize: 16,
     fontWeight: '600',
-    textAlign: 'center',
+    flexShrink: 1,
+  },
+  minimalHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 0,
+    marginLeft: 16,
+  },
+  minimalHeaderIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomCtaBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#26B7C9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    zIndex: 100,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+  bottomCtaIcon: {
+    marginRight: 12,
+  },
+  bottomCtaText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  proProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 64,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 72,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  proProfileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  proProfileCenter: {
+    flex: 1,
+    marginLeft: 12,
+    minWidth: 0,
+  },
+  proProfileNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  proProfileName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  proProfileCheck: { flexShrink: 0 },
+  proProfileHandle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    marginTop: 2,
+  },
+  proProfileRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  proProfileRating: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  proProfileSampleBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  proProfileSampleText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  infoPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  infoPill: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  infoPillText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
   },
   emptyStateIconContainer: {
-    marginBottom: hp('4%'),
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#E6FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
   emptyStateIconGradient: {
     width: wp('30%'),
     height: wp('30%'),
-    borderRadius: 60,
+    borderRadius: wp('15%'),
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#3ad3db',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
   },
   emptyStateTitle: {
-    fontSize: wp('7%'),
-    fontWeight: '800',
-    color: '#ffffff',
-    marginBottom: hp('2%'),
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 6,
     textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    letterSpacing: -0.2,
   },
   emptyStateSubtitle: {
-    fontSize: wp('4%'),
-    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
-    lineHeight: wp('6%'),
-    marginBottom: hp('5%'),
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    lineHeight: 19,
+    marginBottom: 20,
+    maxWidth: 260,
   },
   emptyStateFeatures: {
     alignItems: 'flex-start',
@@ -2286,21 +2703,17 @@ const styles = StyleSheet.create({
   exploreButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: wp('8%'),
-    paddingVertical: hp('2%'),
-    borderRadius: 25,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 999,
+    gap: 6,
     elevation: 8,
   },
   exploreButtonText: {
-    fontSize: wp('4.5%'),
+    fontSize: 14,
     fontWeight: '700',
-    color: '#0891b2',
-    marginRight: 8,
+    color: '#FFFFFF',
   },
 
   // Enhanced service card styles with white glass effect to match nav
@@ -2312,12 +2725,12 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   serviceCard: {
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderWidth: 1.5,
-    borderColor: 'rgba(58, 211, 219, 0.3)',
+    borderColor: 'rgba(38, 183, 201, 0.3)',
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 20,
@@ -2333,12 +2746,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   serviceHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   serviceTitle: {
     color: '#1F2937',
@@ -2353,24 +2766,24 @@ const styles = StyleSheet.create({
   },
   serviceDetails: {
     flexDirection: 'column',
-    gap: 8,
-    marginBottom: 12,
+    gap: wp('2%'),
+    marginBottom: hp('1.5%'),
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   detailText: {
     color: '#6B7280',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
   },
   bookButton: {
-    borderRadius: 12,
-    paddingVertical: 8,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1%'),
     alignItems: 'center',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -2378,15 +2791,15 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   bookButtonGradient: {
-    borderRadius: 12,
-    paddingVertical: 8,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1%'),
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
   },
   bookButtonText: {
     color: 'white',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
 
@@ -2403,15 +2816,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('5%'),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   sortButtonText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     marginLeft: 6,
   },
@@ -2449,7 +2862,7 @@ const styles = StyleSheet.create({
     right: 20,
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: wp('6%'),
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2465,7 +2878,7 @@ const styles = StyleSheet.create({
   searchButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2474,13 +2887,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderRadius: wp('5%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
   },
   demoToggleLabel: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     marginRight: 8,
   },
@@ -2488,15 +2901,15 @@ const styles = StyleSheet.create({
     transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
   },
   debugInfo: {
-    marginTop: 4,
+    marginTop: hp('0.5%'),
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 8,
-    paddingHorizontal: 8,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('2%'),
     paddingVertical: 2,
   },
   debugText: {
     color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '500',
   },
   imageOverlay: {
@@ -2504,13 +2917,13 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
   },
   imageLabel: {
     color: 'white',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   videoErrorOverlay: {
@@ -2525,15 +2938,15 @@ const styles = StyleSheet.create({
   },
   videoErrorText: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: hp('1%'),
     textAlign: 'center',
   },
   videoErrorSubtext: {
     color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: wp('3%'),
+    marginTop: hp('0.5%'),
     textAlign: 'center',
   },
   videoLoadingOverlay: {
@@ -2548,9 +2961,9 @@ const styles = StyleSheet.create({
   },
   videoLoadingText: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: hp('1%'),
     textAlign: 'center',
   },
   
@@ -2573,7 +2986,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   enhancedServiceCard: {
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
     overflow: 'hidden',
@@ -2591,7 +3004,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   enhancedServiceInfo: {
     flex: 1,
@@ -2600,7 +3013,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
     letterSpacing: -0.1,
   },
   enhancedQuickStats: {
@@ -2615,28 +3028,28 @@ const styles = StyleSheet.create({
     width: 1,
     height: 12,
     backgroundColor: 'rgba(107, 114, 128, 0.3)',
-    marginHorizontal: 8,
+    marginHorizontal: wp('2%'),
   },
   enhancedStatText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#374151',
     marginLeft: 3,
   },
   enhancedPriceText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   enhancedCardActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   enhancedSaveButton: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: 'rgba(107, 114, 128, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2644,19 +3057,19 @@ const styles = StyleSheet.create({
   enhancedCloseButton: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: 'rgba(107, 114, 128, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   enhancedActionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: wp('2.5%'),
   },
   enhancedActionButton: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.2%'),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2672,7 +3085,7 @@ const styles = StyleSheet.create({
   },
   enhancedBookButton: {
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 6,
@@ -2682,8 +3095,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
   },
   enhancedBookButtonText: {
     color: '#FFFFFF',
@@ -2702,8 +3115,8 @@ const styles = StyleSheet.create({
     zIndex: 15,
     maxWidth: width * 0.65,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
     borderRadius: 25,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
@@ -2715,7 +3128,7 @@ const styles = StyleSheet.create({
   enhancedCleanerAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.9)',
   },
@@ -2725,8 +3138,8 @@ const styles = StyleSheet.create({
     right: -2,
     width: 16,
     height: 16,
-    borderRadius: 8,
-    backgroundColor: '#3ad3db',
+    borderRadius: wp('2%'),
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -2742,7 +3155,7 @@ const styles = StyleSheet.create({
   },
   enhancedCleanerUsername: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
@@ -2752,7 +3165,7 @@ const styles = StyleSheet.create({
   enhancedOnlineIndicator: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     backgroundColor: '#10B981',
     borderWidth: 1,
     borderColor: '#FFFFFF',
@@ -2780,18 +3193,18 @@ const styles = StyleSheet.create({
   },
   loadingShimmer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    borderRadius: 16,
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('2%'),
+    borderRadius: wp('4%'),
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   enhancedLoadingText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
-    marginTop: 12,
+    marginTop: hp('1.5%'),
     textAlign: 'center',
   },
   
@@ -2802,12 +3215,12 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 12,
   },
   progressBarContainer: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   progressBar: {
     height: 4,
@@ -2816,7 +3229,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 2,
   },
   progressThumb: {
@@ -2824,8 +3237,8 @@ const styles = StyleSheet.create({
     top: -6,
     width: 16,
     height: 16,
-    backgroundColor: '#3ad3db',
-    borderRadius: 8,
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('2%'),
     borderWidth: 2,
     borderColor: '#FFFFFF',
     marginLeft: -8,
@@ -2835,7 +3248,7 @@ const styles = StyleSheet.create({
   },
   timeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   
@@ -2845,9 +3258,9 @@ const styles = StyleSheet.create({
     top: 20,
     right: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
@@ -2861,21 +3274,36 @@ const styles = StyleSheet.create({
   creatorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: wp('2.5%'),
     alignSelf: 'flex-start',
+  },
+  creatorRowWithBadge: {
+    width: '100%',
+    justifyContent: 'space-between',
+  },
+  sampleBadge: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: wp('2%'),
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  sampleBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
   },
   distancePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
     backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 18,
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4.5%'),
   },
   distancePillText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   unifiedFeedOverlay: {
@@ -2887,7 +3315,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: DESIGN_TOKENS.spacing.lg + 44, // StatusBar + margin = 60px
     paddingBottom: 110 + 9, // FloatingNav (110px) + 9px desired gap
-    paddingHorizontal: 20, // 20px sides - EXACT match with FloatingNavigation
+    paddingHorizontal: wp('5%'), // 20px sides - EXACT match with FloatingNavigation
     zIndex: 10, // Higher than videoTapOverlay (5)
   },
   skeletonOverlay: {
@@ -2920,7 +3348,7 @@ const styles = StyleSheet.create({
   skeletonBooking: {
     width: '85%',
     height: 64,
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
     backgroundColor: 'rgba(255,255,255,0.2)',
   },
   inlineBookingContainer: {
@@ -2969,7 +3397,7 @@ const styles = StyleSheet.create({
   commentOverlayCard: {
     marginHorizontal: wp('5%'),
     padding: wp('3.5%'),
-    borderRadius: 18,
+    borderRadius: wp('4.5%'),
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
@@ -2978,7 +3406,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   commentOverlayTitle: {
     color: '#FFFFFF',
@@ -2987,18 +3415,18 @@ const styles = StyleSheet.create({
   },
   commentOverlaySubtitle: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '500',
   },
   commentOverlayHint: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
+    gap: wp('1.5%'),
+    marginTop: hp('1%'),
   },
   commentOverlayHintText: {
     color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
 
@@ -3070,9 +3498,9 @@ const styles = StyleSheet.create({
   },
   modernFollowButton: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 18,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4.5%'),
     height: 36,
     minWidth: 84,
     alignItems: 'center',
@@ -3102,7 +3530,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     // Position is provided dynamically via getVideoFeedLayout(device)
     alignItems: 'center',
-    gap: 4, // Tight spacing like TikTok
+    gap: wp('1%'), // Tight spacing like TikTok
     zIndex: 15, // Higher than unifiedFeedOverlay (10) and videoTapOverlay (5)
     paddingVertical: DESIGN_TOKENS.spacing.md,
     paddingHorizontal: 0,
@@ -3113,7 +3541,7 @@ const styles = StyleSheet.create({
     width: 40, // Will be overridden by device-specific sizing
     height: 40, // Will be overridden by device-specific sizing
     backgroundColor: 'rgba(255, 255, 255, 0.95)', // More opaque
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     ...DESIGN_TOKENS.shadow.lg, // Match booking/nav shadow strength
     borderWidth: 2, // Match booking/nav border thickness
     borderColor: DESIGN_TOKENS.colors.brandLight, // Match booking/nav border color
@@ -3122,7 +3550,7 @@ const styles = StyleSheet.create({
   tikTokActionButton: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: hp('1%'),
     minWidth: 48,
   },
   tikTokIconShadow: {
@@ -3136,10 +3564,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: hp('0.5%'),
     textShadowColor: 'rgba(0, 0, 0, 0.9)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+  },
+  bookActionLabel: {
+    color: '#F59E0B',
   },
   actionButtonContainer: {
     alignItems: 'center',
@@ -3149,7 +3580,7 @@ const styles = StyleSheet.create({
     color: DESIGN_TOKENS.colors.text.primary,
     fontSize: DESIGN_TOKENS.text.base, // 12px
     fontWeight: '700',
-    marginTop: 4, // Reduced spacing to compensate for larger font
+    marginTop: hp('0.5%'), // Reduced spacing to compensate for larger font
     marginBottom: 0, // Minimal space below text
     textAlign: 'center',
     width: 44, // Match updated bubble width
@@ -3157,7 +3588,7 @@ const styles = StyleSheet.create({
 
   // Modern Bottom Section - Fixed Spacing & Dimensions
   modernBottomSection: {
-    gap: 12, // Increased gap to match bottom spacing
+    gap: wp('3%'), // Increased gap to match bottom spacing
     // Remove margin extension to match nav tab exactly
   },
   modernServiceInfo: {
@@ -3291,7 +3722,7 @@ const styles = StyleSheet.create({
   },
   modernBookButtonTextFixed: {
     color: '#FFFFFF', // Explicit white color
-    fontSize: 16, // Explicit font size
+    fontSize: wp('4%'), // Explicit font size
     fontWeight: '700',
     letterSpacing: 0.3,
     textAlign: 'center',
@@ -3328,16 +3759,16 @@ const styles = StyleSheet.create({
   // Slideable Description Card Styles - Refined visual treatment
   slideableDescriptionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    borderRadius: wp('6%'),
     padding: 16,
-    paddingBottom: 12,
+    paddingBottom: hp('1.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -6 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 10,
     borderWidth: 1.5,
-    borderColor: 'rgba(58, 211, 219, 0.25)',
+    borderColor: 'rgba(38, 183, 201, 0.25)',
     minHeight: 110,
     maxHeight: 180,
     marginHorizontal: 0, // Match booking bubble alignment
@@ -3355,7 +3786,7 @@ const styles = StyleSheet.create({
   handleBar: {
     width: 48,
     height: 5,
-    backgroundColor: 'rgba(58, 211, 219, 0.35)',
+    backgroundColor: 'rgba(38, 183, 201, 0.35)',
     borderRadius: 3,
   },
   descriptionHeader: {
@@ -3375,20 +3806,20 @@ const styles = StyleSheet.create({
   durationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(58, 211, 219, 0.12)',
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(38, 183, 201, 0.12)',
+    paddingHorizontal: wp('2.5%'),
     paddingVertical: 5,
-    borderRadius: 12,
-    gap: 4,
+    borderRadius: wp('3%'),
+    gap: wp('1%'),
   },
   durationBadgeText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#3AD3DB',
+    color: '#26B7C9',
   },
   descriptionDivider: {
     height: 1,
-    backgroundColor: 'rgba(58, 211, 219, 0.22)',
+    backgroundColor: 'rgba(38, 183, 201, 0.22)',
     marginBottom: DESIGN_TOKENS.spacing.xs,
   },
   descriptionText: {
@@ -3462,7 +3893,7 @@ const styles = StyleSheet.create({
   descriptionToggleButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3475,24 +3906,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   ratingText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1F2937',
     marginLeft: 4,
   },
   reviewCountText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginLeft: 2,
   },
   durationText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#6B7280',
     marginLeft: 4,
   },
   modernBookButton: {
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     overflow: 'hidden',
     shadowColor: 'rgba(245, 158, 11, 0.6)',
     shadowOffset: { width: 0, height: 2 },
@@ -3506,12 +3937,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('5%'),
   },
   modernBookButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     marginLeft: 8,
     letterSpacing: 0.5,
@@ -3522,21 +3953,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    marginBottom: 16,
-    paddingVertical: 8,
+    marginBottom: hp('2%'),
+    paddingVertical: hp('1%'),
     backgroundColor: 'rgba(107, 114, 128, 0.05)',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
   },
   socialButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: hp('0.7%'),
+    paddingHorizontal: wp('3%'),
+    borderRadius: wp('2%'),
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   socialButtonText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#6B7280',
     marginLeft: 4,
@@ -3548,12 +3979,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    gap: wp('2%'),
   },
   descriptionToggleButtonConnected: {
     width: 40, // match smaller social buttons
     height: 40, // match smaller social buttons
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: DESIGN_TOKENS.colors.whiteAlpha95,
     alignItems: 'center',
     justifyContent: 'center',

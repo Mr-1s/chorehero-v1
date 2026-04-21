@@ -32,6 +32,7 @@ import { jobService, type JobServiceResponse, type Job } from '../../services/jo
 import NetworkStatusIndicator from '../../components/NetworkStatusIndicator';
 import { supabase } from '../../services/supabase';
 import { cleanerBookingService } from '../../services/cleanerBookingService';
+import { wp, hp } from '../../utils/responsive';
 
 const { width } = Dimensions.get('window');
 
@@ -43,7 +44,7 @@ type StackParamList = {
   ScheduleScreen: undefined;
   ActiveJob: { jobId: string };
   ChatScreen: { bookingId: string; otherParticipant: any };
-  NewBookingFlow: { serviceId?: string; serviceName?: string; basePrice?: number; duration?: number };
+  UnifiedBooking: { serviceId?: string; serviceName?: string; basePrice?: number; duration?: number };
   Profile: undefined;
   Content: undefined;
   CleanerProfileEdit: undefined;
@@ -109,6 +110,32 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     loadNotificationCount();
     startNotificationAnimation();
   }, [useDemoData]);
+
+  // Realtime: when customer cancels, refresh dashboard so job disappears
+  useEffect(() => {
+    const proId = user?.id;
+    if (!proId || proId.startsWith('demo_')) return;
+    const channel = supabase
+      .channel('dashboard-bookings-cancelled')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `cleaner_id=eq.${proId}`,
+        },
+        (payload) => {
+          if (payload.new?.status === 'cancelled') {
+            loadDashboardData();
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   // Start notification pulse animation
   const startNotificationAnimation = () => {
@@ -879,7 +906,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <ScrollView contentContainerStyle={{ padding: 16 }}>
-          <View style={{ gap: 16 }}>
+          <View style={{ gap: wp('4%') }}>
             <SkeletonBlock height={64} />
             <SkeletonBlock height={120} />
             <SkeletonList rows={3} />
@@ -970,7 +997,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
             <View style={styles.profileContainer}>
               <TouchableOpacity style={styles.profileButton}>
                 <Image 
-                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=3ad3db&color=fff&size=120&font-size=0.4&format=png` }} 
+                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=26B7C9&color=fff&size=120&font-size=0.4&format=png` }} 
                   style={styles.profileImage} 
                 />
                 <View style={styles.profileBadge}>
@@ -1073,16 +1100,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   header: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('1.5%'),
+    paddingBottom: hp('1.4%'),
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#F1F5F9',
   },
   headerContent: {
     flexDirection: 'row',
@@ -1090,19 +1118,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   greeting: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   userName: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   profileButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     overflow: 'hidden',
   },
   profileImage: {
@@ -1114,32 +1142,29 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 120, // Extra space for floating nav
-    paddingTop: 8,
+    paddingTop: hp('1%'),
   },
   statsContainer: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderRadius: 20,
+    marginHorizontal: wp('5%'),
+    marginTop: hp('1.5%'),
+    marginBottom: hp('2%'),
+    borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.2)',
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   statsGradient: {
-    padding: 24,
+    padding: 18,
   },
   statsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   statsTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: COLORS.primary,
   },
@@ -1151,28 +1176,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: COLORS.text.primary,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
   onlineToggleContainer: {
-    marginHorizontal: 20,
-    marginBottom: 20,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('2%'),
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   onlineToggleContent: {
     flexDirection: 'row',
@@ -1186,59 +1207,54 @@ const styles = StyleSheet.create({
   statusDot: {
     width: 12,
     height: 12,
-    borderRadius: 6,
+    borderRadius: wp('1.5%'),
     marginRight: 12,
   },
   onlineStatusText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   toggleButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('5%'),
   },
   toggleButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
   section: {
-    marginHorizontal: 20,
-    marginBottom: 28,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('3.5%'),
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   viewAllText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#F59E0B',
+    color: '#26B7C9',
   },
   activeJobCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 20,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   activeJobHeader: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   customerAvatar: {
     width: 50,
@@ -1250,44 +1266,44 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customerName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   serviceType: {
-    fontSize: 14,
-    color: '#00BFA6',
+    fontSize: wp('3.5%'),
+    color: '#26B7C9',
     fontWeight: '500',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   jobAddress: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
   },
   activeJobStatus: {
     alignItems: 'flex-end',
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 8,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4%'),
+    marginBottom: hp('1%'),
   },
   statusText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
   jobPayment: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   activeJobActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingTop: 16,
+    paddingTop: hp('2%'),
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
   },
@@ -1295,34 +1311,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,
-    paddingHorizontal: 16,
+    paddingHorizontal: wp('4%'),
     backgroundColor: '#FFFFFF',
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   actionButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#00BFA6',
+    color: '#26B7C9',
     marginLeft: 8,
   },
   jobCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    padding: 14,
+    marginBottom: hp('1%'),
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   jobHeader: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   jobInfo: {
     flex: 1,
@@ -1330,20 +1341,20 @@ const styles = StyleSheet.create({
   jobTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   priorityDot: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     marginLeft: 8,
   },
   jobDetails: {
     flexDirection: 'row',
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   jobDetailText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginRight: 8,
   },
@@ -1353,13 +1364,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   acceptButton: {
-    backgroundColor: '#F59E0B',
-    height: 44,
-    paddingHorizontal: 20,
-    borderRadius: 22,
+    backgroundColor: '#26B7C9',
+    height: 42,
+    paddingHorizontal: wp('5%'),
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   acceptButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -1370,7 +1383,7 @@ const styles = StyleSheet.create({
   acceptButtonLoadingContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   quickActionsContainer: {
     margin: 20,
@@ -1378,28 +1391,23 @@ const styles = StyleSheet.create({
   quickActionsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 16,
+    marginTop: hp('2%'),
   },
   quickActionButton: {
     backgroundColor: '#FFFFFF',
     width: (width - 60) / 4,
     aspectRatio: 1,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   quickActionText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '500',
     color: '#1F2937',
-    marginTop: 8,
+    marginTop: hp('1%'),
     textAlign: 'center',
   },
   // Enhanced Header Styles
@@ -1409,19 +1417,19 @@ const styles = StyleSheet.create({
   headerToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    gap: 8,
+    marginTop: hp('1%'),
+    gap: wp('2%'),
     alignSelf: 'flex-start',
   },
   onlineStatusTextSmall: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     fontWeight: '500',
   },
   toggleButtonSmall: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   toggleButtonTextSmall: {
     fontSize: 11,
@@ -1443,10 +1451,10 @@ const styles = StyleSheet.create({
   },
   // Profile Completion Styles
   profileCompletionCard: {
-    marginHorizontal: 20,
-    marginBottom: 24,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('3%'),
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
     borderLeftWidth: 4,
     borderLeftColor: COLORS.primary,
@@ -1460,20 +1468,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   completionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   completionSubtitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
   },
   progressBarContainer: {
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   progressBar: {
     height: 6,
@@ -1483,39 +1491,39 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#00BFA6',
+    backgroundColor: '#26B7C9',
     borderRadius: 3,
   },
   completionItems: {
-    gap: 8,
-    marginBottom: 16,
+    gap: wp('2%'),
+    marginBottom: hp('2%'),
   },
   completionItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   completionItemText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#374151',
   },
   completeProfileButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: hp('1%'),
   },
   completeProfileButtonText: {
-    fontSize: 14,
-    color: '#00BFA6',
+    fontSize: wp('3.5%'),
+    color: '#26B7C9',
     fontWeight: '600',
   },
   // Goals Tracker Styles
   goalsCard: {
-    marginHorizontal: 20,
-    marginBottom: 24,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('3%'),
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1526,38 +1534,38 @@ const styles = StyleSheet.create({
   goalsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
+    gap: wp('2%'),
+    marginBottom: hp('1.5%'),
   },
   goalsTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
   },
   editGoalButton: {
     padding: 4,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     backgroundColor: `${COLORS.primary}15`,
   },
   goalEditContainer: {
     alignItems: 'center',
   },
   goalEditLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   goalEditInput: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#10B981',
     textAlign: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
     borderWidth: 2,
     borderColor: COLORS.primary,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     backgroundColor: '#FFFFFF',
     minWidth: 80,
   },
@@ -1567,7 +1575,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   goalsAmount: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#10B981',
   },
@@ -1578,28 +1586,28 @@ const styles = StyleSheet.create({
   goalsProgressBar: {
     height: 8,
     backgroundColor: '#F3F4F6',
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     overflow: 'hidden',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   goalsProgressFill: {
     height: '100%',
     backgroundColor: '#F59E0B',
-    borderRadius: 4,
+    borderRadius: wp('1%'),
   },
   goalsProgressText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     textAlign: 'right',
   },
   // Enhanced Stats Styles
   statIcon: {
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   // Profile Completion Enhancement
   completionNote: {
-    marginBottom: 16,
-    paddingTop: 12,
+    marginBottom: hp('2%'),
+    paddingTop: hp('1.5%'),
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
@@ -1614,7 +1622,7 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   notificationButton: {
     position: 'relative',
@@ -1625,7 +1633,7 @@ const styles = StyleSheet.create({
     top: 4,
     right: 4,
     backgroundColor: COLORS.error,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     minWidth: 16,
     height: 16,
     alignItems: 'center',
@@ -1634,7 +1642,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.surface,
   },
   notificationBadgeText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     color: COLORS.text.inverse,
     fontWeight: '700',
   },
@@ -1646,7 +1654,7 @@ const styles = StyleSheet.create({
     bottom: -4,
     right: -4,
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     width: 24,
     height: 24,
     alignItems: 'center',
@@ -1672,10 +1680,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
+    gap: wp('1%'),
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -1683,7 +1691,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   jobStatusText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
     textTransform: 'uppercase',
@@ -1691,43 +1699,43 @@ const styles = StyleSheet.create({
   // Empty Jobs State
   emptyJobsContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: hp('5%'),
+    paddingHorizontal: wp('5%'),
   },
   emptyJobsTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
     textAlign: 'center',
   },
   emptyJobsSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   completeProfileButtonAlt: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
+    gap: wp('2%'),
   },
   completeProfileButtonAltText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.inverse,
     fontWeight: '600',
   },
   // Enhanced Completion Actions
   completionActions: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 4,
+    gap: wp('3%'),
+    marginTop: hp('0.5%'),
   },
 
   uploadContentButton: {
@@ -1737,20 +1745,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderWidth: 2,
     borderColor: COLORS.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    gap: 8,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('3%'),
+    gap: wp('2%'),
     justifyContent: 'center',
   },
   uploadContentButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.primary,
     fontWeight: '600',
   },
   // Empty Jobs Actions
   emptyJobsActions: {
-    gap: 12,
+    gap: wp('3%'),
   },
   testBookingButton: {
     flexDirection: 'row',
@@ -1758,14 +1766,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderWidth: 2,
     borderColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
+    gap: wp('2%'),
     justifyContent: 'center',
   },
   testBookingButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.primary,
     fontWeight: '600',
   },
@@ -1773,7 +1781,7 @@ const styles = StyleSheet.create({
   demoToggleButton: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: wp('4.5%'),
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1785,10 +1793,10 @@ const styles = StyleSheet.create({
   // Dev Toggle Styles
   devToggleContainer: {
     backgroundColor: COLORS.surface,
-    marginHorizontal: 16,
-    marginBottom: 16,
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('2%'),
     padding: 16,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderStyle: 'dashed',
@@ -1796,10 +1804,10 @@ const styles = StyleSheet.create({
   devToggleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   devToggleTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: COLORS.text.secondary,
     marginLeft: 6,
@@ -1808,17 +1816,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   devToggleLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: COLORS.text.primary,
   },
   devToggleButton: {
     width: 48,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: '#e5e7eb',
     padding: 2,
     justifyContent: 'center',
@@ -1829,7 +1837,7 @@ const styles = StyleSheet.create({
   devToggleThumb: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -1841,7 +1849,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   devToggleDescription: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
     lineHeight: 16,
   },
@@ -1860,7 +1868,7 @@ const styles = StyleSheet.create({
   },
   celebrationContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     padding: 32,
     margin: 20,
     alignItems: 'center',
@@ -1871,29 +1879,29 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   celebrationEmoji: {
-    fontSize: 80,
-    marginBottom: 16,
+    fontSize: wp('20%'),
+    marginBottom: hp('2%'),
   },
   celebrationTitle: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '800',
     color: COLORS.text.primary,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     textAlign: 'center',
   },
   celebrationMessage: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: COLORS.text.secondary,
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   celebrationConfetti: {
     flexDirection: 'row',
-    gap: 16,
+    gap: wp('4%'),
   },
   confettiItem: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     opacity: 0.8,
   },
 });

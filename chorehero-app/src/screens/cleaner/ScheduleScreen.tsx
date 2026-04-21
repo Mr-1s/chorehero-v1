@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -18,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { wp, hp } from '../../utils/responsive';
 
 interface ScheduleScreenProps {
   navigation: StackNavigationProp<any>;
@@ -108,21 +110,25 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
           scheduled_time,
           estimated_duration,
           total_amount,
-          address,
-          special_requests,
+          special_instructions,
+          address:addresses!address_id(street, city, state, zip_code),
           customer:users!bookings_customer_id_fkey(id, name, avatar_url)
         `)
         .or(`cleaner_id.eq.${user.id},cleaner_id.is.null`)
-        .in('status', ['pending', 'confirmed', 'cleaner_assigned', 'cleaner_en_route', 'in_progress'])
+        .in('status', ['pending', 'confirmed', 'cleaner_assigned', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
         .order('scheduled_time', { ascending: true });
 
       if (error) throw error;
 
       // Transform to Booking interface
+      const formatAddress = (addr: any) => {
+        if (!addr) return 'Address not provided';
+        return [addr.street, addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ') || 'Address not provided';
+      };
       const transformedBookings: Booking[] = (bookings || []).map((b: any) => ({
         id: b.id,
         customerName: b.customer?.name || 'Customer',
-        address: b.address || 'Address not provided',
+        address: formatAddress(b.address),
         serviceType: formatServiceType(b.service_type),
         time: formatDateTime(b.scheduled_time),
         duration: formatDuration(b.estimated_duration || 120),
@@ -159,6 +165,12 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
   useEffect(() => {
     loadBookings();
   }, [loadBookings]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) loadBookings();
+    }, [user?.id, loadBookings])
+  );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -304,7 +316,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
       <ScrollView 
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3AD3DB" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#26B7C9" />
         }
       >
         {selectedTab === 'bookings' ? (
@@ -331,7 +343,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
               
               {isLoading ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#3AD3DB" />
+                  <ActivityIndicator size="large" color="#26B7C9" />
                   <Text style={styles.loadingText}>Loading schedule...</Text>
                 </View>
               ) : upcomingBookings.length === 0 ? (
@@ -472,8 +484,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -481,20 +493,20 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   settingsButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -502,128 +514,121 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
-    marginHorizontal: 20,
-    marginTop: 20,
-    borderRadius: 16,
+    marginHorizontal: wp('5%'),
+    marginTop: hp('1.5%'),
+    borderRadius: 14,
     padding: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: hp('1.2%'),
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 10,
   },
   activeTab: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: '#E6FAFB',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#718096',
+    color: '#64748B',
   },
   activeTabText: {
-    color: '#ffffff',
+    color: '#0D9488',
+    fontWeight: '700',
   },
   bookingsContainer: {
-    paddingHorizontal: 20,
-    marginTop: 20,
+    paddingHorizontal: wp('5%'),
+    marginTop: hp('2.5%'),
   },
   summaryCard: {
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   summaryGradient: {
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
   },
   summaryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   summaryTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#ffffff',
   },
   summaryStats: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: 'rgba(255, 255, 255, 0.8)',
   },
   bookingsSection: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   bookingCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: hp('1.2%'),
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
   },
   bookingHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   bookingInfo: {
     flex: 1,
   },
   customerName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   serviceType: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
   },
   bookingAmount: {
     alignItems: 'flex-end',
   },
   amountText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#4ECDC4',
-    marginBottom: 4,
+    color: '#0F766E',
+    marginBottom: hp('0.5%'),
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
   },
   statusText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#ffffff',
   },
   bookingDetails: {
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   detailText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#718096',
     marginLeft: 8,
   },
@@ -634,24 +639,24 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 4,
+    marginHorizontal: wp('1%'),
   },
   declineButton: {
     backgroundColor: '#f1f5f9',
   },
   acceptButton: {
-    backgroundColor: '#4ECDC4',
+    backgroundColor: '#26B7C9',
   },
   declineButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#718096',
   },
   acceptButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#ffffff',
   },
@@ -659,25 +664,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: hp('1.5%'),
     backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
   },
   navigateText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#FF6B6B',
+    color: '#E6B200',
     marginLeft: 8,
   },
   availabilityContainer: {
-    paddingHorizontal: 20,
-    marginTop: 20,
+    paddingHorizontal: wp('5%'),
+    marginTop: hp('2.5%'),
   },
   quickToggleCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
-    marginBottom: 24,
+    marginBottom: hp('3%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -685,10 +690,10 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   quickToggleTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   availableToggle: {
     flexDirection: 'row',
@@ -697,23 +702,23 @@ const styles = StyleSheet.create({
   toggleIndicator: {
     width: 8,
     height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4ECDC4',
+    borderRadius: wp('1%'),
+    backgroundColor: '#26B7C9',
     marginRight: 8,
   },
   toggleText: {
-    fontSize: 14,
-    color: '#4ECDC4',
+    fontSize: wp('3.5%'),
+    color: '#26B7C9',
     fontWeight: '600',
   },
   scheduleSection: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   dayCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -724,28 +729,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   dayName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#2d3748',
   },
   availabilityToggle: {
     width: 44,
     height: 24,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     backgroundColor: '#e2e8f0',
     justifyContent: 'center',
     paddingHorizontal: 2,
   },
   availabilityToggleActive: {
-    backgroundColor: '#4ECDC4',
+    backgroundColor: '#26B7C9',
   },
   toggleKnob: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     backgroundColor: '#ffffff',
     alignSelf: 'flex-start',
   },
@@ -758,35 +763,35 @@ const styles = StyleSheet.create({
   },
   timeSlot: {
     flex: 1,
-    marginHorizontal: 6,
+    marginHorizontal: wp('1.5%'),
   },
   timeLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#718096',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   timeButton: {
     backgroundColor: '#f1f5f9',
-    borderRadius: 8,
-    paddingVertical: 12,
+    borderRadius: wp('2%'),
+    paddingVertical: hp('1.5%'),
     alignItems: 'center',
   },
   timeText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#2d3748',
   },
   saveButton: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: hp('2.5%'),
+    marginBottom: hp('2.5%'),
   },
   saveGradient: {
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('2%'),
     alignItems: 'center',
   },
   saveButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#ffffff',
   },
@@ -798,26 +803,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: hp('1.5%'),
+    fontSize: wp('3.5%'),
     color: '#718096',
   },
   emptyContainer: {
     padding: 40,
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: wp('4%'),
+    marginBottom: hp('2%'),
   },
   emptyTitle: {
-    marginTop: 16,
-    fontSize: 18,
+    marginTop: hp('2%'),
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
   },
   emptyText: {
-    marginTop: 8,
-    fontSize: 14,
+    marginTop: hp('1%'),
+    fontSize: wp('3.5%'),
     color: '#718096',
     textAlign: 'center',
     lineHeight: 20,

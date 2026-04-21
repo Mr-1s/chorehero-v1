@@ -44,6 +44,7 @@ import { SkeletonBlock } from '../../components/Skeleton';
 
 // Theme
 import { cleanerTheme } from '../../utils/theme';
+import { wp, hp } from '../../utils/responsive';
 
 const { colors, typography, spacing, radii, shadows } = cleanerTheme;
 
@@ -60,6 +61,7 @@ type StackParamList = {
   HeroStats: undefined;
   CalendarSettings: undefined;
   RateManager: undefined;
+  ProServices: undefined;
   CreateService: undefined;
   SettingsScreen: undefined;
   BookingCustomization: undefined;
@@ -175,6 +177,9 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
         break;
       case 'bookingCustomization':
         navigation.navigate('RateManager');
+        break;
+      case 'manageServices':
+        (navigation as any).navigate('ProServices');
         break;
     }
   }, [navigation]);
@@ -503,6 +508,13 @@ const ProfileScreenNew: React.FC<ProfileScreenProps> = ({ navigation }) => {
               labelColor="#444444"
               onPress={() => handleQuickAction('bookingCustomization')}
             />
+            <QuickActionTile
+              icon="construct-outline"
+              label="Manage Services"
+              style={styles.quickActionMuted}
+              labelColor="#444444"
+              onPress={() => handleQuickAction('manageServices')}
+            />
           </View>
         </Animated.View>
 
@@ -576,11 +588,12 @@ const styles = StyleSheet.create({
   // Hero Section
   heroSection: {
     backgroundColor: colors.cardBg,
-    marginHorizontal: spacing.xl,
-    marginTop: spacing.lg,
-    borderRadius: radii.card,
-    padding: spacing.xl,
-    ...shadows.card,
+    marginHorizontal: wp('5%'),
+    marginTop: hp('1.5%'),
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   heroHeader: {
     flexDirection: 'row',
@@ -594,7 +607,7 @@ const styles = StyleSheet.create({
   avatar: {
     width: 72,
     height: 72,
-    borderRadius: 36,
+    borderRadius: wp('9%'),
     backgroundColor: colors.metaBg,
   },
   avatarPlaceholder: {
@@ -616,17 +629,17 @@ const styles = StyleSheet.create({
   verificationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    gap: wp('1.5%'),
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
     backgroundColor: 'rgba(148, 163, 184, 0.2)',
   },
   verificationBadgeVerified: {
     backgroundColor: 'rgba(38, 183, 201, 0.16)',
   },
   verificationBadgeText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
     color: '#6B7280',
   },
@@ -648,7 +661,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   metaText: {
     fontSize: typography.label.fontSize,
@@ -672,7 +685,7 @@ const styles = StyleSheet.create({
   settingsButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: colors.metaBg,
     alignItems: 'center',
     justifyContent: 'center',
@@ -691,7 +704,7 @@ const styles = StyleSheet.create({
   },
   toggleHelper: {
     marginTop: spacing.sm,
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
 
@@ -716,7 +729,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   packagesManageText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: colors.primary,
   },
@@ -724,11 +737,12 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     alignItems: 'center',
     backgroundColor: colors.cardBg,
-    borderRadius: radii.card,
-    ...shadows.soft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   packagesPlaceholderText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: colors.textMuted,
   },
   packagesEmptyCard: {
@@ -749,7 +763,7 @@ const styles = StyleSheet.create({
   packagesEmptySubtext: {
     fontSize: 13,
     color: colors.textMuted,
-    marginTop: 4,
+    marginTop: hp('0.5%'),
   },
   packagesScroll: {
     marginHorizontal: -spacing.xl,
@@ -758,9 +772,10 @@ const styles = StyleSheet.create({
     width: 140,
     marginLeft: spacing.xl,
     backgroundColor: colors.cardBg,
-    borderRadius: radii.card,
+    borderRadius: 14,
     overflow: 'hidden',
-    ...shadows.soft,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   packageThumb: {
     width: '100%',
@@ -779,14 +794,14 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   packagePrice: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: colors.primary,
     paddingHorizontal: spacing.md,
     paddingTop: 2,
   },
   packageBookings: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
@@ -796,9 +811,10 @@ const styles = StyleSheet.create({
   // Completion Card
   completionCard: {
     backgroundColor: colors.cardBg,
-    borderRadius: radii.xl,
+    borderRadius: 14,
     padding: spacing.lg,
-    ...shadows.soft,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   completionHeader: {
     flexDirection: 'row',
@@ -814,7 +830,7 @@ const styles = StyleSheet.create({
   completionLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   completionLinkText: {
     fontSize: typography.label.fontSize,
@@ -824,14 +840,14 @@ const styles = StyleSheet.create({
   progressBar: {
     height: 8,
     backgroundColor: colors.borderLight,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     overflow: 'hidden',
     marginBottom: spacing.md,
   },
   progressFill: {
     height: '100%',
     backgroundColor: colors.primary,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
   },
   completionHelper: {
     fontSize: typography.label.fontSize,
@@ -842,9 +858,10 @@ const styles = StyleSheet.create({
   // Verification Card
   verificationCard: {
     backgroundColor: colors.cardBg,
-    borderRadius: radii.xl,
+    borderRadius: 14,
     padding: spacing.lg,
-    ...shadows.soft,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   verificationRow: {
     flexDirection: 'row',
@@ -890,7 +907,7 @@ const styles = StyleSheet.create({
   combinedEarningsIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -898,7 +915,7 @@ const styles = StyleSheet.create({
   },
   combinedEarningsTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -917,10 +934,10 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.md,
   },
   combinedEarningsValue: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '800',
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   combinedEarningsLabel: {
     fontSize: 13,
@@ -950,7 +967,7 @@ const styles = StyleSheet.create({
   combinedPerformanceIconContainer: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -958,7 +975,7 @@ const styles = StyleSheet.create({
   },
   combinedPerformanceTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -979,11 +996,11 @@ const styles = StyleSheet.create({
   combinedPerformanceValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: wp('1.5%'),
+    marginBottom: hp('0.5%'),
   },
   combinedPerformanceValue: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '800',
     color: '#FFFFFF',
   },
@@ -1016,12 +1033,12 @@ const styles = StyleSheet.create({
   },
   specialtyTag: {
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.7%'),
     borderRadius: 999,
   },
   specialtyTagText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#26B7C9',
   },
@@ -1034,7 +1051,7 @@ const styles = StyleSheet.create({
   },
   detailsCard: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: '#FFFFFF',
     padding: spacing.lg,
   },
@@ -1045,14 +1062,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   detailsTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
   detailsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: wp('2.5%'),
     marginBottom: spacing.sm,
   },
   detailsText: {
@@ -1062,7 +1079,7 @@ const styles = StyleSheet.create({
   },
   detailsNote: {
     marginTop: spacing.sm,
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
 });

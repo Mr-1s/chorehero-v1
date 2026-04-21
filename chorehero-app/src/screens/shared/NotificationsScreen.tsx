@@ -1,17 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar, TouchableOpacity, FlatList, Image } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, StatusBar, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 import { notificationService, type Notification } from '../../services/notificationService';
 import { useAuth } from '../../hooks/useAuth';
-
-const mockNotifications = [
-  { id: '1', type: 'booking', title: 'Booking Confirmed', message: 'Your cleaning is scheduled for tomorrow at 2:00 PM', timestamp: '5 min ago', read: false },
-  { id: '2', type: 'service', title: 'Cleaner On The Way', message: 'Maria Garcia is on the way to your location', timestamp: '10 min ago', read: false },
-  { id: '3', type: 'payment', title: 'Payment Processed', message: 'Payment of $85 has been processed', timestamp: '1 hour ago', read: true },
-  { id: '4', type: 'system', title: 'New Feature', message: 'Try our new video profile feature!', timestamp: '1 day ago', read: true },
-];
+import { wp, hp } from '../../utils/responsive';
 
 const getIcon = (type) => {
   switch (type) {
@@ -27,6 +21,7 @@ const NotificationsScreen = ({ navigation }) => {
   const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   useEffect(() => {
     loadNotifications();
@@ -74,19 +69,24 @@ const NotificationsScreen = ({ navigation }) => {
   const renderItem = ({ item }: { item: Notification }) => (
     <TouchableOpacity 
       style={[styles.notificationCard, !item.read && styles.unreadCard]}
+      activeOpacity={0.82}
       onPress={() => markAsRead(item.id)}
     > 
       {item.fromUserAvatar ? (
         <Image source={{ uri: item.fromUserAvatar }} style={styles.userAvatar} />
       ) : (
-        <Ionicons name={getIcon(item.type)} size={24} color={item.read ? '#00BFA6' : '#F59E0B'} style={styles.icon} />
+        <Ionicons name={getIcon(item.type)} size={24} color={item.read ? '#26B7C9' : '#F59E0B'} style={styles.icon} />
       )}
       <View style={styles.info}>
-        <Text style={styles.title}>{item.title}</Text>
+        <Text style={[styles.title, !item.read && styles.unreadTitle]} numberOfLines={1}>{item.title}</Text>
         <Text style={styles.message}>{item.message}</Text>
         <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
       </View>
-      {!item.read && <View style={styles.unreadDot} />}
+      {!item.read && (
+        <View style={styles.unreadBadge}>
+          <Text style={styles.unreadBadgeText}>New</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 
@@ -98,20 +98,26 @@ const NotificationsScreen = ({ navigation }) => {
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
-        <TouchableOpacity onPress={markAllAsRead}>
-          <Ionicons name="checkmark-done" size={24} color="#00BFA6" />
+        <TouchableOpacity onPress={markAllAsRead} disabled={unreadCount === 0}>
+          <Ionicons name="checkmark-done" size={24} color={unreadCount > 0 ? '#26B7C9' : '#CBD5E1'} />
         </TouchableOpacity>
       </View>
-      <FlatList
-        data={notifications}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#26B7C9" />
+          <Text style={styles.loadingText}>Loading notifications...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={notifications}
+          renderItem={renderItem}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
           <View style={styles.emptyState}>
             <LinearGradient
-              colors={['#3ad3db', '#2BC8D4']}
+              colors={['#26B7C9', '#047B9B']}
               style={styles.emptyIconGradient}
             >
               <Ionicons name="notifications-outline" size={64} color="#ffffff" />
@@ -122,73 +128,77 @@ const NotificationsScreen = ({ navigation }) => {
             </Text>
             <View style={styles.emptyStateFeatures}>
               <View style={styles.featureItem}>
-                <Ionicons name="calendar" size={20} color="#3ad3db" />
+                <Ionicons name="calendar" size={20} color="#26B7C9" />
                 <Text style={styles.featureText}>Booking updates</Text>
               </View>
               <View style={styles.featureItem}>
-                <Ionicons name="chatbubble" size={20} color="#3ad3db" />
+                <Ionicons name="chatbubble" size={20} color="#26B7C9" />
                 <Text style={styles.featureText}>Message alerts</Text>
               </View>
               <View style={styles.featureItem}>
-                <Ionicons name="pricetag" size={20} color="#3ad3db" />
+                <Ionicons name="pricetag" size={20} color="#26B7C9" />
                 <Text style={styles.featureText}>Special offers</Text>
               </View>
             </View>
           </View>
-        }
-      />
+          }
+        />
+      )}
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937' },
-  listContent: { padding: 20 },
-  notificationCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, position: 'relative' },
-  unreadCard: { borderWidth: 1, borderColor: '#F59E0B' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: wp('5%'), paddingVertical: hp('1.5%'), backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  backButton: { width: 44, height: 44, borderRadius: wp('5.5%'), backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: wp('4.5%'), fontWeight: '600', color: '#1F2937' },
+  listContent: { paddingHorizontal: wp('4%'), paddingVertical: hp('1%'), paddingBottom: hp('3%') },
+  notificationCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 14, paddingVertical: hp('1.6%'), paddingHorizontal: wp('3.8%'), marginBottom: hp('1%'), borderWidth: 1, borderColor: '#E5E7EB', position: 'relative' },
+  unreadCard: { borderColor: '#26B7C9', backgroundColor: '#F8FEFF' },
   icon: { marginRight: 16 },
   info: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '600', color: '#1F2937', marginBottom: 2 },
-  message: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
-  timestamp: { fontSize: 12, color: '#9CA3AF' },
-  unreadDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#F59E0B', position: 'absolute', top: 16, right: 16 },
-  emptyText: { textAlign: 'center', color: '#6B7280', marginTop: 40, fontSize: 16 },
+  title: { fontSize: wp('3.95%'), fontWeight: '600', color: '#1F2937', marginBottom: 2 },
+  unreadTitle: { fontWeight: '700' },
+  message: { fontSize: wp('3.45%'), color: '#64748B', marginBottom: hp('0.35%') },
+  timestamp: { fontSize: wp('3.05%'), color: '#94A3B8' },
+  unreadBadge: { backgroundColor: '#26B7C9', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, marginLeft: 10 },
+  unreadBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  loadingText: { marginTop: 10, color: '#64748B', fontSize: wp('3.8%') },
   // Enhanced Empty State Styles
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 20,
+    paddingVertical: hp('10%'),
+    paddingHorizontal: wp('5%'),
   },
   emptyIconGradient: {
     width: 120,
     height: 120,
-    borderRadius: 60,
+    borderRadius: wp('15%'),
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   emptyStateTitle: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     textAlign: 'center',
   },
   emptyStateSubtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: hp('4%'),
   },
   emptyStateFeatures: {
     alignItems: 'center',
@@ -196,16 +206,16 @@ const styles = StyleSheet.create({
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    marginBottom: hp('2%'),
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.5%'),
     backgroundColor: '#F8FAFC',
-    borderRadius: 24,
+    borderRadius: wp('6%'),
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   featureText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: '#475569',
     marginLeft: 12,
@@ -213,7 +223,7 @@ const styles = StyleSheet.create({
   userAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     marginRight: 12,
   },
 });

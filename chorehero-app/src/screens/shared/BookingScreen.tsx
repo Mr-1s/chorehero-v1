@@ -13,6 +13,7 @@ import {
   Switch,
   ActivityIndicator,
   RefreshControl,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,12 +23,15 @@ import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import FloatingNavigation from '../../components/FloatingNavigation';
+import { Card, Chip, Button } from '../../components/ui';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { notificationService } from '../../services/notificationService';
+import { jobQuoteService, Job, Quote } from '../../services/jobQuoteService';
 import { bookingService } from '../../services/booking';
 
 import { routeToMessage } from '../../utils/messageRouting';
+import { wp, hp } from '../../utils/responsive';
 
 type TabParamList = {
   Home: undefined;
@@ -40,23 +44,7 @@ type TabParamList = {
 type StackParamList = {
   MainTabs: undefined;
   CleanerProfile: { cleanerId: string };
-  BookingConfirmation: {
-    bookingId: string;
-    service: {
-      title: string;
-      duration: string;
-      price: number;
-    };
-    cleaner: {
-      id: string;
-      name: string;
-      avatar: string;
-      rating: number;
-      eta: string;
-    };
-    address: string;
-    scheduledTime: string;
-  };
+  BookingConfirmed: { bookingId: string };
   LiveTracking: { bookingId: string };
   IndividualChat: { cleanerId: string; bookingId: string };
   RatingReview: {
@@ -90,7 +78,7 @@ interface BookingScreenProps {
   navigation: BookingScreenNavigationProp;
   route?: {
     params?: {
-      activeTab?: 'upcoming' | 'active' | 'completed';
+      activeTab?: 'my-jobs' | 'quotes' | 'upcoming' | 'history';
       bookingId?: string;
       showTracking?: boolean;
     };
@@ -102,6 +90,7 @@ const { width, height } = Dimensions.get('window');
 interface Booking {
   id: string;
   service: string;
+  messagingEnabled?: boolean;
   provider: {
     id: string;
     name: string;
@@ -148,23 +137,22 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   
   // Get navigation parameters
   const params = route?.params || {};
-  const initialTab = params.activeTab || 'upcoming';
+  const initialTab = (params.activeTab as 'my-jobs' | 'quotes' | 'upcoming' | 'history') || 'upcoming';
   const targetBookingId = params.bookingId;
   const shouldShowTracking = params.showTracking;
   
-  // Debug navigation
-  console.log('Navigation object:', navigation);
-  console.log('Navigation canGoBack:', navigation.canGoBack());
-  console.log('Route params:', params);
   
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'completed'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'my-jobs' | 'quotes' | 'upcoming' | 'history'>(initialTab);
   const [animatedValue] = useState(new Animated.Value(0));
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [quotes, setQuotes] = useState<(Quote & { job?: Job })[]>([]);
   const [now, setNow] = useState(new Date());
+  const [jobMenu, setJobMenu] = useState<Job | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -173,6 +161,10 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (params.activeTab) setActiveTab(params.activeTab as any);
+  }, [params.activeTab]);
+
   // Load real bookings from database
   const loadBookings = useCallback(async () => {
     if (!user?.id) {
@@ -180,10 +172,16 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       return;
     }
 
+    const LOAD_TIMEOUT_MS = 12000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Load timeout')), LOAD_TIMEOUT_MS)
+    );
+
     try {
       console.log('📅 Loading bookings for user:', user.id);
-      
-      const { data: rawBookings, error } = await supabase
+
+      const fetchBookings = async () => {
+        const { data: rawBookings, error } = await supabase
         .from('bookings')
         .select(`
           id,
@@ -192,12 +190,14 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           scheduled_time,
           estimated_duration,
           total_amount,
-          special_requests,
+          special_instructions,
           created_at,
           cleaner_id,
-          address:addresses(street, city, state, zip_code)
+          messaging_enabled,
+          address:addresses!address_id(street, city, state, zip_code)
         `)
         .eq('customer_id', user.id)
+        .eq('payment_status', 'succeeded')
         .order('scheduled_time', { ascending: false });
 
       const bookingIds = (rawBookings || []).map((booking: any) => booking.id).filter(Boolean);
@@ -316,8 +316,12 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
         return {
           id: booking.id,
-          service: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 
-                   formatServiceType(booking.service_type),
+          messagingEnabled: !!booking.messaging_enabled,
+          service: (() => {
+            const raw = booking.special_instructions?.split('.')[0]?.replace('Service: ', '') || '';
+            const looksLikeId = /job from quote|^[0-9a-f-]{8,}/i.test(raw.trim());
+            return raw && !looksLikeId ? raw : formatServiceType(booking.service_type);
+          })(),
           provider: {
             id: cleaner?.id || '',
             name: cleaner?.name || 'Pending Assignment',
@@ -346,8 +350,13 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
       setBookings(transformedBookings);
       console.log('✅ Loaded bookings:', transformedBookings.length);
+      };
+
+      await Promise.race([fetchBookings(), timeoutPromise]);
     } catch (error) {
-      console.error('❌ Error loading bookings:', error);
+      if (error instanceof Error && !error.message.includes('Load timeout')) {
+        console.error('❌ Error loading bookings:', error);
+      }
       setBookings([]);
     } finally {
       setLoading(false);
@@ -366,20 +375,91 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
     return types[type] || 'Cleaning Service';
   };
 
-  // Load bookings on mount and when tab is focused
-  useFocusEffect(
-    useCallback(() => {
-      loadBookings();
-    }, [loadBookings])
-  );
+  const loadJobs = useCallback(async () => {
+    if (!user?.id) return;
+    const res = await jobQuoteService.getCustomerJobs(user.id);
+    if (res.success && res.data) setJobs(res.data);
+  }, [user?.id]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadBookings();
+  const handleEditJob = (job: Job) => {
+    setJobMenu(null);
+    propNavigation.navigate('PostJob' as any, { editJob: job });
   };
 
+  const handleCancelJob = (job: Job) => {
+    setJobMenu(null);
+    Alert.alert('Cancel job?', 'Pros will no longer be able to send quotes on this job.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel job',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await jobQuoteService.cancelJob(job.id);
+          if (res.success) {
+            loadJobs();
+          } else {
+            Alert.alert('Error', res.error || 'Failed to cancel job');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleRemoveJob = (job: Job) => {
+    setJobMenu(null);
+    const canRemove = ['booked', 'expired', 'cancelled'].includes(job.status) || new Date(job.expires_at) < new Date();
+    if (!canRemove) {
+      Alert.alert('Cannot remove', 'Only completed, expired, or cancelled jobs can be removed.');
+      return;
+    }
+    Alert.alert('Remove job?', 'This permanently removes the job from your list.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          const res = await jobQuoteService.permanentlyDeleteJob(job.id);
+          if (res.success) {
+            setJobs((prev) => prev.filter((j) => j.id !== job.id));
+          } else {
+            Alert.alert('Error', res.error || 'Failed to remove job');
+          }
+        },
+      },
+    ]);
+  };
+
+  const loadQuotes = useCallback(async () => {
+    if (!user?.id) return;
+    const res = await jobQuoteService.getCustomerQuotes(user.id);
+    if (res.success && res.data) setQuotes(res.data);
+  }, [user?.id]);
+
+  // Load on mount and when tab is focused - show UI immediately, load in background
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(false);
+      loadBookings();
+      loadJobs();
+      loadQuotes();
+    }, [loadBookings, loadJobs, loadQuotes])
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadBookings(), loadJobs(), loadQuotes()]);
+    setRefreshing(false);
+  }, [loadBookings, loadJobs, loadQuotes]);
+
   // Filter bookings based on active tab
-  const filteredBookings = bookings.filter(b => b.status === activeTab);
+  const filteredBookings =
+    activeTab === 'upcoming'
+      ? bookings.filter((b) => ['upcoming', 'active'].includes(b.status))
+      : activeTab === 'history'
+        ? bookings.filter((b) => b.status === 'completed')
+        : [];
+
+  const upcomingCount = bookings.filter((b) => ['upcoming', 'active'].includes(b.status)).length;
 
   useEffect(() => {
     // Animate progress bars
@@ -390,30 +470,19 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
     }).start();
   }, []);
 
-  // Handle tracking display when navigated from confirmation
-  useEffect(() => {
-    if (shouldShowTracking && targetBookingId) {
-      // Show GPS tracking for the specific booking
-      console.log('🗺️ Showing GPS tracking for booking:', targetBookingId);
-      // Navigate to LiveTracking screen
-      setTimeout(() => {
-        navigation.navigate('LiveTracking', { bookingId: targetBookingId });
-      }, 500); // Small delay to allow tab to load
-    }
-  }, [shouldShowTracking, targetBookingId, navigation]);
+  // Live tracking removed - no auto-navigate to mock tracking screen
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'upcoming': return '#3b82f6';
-      case 'active': return '#0891b2';
+      case 'active': return '#047B9B';
       case 'completed': return '#10b981';
       default: return '#6b7280';
     }
   };
 
   const handleRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 2000);
+    onRefresh();
   };
 
   const handleMessageProvider = (provider: { id: string; name: string; avatar: string }, bookingId?: string) => {
@@ -425,7 +494,29 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   };
 
   const handleTrackLocation = (booking: Booking) => {
-    navigation.navigate('LiveTracking', { bookingId: booking.id });
+    propNavigation.navigate('LiveTracking', { bookingId: booking.id });
+  };
+
+  const handleReportIssue = (booking: Booking) => {
+    Alert.alert(
+      'Report Issue',
+      'How would you like to report this?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Message Cleaner',
+          onPress: () =>
+            propNavigation.navigate('IndividualChat', {
+              cleanerId: booking.provider.id,
+              bookingId: booking.id,
+            }),
+        },
+        {
+          text: 'Contact Support',
+          onPress: () => propNavigation.navigate('HelpScreen'),
+        },
+      ]
+    );
   };
 
   const handleRateAndTip = (booking: Booking) => {
@@ -441,7 +532,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
   const handleQuickRebook = (booking: Booking) => {
     // Pre-fill the booking flow with previous booking details
-    propNavigation.navigate('NewBookingFlow', {
+    propNavigation.navigate('UnifiedBooking', {
       cleanerId: booking.provider.id,
       serviceType: booking.service,
       // Smart defaults from previous booking
@@ -461,48 +552,68 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   };
 
   const handleCancelBooking = (booking: Booking) => {
-    Alert.alert(
-      'Cancel Booking',
-      `Are you sure you want to cancel your ${booking.service} appointment on ${booking.date} at ${booking.time}?\n\nCancellation policy: Full refund if cancelled 24+ hours before scheduled time.`,
-      [
-        {
-          text: 'Keep Booking',
-          style: 'cancel',
-        },
-        {
-          text: 'Cancel Booking',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await bookingService.cancelBooking(
-                booking.id,
-                'Cancelled by customer',
-                'customer'
-              );
+    const runCancel = async (reason: string) => {
+      try {
+        const result = await bookingService.cancelBooking(
+          booking.id,
+          reason,
+          'customer'
+        );
 
-              if (!result.success) {
-                throw new Error(result.error || 'Cancellation failed');
-              }
+        if (!result.success) {
+          throw new Error(result.error || 'Cancellation failed');
+        }
 
-              const refundMsg = result.data?.refundAmount
-                ? `A refund of $${result.data.refundAmount.toFixed(2)} will be processed within 3-5 business days.`
-                : 'No refund applies per cancellation policy.';
+        const refundMsg = result.data?.refundAmount
+          ? `A refund of $${result.data.refundAmount.toFixed(2)} will be processed within 3-5 business days.`
+          : 'No refund applies per cancellation policy.';
 
-              Alert.alert(
-                'Booking Cancelled',
-                `Your booking has been cancelled. ${refundMsg}`,
-                [{ text: 'OK' }]
-              );
+        Alert.alert(
+          'Booking Cancelled',
+          `Your booking has been cancelled. ${refundMsg}`,
+          [{ text: 'OK' }]
+        );
 
-              loadBookings();
-            } catch (error) {
-              console.error('Error cancelling booking:', error);
-              Alert.alert('Error', 'Failed to cancel booking. Please try again.');
-            }
+        loadBookings();
+      } catch (error) {
+        console.error('Error cancelling booking:', error);
+        Alert.alert('Error', 'Failed to cancel booking. Please try again.');
+      }
+    };
+
+    const showReasonAndConfirm = async () => {
+      const previewRes = await bookingService.getRefundPreview(booking.id, 'customer');
+      const refundAmount = previewRes.success && previewRes.data ? previewRes.data.refundAmount : 0;
+      const refundLine = refundAmount > 0
+        ? `\n\nYou will receive $${refundAmount.toFixed(2)} refund.`
+        : '\n\nNo refund applies per cancellation policy.';
+
+      Alert.alert(
+        'Cancel Booking',
+        `Are you sure you want to cancel your ${booking.service} appointment on ${booking.date} at ${booking.time}?${refundLine}`,
+        [
+          { text: 'Keep Booking', style: 'cancel' },
+          {
+            text: 'Changed mind',
+            onPress: () => runCancel('Changed mind'),
           },
-        },
-      ]
-    );
+          {
+            text: 'Found cheaper option',
+            onPress: () => runCancel('Found cheaper option'),
+          },
+          {
+            text: 'Emergency',
+            onPress: () => runCancel('Emergency'),
+          },
+          {
+            text: 'Other',
+            onPress: () => runCancel('Other'),
+          },
+        ]
+      );
+    };
+
+    showReasonAndConfirm();
   };
 
   const handleRescheduleBooking = (booking: Booking) => {
@@ -518,7 +629,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           text: 'Pick New Date & Time',
           onPress: () => {
             // Navigate to booking flow with reschedule mode
-            propNavigation.navigate('NewBookingFlow', {
+            propNavigation.navigate('UnifiedBooking', {
               cleanerId: booking.provider.id,
               serviceType: booking.service,
               defaultAddress: booking.address,
@@ -553,44 +664,52 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
 
   const renderTimelineMilestones = (milestones: Milestone[]) => (
     <View style={styles.timelineContainer}>
-      <Text style={styles.timelineTitle}>Service Progress</Text>
       {milestones.map((milestone, index) => (
         <View key={milestone.id} style={styles.timelineItem}>
           <View style={styles.timelineIconContainer}>
-            <View style={[
-              styles.timelineIcon,
-              { 
-                backgroundColor: milestone.completed ? '#10B981' : '#F3F4F6',
-                borderColor: milestone.completed ? '#10B981' : '#D1D5DB'
-              }
-            ]}>
+            <View
+              style={[
+                styles.timelineIcon,
+                {
+                  backgroundColor: milestone.completed ? '#10B981' : '#F3F4F6',
+                  borderColor: milestone.completed ? '#10B981' : '#D1D5DB',
+                },
+              ]}
+            >
               <Ionicons
                 name={milestone.icon as any}
-                size={18}
+                size={12}
                 color={milestone.completed ? '#FFFFFF' : '#6B7280'}
               />
             </View>
             {index < milestones.length - 1 && (
-              <View style={[
-                styles.timelineLine,
-                { backgroundColor: milestone.completed ? '#10B981' : '#E5E7EB' }
-              ]} />
+              <View
+                style={[
+                  styles.timelineLine,
+                  { backgroundColor: milestone.completed ? '#10B981' : '#E5E7EB' },
+                ]}
+              />
             )}
           </View>
           <View style={styles.timelineContent}>
-            <Text style={[
-              styles.timelineStepTitle,
-              { color: milestone.completed ? '#1F2937' : '#6B7280' }
-            ]}>
+            <Text
+              style={[
+                styles.timelineStepTitle,
+                { color: milestone.completed ? '#0F172A' : '#6B7280' },
+              ]}
+              numberOfLines={1}
+            >
               {milestone.title}
             </Text>
-            <Text style={styles.timelineDescription}>
-              {milestone.description}
-            </Text>
-            {milestone.timestamp && (
-              <Text style={styles.timelineTime}>{milestone.timestamp}</Text>
-            )}
+            {milestone.description ? (
+              <Text style={styles.timelineDescription} numberOfLines={1}>
+                {milestone.description}
+              </Text>
+            ) : null}
           </View>
+          {milestone.timestamp ? (
+            <Text style={styles.timelineTime}>{milestone.timestamp}</Text>
+          ) : null}
         </View>
       ))}
     </View>
@@ -632,15 +751,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           </Marker>
         )}
       </MapView>
-      <View style={styles.mapOverlay}>
-        <TouchableOpacity
-          style={styles.trackButton}
-          onPress={() => handleTrackLocation(booking)}
-        >
-          <Text style={styles.trackButtonIcon}>📍</Text>
-          <Text style={styles.trackButtonText}>Live Track</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Live Track button removed - mock tracking screen until v2 */}
     </View>
   );
 
@@ -654,15 +765,26 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   const renderBookingCard = (booking: Booking) => {
     const liveCountdown = getLiveCountdown(booking);
 
+    const statusVariant =
+      booking.status === 'active'
+        ? 'brand'
+        : booking.status === 'upcoming'
+          ? 'info'
+          : booking.status === 'completed'
+            ? 'success'
+            : 'neutral';
+
     return (
-    <View key={booking.id} style={styles.bookingCard}>
-      {/* Message Icon - Positioned in top-right corner */}
-      <TouchableOpacity
-        style={styles.cardMessageButton}
-        onPress={() => handleMessageProvider(booking.provider, booking.id)}
-      >
-        <Ionicons name="chatbubble" size={16} color="#3ad3db" />
-      </TouchableOpacity>
+    <Card key={booking.id} style={{ marginHorizontal: 16, marginBottom: 12 }}>
+      {/* Message Icon - Only when messaging_enabled (post-payment) */}
+      {booking.messagingEnabled && (
+        <TouchableOpacity
+          style={styles.cardMessageButton}
+          onPress={() => handleMessageProvider(booking.provider, booking.id)}
+        >
+          <Ionicons name="chatbubble" size={16} color="#26B7C9" />
+        </TouchableOpacity>
+      )}
 
       {/* Service Header */}
       <View style={styles.bookingHeader}>
@@ -679,9 +801,10 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
             <Text style={styles.serviceDuration}> • {booking.duration}</Text>
           </View>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
-          <Text style={styles.statusText}>{booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}</Text>
-        </View>
+        <Chip
+          label={booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+          variant={statusVariant as any}
+        />
       </View>
 
       {/* Provider Info */}
@@ -691,7 +814,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           <View style={styles.providerDetails}>
             <Text style={styles.providerName}>{booking.provider.name}</Text>
             <View style={styles.providerRating}>
-              <Ionicons name="star" size={12} color="#fbbf24" />
+              <Ionicons name="star" size={12} color="#E6B200" />
               <Text style={styles.providerRatingText}>{booking.provider.rating}</Text>
             </View>
           </View>
@@ -703,7 +826,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         <View style={styles.progressSection}>
           {renderProgressBar(booking.progress)}
           <View style={styles.etaContainer}>
-            <Ionicons name="time" size={16} color="#3ad3db" />
+            <Ionicons name="time" size={16} color="#26B7C9" />
             <Text style={styles.etaText}>ETA: {booking.eta}</Text>
           </View>
           {renderActiveBookingMap(booking)}
@@ -726,61 +849,31 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
       </View>
 
       {/* Action Buttons */}
-      <View style={styles.actionButtons}>
+      <View style={[styles.actionButtons, { gap: 8, marginTop: 12 }]}>
         {booking.status === 'upcoming' && (
           <>
-            <TouchableOpacity 
-              style={styles.outlineButton}
-              onPress={() => handleRescheduleBooking(booking)}
-            >
-              <Ionicons name="calendar-outline" size={16} color="#3ad3db" />
-              <Text style={styles.outlineButtonText}>Reschedule</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.cancelButton}
-              onPress={() => handleCancelBooking(booking)}
-            >
-              <Ionicons name="close-circle-outline" size={16} color="#EF4444" />
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
+            <Button label="Reschedule" variant="secondary" icon="calendar-outline" fullWidth style={{ flex: 1 }} onPress={() => handleRescheduleBooking(booking)} />
+            <Button label="Cancel" variant="destructive" icon="close-circle-outline" style={{ flex: 1 }} onPress={() => handleCancelBooking(booking)} />
           </>
         )}
         {booking.status === 'active' && (
-          <TouchableOpacity style={styles.primaryButton}>
-            <Ionicons name="warning" size={16} color="#ffffff" />
-            <Text style={styles.primaryButtonText}>Report Issue</Text>
-          </TouchableOpacity>
+          <>
+            <Button label="Track" variant="primary" icon="locate" style={{ flex: 1 }} onPress={() => handleTrackLocation(booking)} />
+            <Button label="Report issue" variant="secondary" icon="warning" style={{ flex: 1 }} onPress={() => handleReportIssue(booking)} />
+          </>
         )}
         {booking.status === 'completed' && (
           <>
             {booking.hasReview ? (
-              <TouchableOpacity 
-                style={styles.outlineButton}
-                onPress={() => handleViewReceipt(booking)}
-              >
-                <Ionicons name="receipt" size={16} color="#26B7C9" />
-                <Text style={styles.outlineButtonText}>View Receipt</Text>
-              </TouchableOpacity>
+              <Button label="Receipt" variant="secondary" icon="receipt" style={{ flex: 1 }} onPress={() => handleViewReceipt(booking)} />
             ) : (
-              <TouchableOpacity 
-                style={styles.primaryButton}
-                onPress={() => handleRateAndTip(booking)}
-              >
-                <Ionicons name="star" size={16} color="#ffffff" />
-                <Text style={styles.primaryButtonText}>Rate & Tip</Text>
-              </TouchableOpacity>
+              <Button label="Rate & tip" variant="primary" icon="star" style={{ flex: 1 }} onPress={() => handleRateAndTip(booking)} />
             )}
-            <TouchableOpacity 
-              style={styles.outlineButton}
-              onPress={() => handleQuickRebook(booking)}
-            >
-              <Ionicons name="refresh" size={16} color="#26B7C9" />
-              <Text style={styles.outlineButtonText}>Book Again</Text>
-            </TouchableOpacity>
+            <Button label="Book again" variant="secondary" icon="refresh" style={{ flex: 1 }} onPress={() => handleQuickRebook(booking)} />
           </>
         )}
       </View>
-    </View>
+    </Card>
     );
   };
 
@@ -794,7 +887,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         <View style={styles.headerActions}>
 
           <TouchableOpacity style={styles.refreshButton} onPress={handleRefresh}>
-            <Ionicons name="refresh" size={20} color="#3ad3db" />
+            <Ionicons name="refresh" size={20} color="#26B7C9" />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.notificationButton}
@@ -806,46 +899,36 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         </View>
       </View>
 
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'upcoming' && styles.activeTab]}
-          onPress={() => setActiveTab('upcoming')}
-        >
-          <Text style={[styles.tabText, activeTab === 'upcoming' && styles.activeTabText]}>
-            Upcoming
-          </Text>
-          <View style={styles.badgeContainer}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                0
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'active' && styles.activeTab]}
-          onPress={() => setActiveTab('active')}
-        >
-          <Text style={[styles.tabText, activeTab === 'active' && styles.activeTabText]}>
-            Active
-          </Text>
-          <View style={styles.badgeContainer}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                0
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'completed' && styles.activeTab]}
-          onPress={() => setActiveTab('completed')}
-        >
-          <Text style={[styles.tabText, activeTab === 'completed' && styles.activeTabText]}>
-            Completed
-          </Text>
-        </TouchableOpacity>
+      {/* Tab Navigation - matches pro Jobs tab style (teal active, grey inactive) */}
+      <View style={styles.tabScroll}>
+        <View style={styles.tabContainer}>
+          {(['my-jobs', 'quotes', 'upcoming', 'history'] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            const count =
+              tab === 'quotes' ? quotes.length
+              : tab === 'upcoming' ? upcomingCount
+              : 0;
+            const label = tab === 'my-jobs' ? 'Jobs' : tab === 'quotes' ? 'Quotes' : tab === 'upcoming' ? 'Scheduled' : 'History';
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={[styles.tab, isActive && styles.activeTab]}
+                onPress={() => setActiveTab(tab)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tabText, isActive && styles.activeTabText]} numberOfLines={1}>
+                  {label}
+                </Text>
+                {count > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{count > 9 ? '9+' : count}</Text>
+                  </View>
+                )}
+                {isActive && <View style={styles.tabIndicator} />}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* Content with proper scroll support */}
@@ -864,7 +947,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 <Text style={styles.quickActionService} numberOfLines={1}>{booking.service}</Text>
                 <Text style={styles.quickActionProvider} numberOfLines={1}>{booking.provider.name}</Text>
                 <View style={styles.quickActionPrice}>
-                  <Ionicons name="refresh" size={12} color="#3ad3db" />
+                  <Ionicons name="refresh" size={12} color="#26B7C9" />
                   <Text style={styles.quickActionPriceText}>${booking.price}</Text>
                 </View>
               </TouchableOpacity>
@@ -877,16 +960,146 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
         style={styles.scrollView} 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#26B7C9"
+            colors={['#26B7C9']}
+          />
+        }
       >
-        {filteredBookings.length > 0 ? (
-          filteredBookings.map(renderBookingCard)
-        ) : (
+        {activeTab === 'my-jobs' && (
+          <>
+            {jobs.length > 0 ? (
+              jobs.map((job) => {
+                const isExpired = new Date(job.expires_at) < new Date();
+                const statusLabel =
+                  job.status === 'booked'
+                    ? 'Booked'
+                    : job.status === 'expired' || isExpired
+                      ? 'Expired'
+                      : job.status === 'quotes_received'
+                        ? 'Quotes received'
+                        : 'Waiting for quotes';
+                const isOpen = job.status === 'open' && !isExpired;
+                const isBooked = job.status === 'booked';
+                const statusStyle = isExpired
+                  ? styles.jobStatusExpired
+                  : isBooked
+                    ? styles.jobStatusBooked
+                    : job.status === 'quotes_received'
+                      ? styles.jobStatusReceived
+                      : undefined;
+                return (
+                  <TouchableOpacity
+                    key={job.id}
+                    style={styles.jobCard}
+                    onPress={() => propNavigation.navigate('QuoteList' as any, { jobId: job.id })}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.jobCardBody}>
+                      <View style={styles.jobCardTopRow}>
+                        <Text style={styles.jobCardHeadline} numberOfLines={2}>{job.headline}</Text>
+                        <TouchableOpacity
+                          onPress={(e) => { e.stopPropagation(); setJobMenu(job); }}
+                          style={styles.jobMenuBtn}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons name="ellipsis-horizontal" size={18} color="#64748B" />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.jobCardMeta}>
+                        <Text style={styles.jobCardCategory}>{jobQuoteService.getCategoryLabel(job.category)}</Text>
+                        <View style={[styles.jobStatusBadge, statusStyle]}>
+                          <Text style={styles.jobStatusText}>{statusLabel}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.jobCardFooter}>
+                        <Text style={styles.jobCardHint}>View quotes ›</Text>
+                        {isOpen && (
+                          <TouchableOpacity
+                            onPress={(e) => { e.stopPropagation(); handleEditJob(job); }}
+                            style={styles.jobEditPill}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="create-outline" size={14} color="#0F766E" />
+                            <Text style={styles.jobEditPillText}>Edit</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="briefcase-outline" size={64} color="#D1D5DB" />
+                <Text style={styles.emptyStateTitle}>No jobs yet</Text>
+                <Text style={styles.emptyStateSubtitle}>Post a job to get video quotes from pros</Text>
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={() => propNavigation.navigate('PostJob' as any)}
+                >
+                  <Text style={styles.primaryButtonText}>Post a Job</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+        {activeTab === 'quotes' && (
+          <>
+            {quotes.length > 0 ? (
+              quotes.map((q) => {
+                const proName = (q.pro as any)?.name || 'Pro';
+                const avatarUrl = (q.pro as any)?.avatar_url;
+                const rating = (q.pro as any)?.cleaner_profiles?.[0]?.rating_average ?? '—';
+                return (
+                  <TouchableOpacity
+                    key={q.id}
+                    style={styles.quoteCard}
+                    onPress={() => propNavigation.navigate('QuoteList' as any, { jobId: q.job_id })}
+                    activeOpacity={0.8}
+                  >
+                    <Image source={{ uri: avatarUrl || 'https://via.placeholder.com/48' }} style={styles.quoteCardAvatar} />
+                    <View style={styles.quoteCardContent}>
+                      <Text style={styles.quoteCardPro}>{proName}</Text>
+                      <Text style={styles.quoteCardPrice}>${(q.price_cents / 100).toFixed(0)}</Text>
+                      <Text style={styles.quoteCardJob} numberOfLines={1}>{q.job?.headline || 'Job'}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.quoteWatchBtn}
+                      onPress={() => propNavigation.navigate('QuoteList' as any, { jobId: q.job_id })}
+                    >
+                      <Text style={styles.quoteWatchBtnText}>Watch & Accept</Text>
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="videocam-outline" size={64} color="#D1D5DB" />
+                <Text style={styles.emptyStateTitle}>No quotes yet</Text>
+                <Text style={styles.emptyStateSubtitle}>Pros will send video quotes for your jobs</Text>
+                <TouchableOpacity
+                  style={styles.outlineButton}
+                  onPress={() => propNavigation.navigate('PostJob' as any)}
+                >
+                  <Text style={styles.outlineButtonText}>Post a Job</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+        {activeTab === 'upcoming' && filteredBookings.length > 0 && filteredBookings.map(renderBookingCard)}
+        {activeTab === 'history' && filteredBookings.length > 0 && filteredBookings.map(renderBookingCard)}
+        {(activeTab === 'upcoming' || activeTab === 'history') && filteredBookings.length === 0 ? (
           <View style={styles.emptyState}>
-            {activeTab === 'upcoming' && (
+            {activeTab === 'upcoming' && filteredBookings.length === 0 && (
               <>
                 <View style={styles.emptyIconContainer}>
                   <LinearGradient
-                    colors={['#3ad3db', '#2BC8D4']}
+                    colors={['#26B7C9', '#047B9B']}
                     style={styles.emptyIconGradient}
                   >
                     <Ionicons name="calendar-outline" size={64} color="#ffffff" />
@@ -899,15 +1112,15 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 {true && (
                   <View style={styles.emptyStateFeatures}>
                     <View style={styles.featureItem}>
-                      <Ionicons name="flash" size={20} color="#3ad3db" />
+                      <Ionicons name="flash" size={20} color="#26B7C9" />
                       <Text style={styles.featureText}>Book in 60 seconds</Text>
                     </View>
                     <View style={styles.featureItem}>
-                      <Ionicons name="shield-checkmark" size={20} color="#3ad3db" />
+                      <Ionicons name="shield-checkmark" size={20} color="#26B7C9" />
                       <Text style={styles.featureText}>Verified cleaners</Text>
                     </View>
                     <View style={styles.featureItem}>
-                      <Ionicons name="star" size={20} color="#3ad3db" />
+                      <Ionicons name="star" size={20} color="#26B7C9" />
                       <Text style={styles.featureText}>5-star guarantee</Text>
                     </View>
                   </View>
@@ -916,11 +1129,11 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
               </>
             )}
             
-            {activeTab === 'active' && (
+            {false && (
               <>
                 <View style={styles.emptyIconContainer}>
                   <LinearGradient
-                    colors={['#0891b2', '#0E7490']}
+                    colors={['#047B9B', '#0E7490']}
                     style={styles.emptyIconGradient}
                   >
                     <Ionicons name="time-outline" size={64} color="#ffffff" />
@@ -933,15 +1146,15 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                 {true && (
                   <View style={styles.emptyStateFeatures}>
                     <View style={styles.featureItem}>
-                      <Ionicons name="location" size={20} color="#0891b2" />
+                      <Ionicons name="location" size={20} color="#047B9B" />
                       <Text style={styles.featureText}>Live GPS tracking</Text>
                     </View>
                     <View style={styles.featureItem}>
-                      <Ionicons name="chatbubble" size={20} color="#0891b2" />
+                      <Ionicons name="chatbubble" size={20} color="#047B9B" />
                       <Text style={styles.featureText}>Direct messaging</Text>
                     </View>
                     <View style={styles.featureItem}>
-                      <Ionicons name="camera" size={20} color="#0891b2" />
+                      <Ionicons name="camera" size={20} color="#047B9B" />
                       <Text style={styles.featureText}>Progress photos</Text>
                     </View>
                   </View>
@@ -950,7 +1163,7 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
               </>
             )}
             
-            {activeTab === 'completed' && (
+            {activeTab === 'history' && filteredBookings.length === 0 && (
               <>
                 <View style={styles.emptyIconContainer}>
                   <LinearGradient
@@ -984,8 +1197,45 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
               </>
             )}
           </View>
-        )}
+        ) : null}
       </ScrollView>
+
+      <Modal
+        visible={!!jobMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setJobMenu(null)}
+      >
+        <TouchableOpacity
+          style={styles.jobMenuOverlay}
+          activeOpacity={1}
+          onPress={() => setJobMenu(null)}
+        >
+          <View style={styles.jobMenuSheet}>
+            {jobMenu && jobMenu.status === 'open' && new Date(jobMenu.expires_at) >= new Date() && (
+              <>
+                <TouchableOpacity style={styles.jobMenuItem} onPress={() => handleEditJob(jobMenu)}>
+                  <Ionicons name="create-outline" size={20} color="#0F172A" />
+                  <Text style={styles.jobMenuItemText}>Edit job</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.jobMenuItem} onPress={() => handleCancelJob(jobMenu)}>
+                  <Ionicons name="close-circle-outline" size={20} color="#DC2626" />
+                  <Text style={[styles.jobMenuItemText, { color: '#DC2626' }]}>Cancel job</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {jobMenu && (['booked', 'expired', 'cancelled'].includes(jobMenu.status) || new Date(jobMenu.expires_at) < new Date()) && (
+              <TouchableOpacity style={styles.jobMenuItem} onPress={() => handleRemoveJob(jobMenu)}>
+                <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                <Text style={[styles.jobMenuItemText, { color: '#DC2626' }]}>Remove from list</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.jobMenuItem, styles.jobMenuClose]} onPress={() => setJobMenu(null)}>
+              <Text style={[styles.jobMenuItemText, { color: '#64748B' }]}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Floating Navigation */}
       <FloatingNavigation navigation={propNavigation} currentScreen="Bookings" />
@@ -1002,30 +1252,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('7.5%'),
+    paddingBottom: hp('2.5%'),
     backgroundColor: '#FFFFFF',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   refreshButton: {
     padding: 8,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F3F4F6',
   },
   notificationButton: {
     position: 'relative',
     padding: 8,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F3F4F6',
   },
   notificationBadge: {
@@ -1034,72 +1284,179 @@ const styles = StyleSheet.create({
     right: 6,
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     backgroundColor: '#FF3B30',
+  },
+  tabScroll: {
+    marginBottom: hp('1.2%'),
+    paddingHorizontal: wp('5%'),
   },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderRadius: 16,
-    padding: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
+    borderRadius: 14,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
+  jobCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: hp('1.6%'),
+    paddingHorizontal: wp('4%'),
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('1.2%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  jobCardBody: { flex: 1 },
+  jobCardTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+  jobCardHeadline: { flex: 1, fontSize: 16, fontWeight: '700', color: '#0F172A', letterSpacing: -0.2 },
+  jobCardMeta: { flexDirection: 'row', alignItems: 'center', gap: wp('2%'), marginTop: 6 },
+  jobCardCategory: { fontSize: 13, color: '#64748B', fontWeight: '500' },
+  jobStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: '#E6FAFB',
+  },
+  jobStatusExpired: { backgroundColor: '#F1F5F9' },
+  jobStatusBooked: { backgroundColor: '#DCFCE7' },
+  jobStatusReceived: { backgroundColor: '#FEF3C7' },
+  jobStatusText: { fontSize: 11, fontWeight: '700', color: '#0F766E' },
+  jobCardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
+  jobCardHint: { fontSize: 13, color: '#0891B2', fontWeight: '600' },
+  jobEditPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: '#F0FDFA',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+  },
+  jobEditPillText: { fontSize: 12, fontWeight: '700', color: '#0F766E' },
+  jobMenuBtn: {
+    padding: 4,
+    borderRadius: 8,
+  },
+  jobMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  jobMenuSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 28,
+  },
+  jobMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    borderRadius: 12,
+  },
+  jobMenuItemText: { fontSize: 15, fontWeight: '600', color: '#0F172A' },
+  jobMenuClose: {
+    justifyContent: 'center',
+    marginTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  quoteCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: wp('4%'),
+    padding: wp('4%'),
+    marginBottom: hp('2%'),
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  quoteCardAvatar: { width: 48, height: 48, borderRadius: 24, marginRight: wp('3%') },
+  quoteCardContent: { flex: 1 },
+  quoteCardPro: { fontSize: wp('4%'), fontWeight: '700', color: '#1F2937' },
+  quoteCardPrice: { fontSize: wp('4.5%'), fontWeight: '800', color: '#26B7C9', marginTop: 2 },
+  quoteCardJob: { fontSize: wp('3%'), color: '#6B7280', marginTop: 2 },
+  quoteWatchBtn: {
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('3%'),
+  },
+  quoteWatchBtnText: { fontSize: wp('3.5%'), fontWeight: '700', color: '#fff' },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('2%'),
+    borderRadius: 10,
+    gap: 6,
+    position: 'relative',
   },
   activeTab: {
-    backgroundColor: 'rgba(58, 211, 219, 0.12)',
+    backgroundColor: '#E6FAFB',
+  },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    left: '22%',
+    right: '22%',
+    height: 3,
+    backgroundColor: '#26B7C9',
+    borderRadius: 2,
   },
   tabText: {
-    fontSize: 14,
+    fontSize: Math.max(13, wp('3.2%')),
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   activeTabText: {
-    color: '#3ad3db',
+    color: '#0D9488',
     fontWeight: '700',
   },
   badgeContainer: {
     marginLeft: 6,
   },
   badge: {
-    backgroundColor: '#3ad3db',
-    borderRadius: 10,
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('2.5%'),
     minWidth: 18,
     height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: wp('1%'),
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '700',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 140, // Extra padding to account for bottom nav
+    paddingHorizontal: 0,
+    paddingTop: 8,
+    paddingBottom: 140,
   },
   bookingCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     padding: 24,
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
@@ -1113,7 +1470,7 @@ const styles = StyleSheet.create({
     right: 20,
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1132,7 +1489,7 @@ const styles = StyleSheet.create({
     right: 20,
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1149,35 +1506,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 24,
+    marginBottom: hp('3%'),
     paddingRight: 50, // Space for phone button
   },
   serviceInfo: {
     flex: 1,
   },
   serviceTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   serviceDetails: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   serviceDate: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#666666',
   },
   serviceTime: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#666666',
   },
   liveBadge: {
     marginLeft: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     backgroundColor: '#EF4444',
   },
   liveBadgeText: {
@@ -1186,25 +1543,25 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   serviceDuration: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#666666',
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('5%'),
   },
   statusText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   providerSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
-    paddingBottom: 24,
+    marginBottom: hp('3%'),
+    paddingBottom: hp('3%'),
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
@@ -1215,35 +1572,35 @@ const styles = StyleSheet.create({
   providerAvatar: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: wp('6%'),
     marginRight: 12,
   },
   providerDetails: {
     flex: 1,
   },
   providerName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   providerRating: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   providerRatingText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginLeft: 4,
   },
   providerActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: wp('2%'),
   },
   messageButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1251,24 +1608,24 @@ const styles = StyleSheet.create({
     borderColor: '#E6FFFA',
   },
   progressSection: {
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   progressContainer: {
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   progressBar: {
     height: 8,
     backgroundColor: '#E5E7EB',
-    borderRadius: 4,
-    marginBottom: 8,
+    borderRadius: wp('1%'),
+    marginBottom: hp('1%'),
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3ad3db',
-    borderRadius: 4,
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('1%'),
   },
   progressText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     textAlign: 'center',
     fontWeight: '600',
@@ -1277,20 +1634,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   etaText: {
-    fontSize: 14,
-    color: '#3ad3db',
+    fontSize: wp('3.5%'),
+    color: '#26B7C9',
     fontWeight: '600',
     marginLeft: 4,
   },
   mapContainer: {
     height: 200,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.1,
@@ -1309,10 +1666,10 @@ const styles = StyleSheet.create({
   trackButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -1320,26 +1677,26 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   trackButtonIcon: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     marginRight: 4,
   },
   trackButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   homeMarker: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: '#3ad3db',
+    borderRadius: wp('5%'),
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   providerMarker: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     borderWidth: 3,
     borderColor: '#FFFFFF',
     overflow: 'hidden',
@@ -1349,127 +1706,121 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   timelineContainer: {
-    marginBottom: 24,
-  },
-  timelineTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 20,
+    marginTop: 8,
+    marginBottom: 4,
   },
   timelineItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: 10,
   },
   timelineIconContainer: {
     alignItems: 'center',
-    marginRight: 16,
+    width: 22,
+    marginRight: 10,
   },
   timelineIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
   },
   timelineLine: {
     width: 2,
-    height: 40,
-    marginTop: 8,
+    height: 18,
+    marginTop: 2,
   },
   timelineContent: {
     flex: 1,
   },
   timelineStepTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    marginBottom: 6,
   },
   timelineDescription: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#6B7280',
-    marginBottom: 6,
-    lineHeight: 20,
   },
   timelineTime: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#9CA3AF',
     fontWeight: '500',
+    marginLeft: 8,
   },
   addressSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    paddingTop: 24,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: '#F1F5F9',
   },
   addressText: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 8,
-    lineHeight: 20,
+    flex: 1,
+    fontSize: 13,
+    color: '#475569',
+    marginLeft: 6,
   },
   priceSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginTop: 8,
   },
   priceLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
   priceAmount: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#0F172A',
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 12,
-    paddingTop: 8,
+    gap: wp('3%'),
+    paddingTop: hp('1%'),
   },
   outlineButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   outlineButtonText: {
     color: '#26B7C9',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   cancelButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: '#FEE2E2',
     backgroundColor: '#FEF2F2',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   cancelButtonText: {
     color: '#EF4444',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   primaryButton: {
     flex: 1,
     height: 48,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1482,24 +1833,24 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     marginLeft: 4,
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 64,
+    paddingVertical: hp('8%'),
   },
   emptyStateTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
   },
   emptyStateSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
@@ -1509,15 +1860,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   demoToggleLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '500',
     color: '#64748B',
     marginRight: 6,
@@ -1536,11 +1887,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3ad3db',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
+    borderRadius: wp('3%'),
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1548,7 +1899,7 @@ const styles = StyleSheet.create({
   },
   bookServiceButtonText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     marginLeft: 8,
   },
@@ -1556,55 +1907,55 @@ const styles = StyleSheet.create({
   emptyIconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   emptyIconGradient: {
     width: 120,
     height: 120,
-    borderRadius: 60,
+    borderRadius: wp('15%'),
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
   },
   emptyStateFeatures: {
-    marginTop: 24,
-    marginBottom: 32,
+    marginTop: hp('3%'),
+    marginBottom: hp('4%'),
     alignItems: 'center',
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    marginBottom: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
     backgroundColor: '#F8FAFC',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
   featureText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#475569',
     marginLeft: 8,
   },
   // Quick Actions Styles
   quickActionsContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
   quickActionsTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   quickActionsScroll: {
     flexDirection: 'row',
@@ -1612,7 +1963,7 @@ const styles = StyleSheet.create({
   quickActionCard: {
     width: 120,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 12,
     marginRight: 12,
     alignItems: 'center',
@@ -1627,30 +1978,30 @@ const styles = StyleSheet.create({
   quickActionAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    marginBottom: 8,
+    borderRadius: wp('5%'),
+    marginBottom: hp('1%'),
   },
   quickActionService: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#1F2937',
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   quickActionProvider: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   quickActionPrice: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   quickActionPriceText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#26B7C9',
     marginLeft: 4,
   },
 });

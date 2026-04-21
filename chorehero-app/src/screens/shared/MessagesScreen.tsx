@@ -23,6 +23,7 @@ import { useRoleFeatures } from '../../components/RoleBasedUI';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
 import { getConversationId } from '../../utils/conversationId';
+import { wp, hp } from '../../utils/responsive';
 
 // Navigation types
 type StackParamList = {
@@ -181,8 +182,21 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
         setUnreadCount(0);
       }
     } catch (error) {
-      console.error('❌ Error loading conversations:', error);
-      Alert.alert('Error', 'Failed to load messages');
+      const msg = (error as any)?.message ?? '';
+      const is502OrHtml = typeof msg === 'string' && (
+        msg.includes('<!DOCTYPE') || msg.includes('502') || msg.includes('Bad gateway')
+      );
+      if (is502OrHtml) {
+        console.warn('❌ Supabase temporarily unavailable (502 Bad Gateway)');
+        Alert.alert(
+          'Service Unavailable',
+          'Messages are temporarily unavailable. Please try again in a few minutes.',
+          [{ text: 'OK' }, { text: 'Retry', onPress: loadConversations }]
+        );
+      } else {
+        console.error('❌ Error loading conversations:', error);
+        Alert.alert('Error', 'Failed to load messages');
+      }
       // Fallback to empty state
       setConversations([]);
       setUnreadCount(0);
@@ -198,6 +212,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
       style={styles.conversationCard}
+      activeOpacity={0.82}
       onPress={() => navigation.navigate('IndividualChat', {
         bookingId: item.activeBookingId || item.bookingId,
         roomId: item.id,
@@ -213,7 +228,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       <View style={styles.conversationInfo}>
         <View style={styles.conversationHeader}>
           <View style={styles.nameRow}>
-            <Text style={styles.participantName}>{item.participant.name}</Text>
+            <Text style={styles.participantName} numberOfLines={1}>{item.participant.name}</Text>
             {item.hasActiveJob && (
               <View style={styles.activeJobBadge}>
                 <Text style={styles.activeJobText}>Active Job</Text>
@@ -223,7 +238,9 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           <View style={styles.rightSection}>
             <Text style={styles.timestamp}>{item.lastTimestamp}</Text>
             {item.unreadCount > 0 && (
-              <View style={styles.unreadDot} />
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadBadgeText}>{item.unreadCount > 9 ? '9+' : item.unreadCount}</Text>
+              </View>
             )}
           </View>
         </View>
@@ -255,7 +272,7 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       </View>
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00BFA6" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading messages...</Text>
         </View>
       ) : filteredConversations.length === 0 ? (
@@ -319,8 +336,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -328,38 +345,35 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 16,
-    marginTop: 12,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: '#F8FAFC',
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('1.2%'),
+    marginTop: hp('1%'),
+    borderRadius: 14,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.25%'),
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#1F2937',
   },
   loadingContainer: {
@@ -368,48 +382,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 40,
+    paddingVertical: hp('10%'),
+    paddingHorizontal: wp('10%'),
   },
   emptyStateText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
     textAlign: 'center',
   },
   emptyStateSubtext: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingHorizontal: wp('4%'),
+    paddingBottom: 130,
+    paddingTop: hp('0.5%'),
   },
   conversationCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'transparent',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEF2F7',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: hp('1.6%'),
+    paddingHorizontal: wp('3.8%'),
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: hp('1%'),
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    marginRight: 12,
+    backgroundColor: '#E2E8F0',
   },
   conversationInfo: {
     flex: 1,
@@ -418,23 +436,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
     flex: 1,
   },
   participantName: {
-    fontSize: 16,
+    fontSize: wp('4.1%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   activeJobBadge: {
     backgroundColor: '#ECFDF3',
     borderRadius: 999,
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 2,
   },
   activeJobText: {
@@ -444,27 +462,35 @@ const styles = StyleSheet.create({
   },
   rightSection: {
     alignItems: 'flex-end',
-    gap: 4,
+    gap: wp('1%'),
   },
   timestamp: {
-    fontSize: 12,
+    fontSize: wp('3.1%'),
     color: '#9CA3AF',
   },
   lastMessage: {
-    fontSize: 14,
-    color: '#9CA3AF',
-    marginTop: 4,
+    fontSize: wp('3.45%'),
+    color: '#64748B',
+    marginTop: hp('0.35%'),
   },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#26B7C9',
-    marginTop: 6,
+    marginTop: hp('0.5%'),
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   fixedBottomButton: {
     position: 'absolute',
-    bottom: 140,
+    bottom: 108,
     left: 20,
     right: 20,
   },
@@ -472,11 +498,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3ad3db',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
+    borderRadius: wp('3%'),
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -484,7 +510,7 @@ const styles = StyleSheet.create({
   },
   findCleanersButtonText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     marginLeft: 8,
   },

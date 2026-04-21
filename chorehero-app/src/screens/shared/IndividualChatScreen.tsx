@@ -74,6 +74,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const [loading, setLoading] = useState(true);
   const [realChatMode, setRealChatMode] = useState(false);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(roomId || null);
+  const [messagingUnlocked, setMessagingUnlocked] = useState(true);
   const [trackableBookingId, setTrackableBookingId] = useState<string | null>(null);
   const [trackableStatus, setTrackableStatus] = useState<string | null>(null);
   
@@ -116,12 +117,25 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const initializeChat = async () => {
     try {
       setLoading(true);
-      
+      setMessagingUnlocked(true);
+
       if (!user) {
         console.log('❌ No user - cannot load chat');
         setMessages([]);
         setLoading(false);
         return;
+      }
+
+      // When bookingId is passed, verify messaging_enabled (post-payment only)
+      if (bookingId) {
+        const { data: booking } = await supabase
+          .from('bookings')
+          .select('id, messaging_enabled')
+          .eq('id', bookingId)
+          .single();
+        if (!booking?.messaging_enabled) {
+          setMessagingUnlocked(false);
+        }
       }
 
       // Fetch cleaner data if we have a cleanerId
@@ -137,7 +151,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         }
       }
 
-      // Try to find or create a chat room
+      // Try to find or create a chat room (requires messaging_unlocked when bookingId)
       let roomToUse = currentRoomId;
       
       if (!roomToUse && cleanerId && user.id) {
@@ -380,12 +394,6 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
     console.log('Calling cleaner...');
   };
 
-  const handleTrackService = () => {
-    if (trackableBookingId) {
-      navigation.navigate('LiveTracking', { bookingId: trackableBookingId });
-    }
-  };
-
   const handleDeleteMessage = (msg: Message) => {
     if (!user) return;
 
@@ -529,12 +537,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
                 </Text>
               )}
             </View>
-            {trackableBookingId && (
-              <TouchableOpacity style={styles.trackButton} onPress={handleTrackService}>
-                <Text style={styles.trackButtonText}>Track Service</Text>
-                <Ionicons name="location" size={16} color={COLORS.primary} />
-              </TouchableOpacity>
-            )}
+            {/* Track Service button removed - mock tracking until v2 */}
           </View>
         </BlurView>
       </View>
@@ -546,10 +549,19 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         contentContainerStyle={styles.messagesContent}
         showsVerticalScrollIndicator={false}
       >
-        {messages.map(renderMessage)}
+        {!messagingUnlocked ? (
+          <View style={styles.messagingLockedBanner}>
+            <Ionicons name="lock-closed" size={32} color={COLORS.text.disabled} />
+            <Text style={styles.messagingLockedText}>Messaging unlocks after payment</Text>
+            <Text style={styles.messagingLockedSubtext}>Complete your booking to message your pro</Text>
+          </View>
+        ) : (
+          messages.map(renderMessage)
+        )}
       </ScrollView>
 
-      {/* Quick Reply Categories */}
+      {/* Quick Reply Categories - hide when messaging locked */}
+      {messagingUnlocked && (
       <View style={styles.quickReplyCategoriesContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
           {Object.keys(quickReplyTemplates).map((category) => (
@@ -571,8 +583,10 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           ))}
         </ScrollView>
       </View>
+      )}
 
-      {/* Quick Replies */}
+      {/* Quick Replies - hide when messaging locked */}
+      {messagingUnlocked && (
       <ScrollView
         horizontal
         style={styles.quickRepliesContainer}
@@ -589,35 +603,37 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           </TouchableOpacity>
         ))}
       </ScrollView>
+      )}
 
-      {/* Message Input */}
+      {/* Message Input - disabled when messaging locked */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inputContainer}
       >
         <BlurView intensity={90} style={styles.inputBlur}>
-          <View style={styles.inputContent}>
-            <TouchableOpacity style={styles.attachButton}>
-              <Ionicons name="camera" size={24} color={COLORS.text.secondary} />
+          <View style={[styles.inputContent, !messagingUnlocked && styles.inputContentDisabled]}>
+            <TouchableOpacity style={styles.attachButton} disabled={!messagingUnlocked}>
+              <Ionicons name="camera" size={24} color={messagingUnlocked ? COLORS.text.secondary : COLORS.text.disabled} />
             </TouchableOpacity>
             
             <TextInput
               style={styles.textInput}
               value={message}
               onChangeText={setMessage}
-              placeholder="Type a message..."
+              placeholder={messagingUnlocked ? "Type a message..." : "Messaging unlocks after payment"}
               placeholderTextColor={COLORS.text.disabled}
               multiline
               maxLength={500}
+              editable={messagingUnlocked}
             />
             
             <TouchableOpacity
-              style={[styles.sendButton, message.trim() && styles.sendButtonActive]}
+              style={[styles.sendButton, message.trim() && messagingUnlocked && styles.sendButtonActive]}
               onPress={handleSendMessage}
-              disabled={!message.trim()}
+              disabled={!message.trim() || !messagingUnlocked}
             >
               <LinearGradient
-                colors={message.trim() ? [COLORS.primary, '#E97E0B'] : [COLORS.border, COLORS.border]}
+                colors={message.trim() ? [COLORS.primary, '#26B7C9'] : [COLORS.border, COLORS.border]}
                 style={styles.sendButtonGradient}
               >
                 <Ionicons
@@ -640,7 +656,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -648,7 +664,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: wp('6%'),
-    paddingVertical: hp('2%'),
+    paddingVertical: hp('1.2%'),
   },
   backButton: {
     width: wp('10%'),
@@ -672,7 +688,7 @@ const styles = StyleSheet.create({
   headerAvatar: {
     width: wp('10%'),
     height: wp('10%'),
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     marginRight: wp('4%'),
   },
   headerDetails: {
@@ -691,7 +707,7 @@ const styles = StyleSheet.create({
   statusIndicator: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     backgroundColor: COLORS.success,
     marginRight: wp('1%'),
   },
@@ -713,23 +729,27 @@ const styles = StyleSheet.create({
     width: wp('10%'),
     height: wp('10%'),
     borderRadius: wp('5%'),
-    backgroundColor: '#F0FDFA',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   serviceCard: {
-    marginHorizontal: wp('6%'),
-    marginVertical: hp('2%'),
-    borderRadius: wp('4%'),
+    marginHorizontal: wp('5%'),
+    marginTop: hp('1%'),
+    marginBottom: hp('1.2%'),
+    borderRadius: 14,
     overflow: 'hidden',
   },
   serviceCardBlur: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: '#E2E8F0',
   },
   serviceCardContent: {
-    padding: wp('4%'),
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -767,14 +787,14 @@ const styles = StyleSheet.create({
   },
   messagesContainer: {
     flex: 1,
-    paddingHorizontal: wp('6%'),
+    paddingHorizontal: wp('4%'),
   },
   messagesContent: {
     paddingVertical: hp('2%'),
   },
   messageContainer: {
     flexDirection: 'row',
-    marginBottom: hp('2%'),
+    marginBottom: hp('1.2%'),
     alignItems: 'flex-end',
   },
   userMessageContainer: {
@@ -794,22 +814,20 @@ const styles = StyleSheet.create({
     marginLeft: wp('2%'),
   },
   messageBubble: {
-    maxWidth: wp('70%'),
-    borderRadius: wp('5%'),
-    padding: wp('4%'),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    maxWidth: wp('74%'),
+    borderRadius: 16,
+    paddingHorizontal: wp('3.6%'),
+    paddingVertical: hp('1.05%'),
   },
   userBubble: {
-    backgroundColor: COLORS.primary,
-    borderBottomRightRadius: 4,
+    backgroundColor: '#1FB7C9',
+    borderBottomRightRadius: 6,
   },
   cleanerBubble: {
-    backgroundColor: COLORS.surface,
-    borderBottomLeftRadius: 4,
+    backgroundColor: '#FFFFFF',
+    borderBottomLeftRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   messageImage: {
     width: '100%',
@@ -818,9 +836,9 @@ const styles = StyleSheet.create({
     marginBottom: hp('1%'),
   },
   messageText: {
-    fontSize: wp('4%'),
-    lineHeight: wp('6%'),
-    marginBottom: hp('0.5%'),
+    fontSize: wp('4.05%'),
+    lineHeight: 21,
+    marginBottom: hp('0.3%'),
   },
   userMessageText: {
     color: COLORS.text.inverse,
@@ -829,7 +847,7 @@ const styles = StyleSheet.create({
     color: COLORS.text.primary,
   },
   messageTime: {
-    fontSize: wp('3%'),
+    fontSize: wp('2.85%'),
     alignSelf: 'flex-end',
   },
   userMessageTime: {
@@ -839,24 +857,24 @@ const styles = StyleSheet.create({
     color: COLORS.text.disabled,
   },
   quickRepliesContainer: {
-    maxHeight: hp('7.5%'),
-    marginBottom: hp('1%'),
+    maxHeight: hp('6.8%'),
+    marginBottom: hp('0.6%'),
   },
   quickRepliesContent: {
     paddingHorizontal: wp('6%'),
     alignItems: 'center',
   },
   quickReplyButton: {
-    backgroundColor: COLORS.surface,
-    borderRadius: wp('5%'),
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('1%'),
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: wp('3.6%'),
+    paddingVertical: hp('0.8%'),
     marginRight: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   quickReplyText: {
-    fontSize: wp('3.5%'),
+    fontSize: wp('3.35%'),
     color: COLORS.text.secondary,
     fontWeight: TYPOGRAPHY.weights.medium,
   },
@@ -864,21 +882,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   inputBlur: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
   inputContent: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: wp('6%'),
-    paddingVertical: hp('2%'),
-    paddingBottom: hp('2.5%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    paddingBottom: hp('1.2%'),
   },
   attachButton: {
     width: wp('10%'),
     height: wp('10%'),
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
@@ -887,9 +905,9 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     backgroundColor: COLORS.surface,
-    borderRadius: wp('5%'),
+    borderRadius: 999,
     paddingHorizontal: wp('4%'),
-    paddingVertical: hp('1%'),
+    paddingVertical: hp('0.9%'),
     fontSize: wp('4%'),
     color: COLORS.text.primary,
     maxHeight: hp('12%'),
@@ -898,7 +916,7 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     marginLeft: wp('2%'),
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
   },
   sendButtonActive: {
@@ -929,7 +947,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('4%'),
     paddingVertical: hp('0.5%'),
     marginRight: wp('2%'),
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -957,6 +975,26 @@ const styles = StyleSheet.create({
     marginTop: hp('2%'),
     fontSize: wp('4%'),
     color: COLORS.text.secondary,
+  },
+  messagingLockedBanner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('8%'),
+  },
+  messagingLockedText: {
+    fontSize: wp('4.5%'),
+    fontWeight: '600',
+    color: COLORS.text.primary,
+    marginTop: hp('2%'),
+  },
+  messagingLockedSubtext: {
+    fontSize: wp('3.5%'),
+    color: COLORS.text.secondary,
+    marginTop: hp('0.5%'),
+  },
+  inputContentDisabled: {
+    opacity: 0.7,
   },
 });
 
