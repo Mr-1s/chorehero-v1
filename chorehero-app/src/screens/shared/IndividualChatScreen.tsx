@@ -66,8 +66,14 @@ interface Message {
 
 const { width } = Dimensions.get('window');
 
+const isUuid = (id: string | undefined): id is string =>
+  !!id &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
 const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route }) => {
   const { cleanerId, bookingId, roomId, otherParticipant } = route.params;
+  /** Route may pass placeholders like "general" — only real UUIDs tie to bookings / RLS */
+  const bookingUuid = isUuid(bookingId) ? bookingId : undefined;
   const { user } = useAuth();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -126,16 +132,18 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         return;
       }
 
-      // When bookingId is passed, verify messaging_enabled (post-payment only)
-      if (bookingId) {
+      // When a real booking is passed, verify messaging_enabled (post-payment only; RLS same rule)
+      if (bookingUuid) {
         const { data: booking } = await supabase
           .from('bookings')
           .select('id, messaging_enabled')
-          .eq('id', bookingId)
+          .eq('id', bookingUuid)
           .single();
         if (!booking?.messaging_enabled) {
           setMessagingUnlocked(false);
         }
+      } else if (bookingId && !bookingUuid) {
+        setMessagingUnlocked(false);
       }
 
       // Fetch cleaner data if we have a cleanerId
@@ -176,7 +184,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
           const response = await messageService.createOrGetChatRoom({
             customer_id: customerId,
             cleaner_id: resolvedCleanerId,
-            booking_id: bookingId,
+            booking_id: bookingUuid,
           });
           if (response.success && response.data) {
             roomToUse = response.data.id;

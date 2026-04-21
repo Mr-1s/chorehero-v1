@@ -31,17 +31,29 @@ serve(async (req) => {
         // Idempotency: Only process if not already captured (handles duplicate webhooks)
         const { data: booking } = await supabase
           .from("bookings")
-          .select("payment_status, stripe_payment_intent_id")
+          .select("payment_status, stripe_payment_intent_id, messaging_enabled, status")
           .eq("id", bookingId)
           .single();
 
-        if (
+        const alreadyPaid =
           booking?.payment_status === "captured" ||
           booking?.payment_status === "paid" ||
           booking?.payment_status === "succeeded" ||
-          booking?.stripe_payment_intent_id === pi.id
-        ) {
-          console.log(`⏭️ Booking ${bookingId} already processed, skipping`);
+          booking?.stripe_payment_intent_id === pi.id;
+
+        if (alreadyPaid) {
+          // Backfill messaging_enabled for rows paid before this unlock existed
+          if (booking && !booking.messaging_enabled) {
+            await supabase
+              .from("bookings")
+              .update({
+                messaging_enabled: true,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", bookingId);
+            console.log(`✅ Booking ${bookingId} messaging_enabled backfilled`);
+          }
+          console.log(`⏭️ Booking ${bookingId} already processed, skipping payment updates`);
           break;
         }
 
@@ -53,11 +65,15 @@ serve(async (req) => {
 
         if (!captured) {
           // RPC may not match (e.g. payment_status not in authorized/pending) — fallback to direct update
+          const statusBump =
+            booking?.status === "pending" ? ({ status: "confirmed" as const } as const) : {};
           const { error } = await supabase
             .from("bookings")
             .update({
               payment_status: "paid",
               stripe_payment_intent_id: pi.id,
+              messaging_enabled: true,
+              ...statusBump,
               updated_at: new Date().toISOString(),
             })
             .eq("id", bookingId);
@@ -65,10 +81,20 @@ serve(async (req) => {
           if (error) {
             console.error("Error updating booking:", error);
           } else {
-            console.log(`✅ Booking ${bookingId} marked as paid`);
+            console.log(`✅ Booking ${bookingId} marked as paid, messaging unlocked`);
           }
         } else {
-          console.log(`✅ Booking ${bookingId} captured via RPC`);
+          const statusBump =
+            booking?.status === "pending" ? ({ status: "confirmed" as const } as const) : {};
+          await supabase
+            .from("bookings")
+            .update({
+              messaging_enabled: true,
+              ...statusBump,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", bookingId);
+          console.log(`✅ Booking ${bookingId} captured via RPC, messaging unlocked`);
         }
 
         // Create payment record (idempotent by booking_id + pi.id if unique)
