@@ -41,6 +41,7 @@ import { ServiceCardData } from '../../types/serviceCard';
 import { zipLookupService } from '../../services/zipLookupService';
 import { wp, hp } from '../../utils/responsive';
 import { updateGuestSession } from '../../utils/guestSession';
+import { iconForServiceCategory } from '../../utils/serviceCategoryIcons';
 
 
 
@@ -959,16 +960,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       </TouchableOpacity>
     );
   };
-    // DoorDash-style clean category tile — icon + title + price range
-    const iconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-      cleaning: 'sparkles-outline',
-      outdoor: 'leaf-outline',
-      moving: 'cube-outline',
-      handyman: 'construct-outline',
-      automotive: 'car-outline',
-      pets: 'paw-outline',
-    };
-    const iconName = iconMap[service.category?.toLowerCase()] || 'sparkles-outline';
+    // Distinct category glyphs (no generic sparkles)
+    const iconName = iconForServiceCategory(service.category);
     return (
       <TouchableOpacity
         key={service.id}

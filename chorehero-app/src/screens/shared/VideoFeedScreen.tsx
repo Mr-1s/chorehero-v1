@@ -1915,18 +1915,24 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#F59E0B" />
-        <Text style={styles.loadingText}>Loading cleaners...</Text>
+        <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+        <ActivityIndicator size="large" color="#26B7C9" />
+        <Text style={styles.loadingText}>Loading your feed…</Text>
       </View>
     );
   }
 
   const filteredVideos = feedItems;
+  const feedHasVideos = filteredVideos.length > 0;
 
   // FIX: Remove stray comment, fix JSX structure, and correct indentation
   return (
-      <View ref={videoFeedRef} style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="black" translucent />
+      <View ref={videoFeedRef} style={[styles.container, !feedHasVideos && styles.containerLight]}>
+      <StatusBar
+        barStyle={feedHasVideos ? 'light-content' : 'dark-content'}
+        backgroundColor={feedHasVideos ? 'black' : '#F8FAFC'}
+        translucent={!!feedHasVideos}
+      />
       
       {/* Back Button for non-main sources */}
       {source !== 'main' && (
@@ -1952,7 +1958,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       )}
 
       {/* Minimal header - 60px: [Location] City [Search] [Menu] */}
-      {source === 'main' && filteredVideos.length > 0 && (
+      {source === 'main' && feedHasVideos && (
         <View style={[styles.minimalHeader, { top: insets.top }]}>
           <View style={styles.minimalHeaderLeft}>
             <Ionicons name="location" size={18} color="#FFFFFF" style={styles.minimalHeaderIcon} />
@@ -1993,7 +1999,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       )}
 
       {/* Bottom CTA bar - Book Now $[Price] (never Notify) */}
-      {filteredVideos.length > 0 && (() => {
+      {feedHasVideos && (() => {
         const item = filteredVideos[currentIndex];
         if (!item) return null;
         const price = item.provider_metadata.base_price;
@@ -2075,14 +2081,15 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       })()}
 
       
-      {filteredVideos.length === 0 ? (
-        <View style={styles.emptyStateContainer}>
+      {!feedHasVideos ? (
+        <View style={[styles.emptyStateContainer, { paddingTop: Math.max(insets.top, 12) }]}>
+          <Text style={styles.emptyBrandMark}>ChoreHero</Text>
           <View style={styles.emptyStateIconContainer}>
-            <Ionicons name="videocam-outline" size={28} color="#26B7C9" />
+            <Ionicons name="play-circle-outline" size={30} color="#26B7C9" />
           </View>
-          <Text style={styles.emptyStateTitle}>No videos yet</Text>
+          <Text style={styles.emptyStateTitle}>Nothing in your feed yet</Text>
           <Text style={styles.emptyStateSubtitle}>
-            Cleaners in your area will share their work here soon.
+            When pros near you post clips, they will show up here. Pull to refresh anytime.
           </Text>
           <TouchableOpacity
             style={styles.exploreButton}
@@ -2090,7 +2097,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             activeOpacity={0.85}
           >
             <Ionicons name="refresh" size={16} color="#FFFFFF" />
-            <Text style={styles.exploreButtonText}>Refresh feed</Text>
+            <Text style={styles.exploreButtonText}>Refresh</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -2129,8 +2136,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         <FloatingNavigation
           navigation={navigation as any}
           currentScreen="Content"
-          variant="transparent"
-          blurIntensity={0}
+          variant="glass"
         />
       )}
       
@@ -2213,6 +2219,9 @@ const styles = StyleSheet.create({
     padding: 0,
     margin: 0,
   },
+  containerLight: {
+    backgroundColor: '#F8FAFC',
+  },
   // Source-specific header styles
   sourceHeader: {
     position: 'absolute',
@@ -2257,10 +2266,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000',
+    backgroundColor: '#F8FAFC',
   },
   loadingText: {
-    color: 'white',
+    color: '#64748B',
     fontSize: wp('4%'),
     marginTop: hp('2%'),
   },
@@ -2493,7 +2502,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: wp('10%'),
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
+  },
+  emptyBrandMark: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#26B7C9',
+    letterSpacing: 1.2,
+    marginBottom: 10,
+    textTransform: 'uppercase',
   },
   emptyStateGradient: {
     flex: 1,

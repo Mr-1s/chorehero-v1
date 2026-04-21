@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Video, ResizeMode } from 'expo-av';
 import { ServiceCardData, ServiceCardVariant, ServiceCardTheme } from '../types/serviceCard';
+import { iconForServiceCategory } from '../utils/serviceCategoryIcons';
 
 // Helper to check if URL is a video file
 const isVideoUrl = (url: string): boolean => {
@@ -58,7 +59,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
   // Default theme configuration
   const defaultTheme: ServiceCardTheme = {
     variant,
-    primary_color: '#3ad3db',
+    primary_color: '#26B7C9',
     accent_color: '#ffffff',
     text_color: '#1C1C1E',
     background_style: 'image_overlay',
@@ -103,7 +104,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
 
   const renderRatingBadge = () => (
     <View style={styles.ratingBadge}>
-      <Ionicons name="star" size={12} color="#FFD700" />
+      <Ionicons name="star" size={12} color="#E6B200" />
       <Text style={styles.ratingText}>{Math.round(data.rating.average_rating * 10) / 10}</Text>
     </View>
   );
@@ -137,7 +138,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
       <View style={styles.providerContainer}>
         <Image 
           source={{ 
-            uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
+            uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=26B7C9&color=ffffff&size=32`
           }}
           style={styles.providerAvatar}
         />
@@ -152,7 +153,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           )}
         </View>
         {data.provider.is_verified && (
-          <Ionicons name="checkmark-circle" size={14} color="#3ad3db" style={styles.verificationBadge} />
+          <Ionicons name="checkmark-circle" size={14} color="#26B7C9" style={styles.verificationBadge} />
         )}
       </View>
     );
@@ -186,15 +187,17 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           }}
         />
         
-        {imageLoading && (
+        {(imageLoading || imageError) && (
           <View style={styles.imageLoader}>
-            <ActivityIndicator size="small" color="#3ad3db" />
+            <Ionicons name={iconForServiceCategory(data.category)} size={32} color="#26B7C9" />
           </View>
         )}
-        
+
         <LinearGradient
-          colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.7)']}
+          colors={['rgba(15,23,42,0)', 'rgba(15,23,42,0.55)']}
           style={styles.imageOverlay}
+          start={{ x: 0, y: 0.45 }}
+          end={{ x: 0, y: 1 }}
         />
         
         {/* Top badges */}
@@ -343,7 +346,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           ) : (
             /* Fallback gradient placeholder */
             <LinearGradient
-              colors={['#0891b2', '#06b6d4', '#22d3ee']}
+              colors={['#047B9B', '#26B7C9', '#26B7C9']}
               style={styles.videoPlaceholder}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
@@ -357,7 +360,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
           
           {imageLoading && (
             <View style={styles.videoImageSkeleton}>
-              <ActivityIndicator size="small" color="#3ad3db" />
+              <ActivityIndicator size="small" color="#26B7C9" />
             </View>
           )}
           
@@ -394,7 +397,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
             <View style={styles.videoProviderContainer}>
               <Image 
                 source={{ 
-                  uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=3ad3db&color=ffffff&size=32`
+                  uri: data.provider.cleaner_avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.provider.cleaner_name)}&background=26B7C9&color=ffffff&size=32`
                 }}
                 style={styles.videoProviderAvatar}
               />
@@ -410,7 +413,7 @@ export const ServiceCard: React.FC<ServiceCardProps> = ({
               </View>
               {data.provider.is_verified && (
                 <View style={styles.videoVerifiedBadge}>
-                  <Ionicons name="checkmark-circle" size={16} color="#3ad3db" />
+                  <Ionicons name="checkmark-circle" size={16} color="#26B7C9" />
                 </View>
               )}
             </View>
@@ -461,7 +464,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#E6F9FB',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -497,7 +500,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   featuredBadge: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -611,7 +614,7 @@ const styles = StyleSheet.create({
     bottom: 12,
     left: 12,
     right: 12,
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     paddingVertical: 8,
     borderRadius: 8,
     alignItems: 'center',
@@ -665,7 +668,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   listActionButton: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,

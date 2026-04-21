@@ -87,7 +87,8 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
     loadNewQuotesCount();
   }, [user?.id, isCustomer, currentScreen]);
   const isTransparent = variant === 'transparent';
-  const isDarkSurface = currentScreen === 'Content';
+  /** Dark “chrome” only when the tab bar floats over full-bleed video (transparent). Glass bars are always light. */
+  const isDarkSurface = currentScreen === 'Content' && isTransparent;
   const safeBottomPadding = Math.max(insets.bottom, 26);
   const getButtonColor = (screen: keyof TabParamList) => {
     if (currentScreen === screen) {
@@ -151,8 +152,9 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
         : isDarkSurface
           ? 'rgba(255, 255, 255, 0.65)'
           : '#64748B';
+    // Active label: white only on transparent overlay (video); glass/light surfaces use teal (readable on empty feed)
     const labelColor = isActive
-      ? isDarkSurface || isTransparent
+      ? isTransparent
         ? '#FFFFFF'
         : BRAND_TEAL
       : isTransparent
@@ -168,7 +170,7 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
         onPress={options?.onPress ?? (() => safeNavigate(screen))}
       >
         <View style={[styles.iconPill, isActive && styles.iconPillActive]}>
-          <Ionicons name={getIconName(screen)} size={24} color={color} />
+          <Ionicons name={getIconName(screen)} size={26} color={color} />
           {options?.badgeCount && options.badgeCount > 0 ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{options.badgeCount > 9 ? '9+' : options.badgeCount}</Text>
@@ -290,9 +292,9 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   iconPill: {
-    width: 56,
-    height: 28,
-    borderRadius: 14,
+    width: 60,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -302,8 +304,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E6FAFB',
   },
   tabLabel: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 12,
+    marginTop: 3,
     letterSpacing: -0.1,
     includeFontPadding: false,
   },

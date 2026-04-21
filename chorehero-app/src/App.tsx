@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
 
@@ -11,6 +12,10 @@ console.error = (...args) => {
       message.includes('Refresh Token Not Found') ||
       message.includes('AuthApiError')) {
     console.log('🔄 Auth error suppressed:', message.split('AuthApiError')[0]);
+    return;
+  }
+  if (message.includes('Network request failed')) {
+    console.log('📶 Network request failed (offline or weak connection)');
     return;
   }
   originalConsoleError.apply(console, args);
@@ -26,9 +31,7 @@ import { MessageProvider, useMessages } from './context/MessageContext';
 import { EnhancedMessageProvider } from './context/EnhancedMessageContext';
 import RoleBasedTabNavigator from './components/navigation/RoleBasedTabNavigator';
 import CleanerProfileScreen from './screens/shared/CleanerProfileScreen';
-import BookingConfirmationScreen from './screens/shared/BookingConfirmationScreen';
-import BookingSummaryScreen from './screens/shared/BookingSummaryScreen';
-import LiveTrackingScreen from './screens/shared/LiveTrackingScreen';
+import BookingConfirmedScreen from './screens/customer/BookingConfirmedScreen';
 import IndividualChatScreen from './screens/shared/IndividualChatScreen';
 import MessagesScreen from './screens/shared/MessagesScreen';
 import RatingReviewScreen from './screens/shared/RatingReviewScreen';
@@ -40,13 +43,16 @@ import TermsScreen from './screens/shared/TermsScreen';
 import AboutScreen from './screens/shared/AboutScreen';
 import SettingsScreen from './screens/shared/SettingsScreen';
 import AuthScreen from './screens/shared/AuthScreen';
-import AccountTypeSelectionScreen from './screens/onboarding/AccountTypeSelectionScreen';
+import WelcomeScreen from './screens/shared/WelcomeScreen';
+import PhoneVerifyScreen from './screens/shared/PhoneVerifyScreen';
+import ProfileTypeScreen from './screens/onboarding/ProfileTypeScreen';
 import CustomerOnboardingScreen from './screens/onboarding/CustomerOnboardingScreen';
 import CleanerOnboardingScreen from './screens/onboarding/CleanerOnboardingScreen';
 import OnboardingCompleteScreen from './screens/onboarding/OnboardingCompleteScreen';
 import LocationLockScreen from './screens/onboarding/LocationLockScreen';
 import WaitlistScreen from './screens/onboarding/WaitlistScreen';
-import NewBookingFlowScreen from './screens/booking/NewBookingFlowScreen';
+import UnifiedBookingScreen from './screens/booking/UnifiedBookingScreen';
+import { UnifiedBookingParams } from './types/bookingFlow';
 import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
@@ -58,9 +64,14 @@ import VideoFeedScreen from './screens/shared/VideoFeedScreen';
 import SavedVideosScreen from './screens/shared/SavedVideosScreen';
 import LikedVideosScreen from './screens/shared/LikedVideosScreen';
 import FollowListScreen from './screens/shared/FollowListScreen';
+import PostJobScreen from './screens/customer/PostJobScreen';
+import QuoteListScreen from './screens/customer/QuoteListScreen';
+import QuoteAcceptScreen from './screens/customer/QuoteAcceptScreen';
+import AdminDashboard from './screens/admin/AdminDashboard';
 // Removed unused/legacy screens not present in current StackParamList
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider, useTheme, HERO_THEME, CUSTOMER_THEME } from './context/ThemeContext';
+import { StripeProvider } from '@stripe/stripe-react-native';
 import { useRoleFeatures } from './components/RoleBasedUI';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCleanerOnboardingOverride } from './utils/onboardingOverride';
@@ -69,7 +80,6 @@ import { getCleanerOnboardingOverride } from './utils/onboardingOverride';
 // Import services for initialization
 import { pushNotificationService } from './services/pushNotifications';
 import { enhancedLocationService } from './services/enhancedLocationService';
-import { jobStateManager } from './services/jobStateManager';
 import { presenceService } from './services/presenceService';
 
 
@@ -82,19 +92,16 @@ type TabParamList = {
 };
 
 type StackParamList = {
+  Welcome: undefined;
   AuthScreen: undefined;
-  AccountTypeSelection: undefined;
-  CustomerOnboarding: undefined;
+  PhoneVerify: { phone: string };
+  ProfileType: undefined;
+  CustomerOnboarding: { zip?: string; city?: string; state?: string } | undefined;
   CleanerOnboarding: undefined;
   OnboardingComplete: undefined;
   LocationLock: undefined;
   Waitlist: { zip: string; city?: string; state?: string };
-  NewBookingFlow: {
-    cleanerId?: string;
-    serviceType?: string;
-    serviceName?: string;
-    basePrice?: number;
-  };
+  UnifiedBooking: UnifiedBookingParams;
   ServiceDetail: {
     serviceId: string;
     serviceName: string;
@@ -102,31 +109,9 @@ type StackParamList = {
   };
   MainTabs: undefined;
   CleanerProfile: { cleanerId: string; activeTab?: 'videos' | 'services' | 'reviews' | 'about' };
-  BookingConfirmation: {
-    bookingId: string;
-    service?: {
-      title: string;
-      duration: string;
-      price: number;
-    };
-    cleaner?: {
-      id: string;
-      name: string;
-      avatar: string;
-      rating: number;
-      eta: string;
-    };
-    address?: string;
-    scheduledTime?: string;
-  };
-  BookingSummary: {
-    cleanerId: string;
-    cleanerName?: string;
-    hourlyRate?: number;
-    selectedService?: string;
-    selectedTime?: string;
-  };
-  LiveTracking: { bookingId: string };
+  BookingConfirmed: { bookingId: string };
+  QuoteList: { jobId: string };
+  QuoteAccept: { jobId: string; quoteId: string };
   IndividualChat: { cleanerId: string; bookingId: string };
   RatingReview: {
     bookingId: string;
@@ -170,6 +155,7 @@ type StackParamList = {
     type?: 'followers' | 'following';
     userName?: string;
   };
+  AdminDashboard: undefined;
 };
 
 const Tab = createBottomTabNavigator<TabParamList>();
@@ -178,8 +164,14 @@ const Stack = createStackNavigator<StackParamList>();
 // Role-based tab navigator - replaces the static TabNavigator
 const TabNavigator = RoleBasedTabNavigator;
 
+// Wrapper that keys MainTabs by user id - forces full remount when switching accounts (fixes stale state)
+function MainTabsScreen() {
+  const { user } = useAuth();
+  return <TabNavigator key={user?.id ?? 'anonymous'} />;
+}
+
 const AppNavigator = () => {
-  const { isAuthenticated, user, isLoading } = useAuth();
+  const { isAuthenticated, user, isLoading, isGuestMode } = useAuth();
   const navigationRef = useRef<any>(null);
   const [restoredRoute, setRestoredRoute] = useState<{ name: keyof StackParamList; params?: any } | null>(null);
   const [guestZip, setGuestZip] = useState<string | null>(null);
@@ -203,13 +195,13 @@ const AppNavigator = () => {
     inferredRole === 'cleaner' &&
     (user?.cleaner_onboarding_state === 'STAGING' ||
       user?.cleaner_onboarding_state === 'LIVE' ||
-      (user?.cleaner_onboarding_step !== undefined && user.cleaner_onboarding_step >= 6) ||
+      (user?.cleaner_onboarding_step !== undefined && user.cleaner_onboarding_step >= 2) ||
       cleanerOnboardingOverride ||
       getCleanerOnboardingOverride());
 
   // Determine the correct initial route based on auth state and onboarding completion
   const getInitialRoute = (): keyof StackParamList => {
-    if (!isAuthenticated) return "AuthScreen";
+    if (!isAuthenticated) return "Welcome";
     if (
       !user?.role &&
       !pendingRole &&
@@ -218,7 +210,7 @@ const AppNavigator = () => {
       !user?.customer_onboarding_state &&
       user?.customer_onboarding_step === undefined
     ) {
-      return "AccountTypeSelection";
+      return "ProfileType";
     }
     if (inferredRole === 'customer' && !isCustomerComplete) {
       console.log('📋 Customer onboarding incomplete - routing to LocationLock');
@@ -262,9 +254,12 @@ const AppNavigator = () => {
     loadLastRoute();
   }, []);
 
-  const getSafeRoute = () => {
+  type SafeRoute = { name: keyof StackParamList; params?: Record<string, unknown> };
+
+  const getSafeRoute = (): SafeRoute => {
     if (!isAuthenticated) {
-      return { name: 'AuthScreen' };
+      if (isGuestMode) return { name: 'MainTabs' };
+      return { name: 'Welcome' };
     }
     const shouldBypassLocationLock =
       isAuthenticated &&
@@ -277,24 +272,32 @@ const AppNavigator = () => {
     if (shouldBypassLocationLock && restoredRoute?.name === 'LocationLock') {
       return { name: 'MainTabs' };
     }
-    // Only use restored route when user has chosen a role; new signups must see AccountTypeSelection
+    // Only use restored route when user has chosen a role; new signups must see ProfileType
     const hasChosenRole = !!(user?.role || pendingRole);
     if (
       restoredRoute?.name &&
-      !['AuthScreen', 'AccountTypeSelection'].includes(restoredRoute.name) &&
+      !['Welcome', 'AuthScreen', 'ProfileType'].includes(restoredRoute.name) &&
       hasChosenRole
     ) {
-      return restoredRoute;
+      return { name: restoredRoute.name as keyof StackParamList, params: restoredRoute.params };
     }
     return { name: getInitialRoute() };
   };
 
-  // Handle navigation when auth state changes (after loading)
+  // Handle navigation when auth state changes (after initial mount)
   useEffect(() => {
     if (isLoading || !bootstrapReady || !navigationRef.current) {
       return;
     }
     const nextRoute = getSafeRoute();
+    const state = navigationRef.current.getRootState();
+    const current = state?.routes?.[state.index];
+    const sameName = current?.name === nextRoute.name;
+    const sameParams =
+      JSON.stringify(current?.params ?? {}) === JSON.stringify(nextRoute.params ?? {});
+    if (sameName && sameParams) {
+      return;
+    }
     if (nextRoute.name === 'MainTabs') {
       console.log('✅ User onboarding complete, navigating to MainTabs');
     }
@@ -304,7 +307,18 @@ const AppNavigator = () => {
         routes: [{ name: nextRoute.name, params: nextRoute.params }],
       })
     );
-  }, [isLoading, bootstrapReady, isAuthenticated, user?.role, pendingRole, isCustomerComplete, isCleanerComplete, restoredRoute]);
+  }, [isLoading, bootstrapReady, isAuthenticated, isGuestMode, user?.role, pendingRole, isCustomerComplete, isCleanerComplete, restoredRoute]);
+
+  async function initializeServices(userId: string) {
+    try {
+      await pushNotificationService.initialize(userId);
+      await enhancedLocationService.initialize();
+      await presenceService.initialize(userId);
+      console.log('Services initialized successfully');
+    } catch (error) {
+      console.error('Error initializing services:', error);
+    }
+  }
 
   // Initialize services when user is authenticated
   React.useEffect(() => {
@@ -319,26 +333,15 @@ const AppNavigator = () => {
     };
   }, [isAuthenticated, user?.id]);
 
-  if (isLoading) {
-    return null;
+  if (isLoading || !bootstrapReady) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFFFFF' }}>
+        <ActivityIndicator size="large" color="#26B7C9" />
+      </View>
+    );
   }
 
-  const initializeServices = async (userId: string) => {
-    try {
-      // Initialize push notifications
-      await pushNotificationService.initialize(userId);
-      
-      // Initialize location service
-      await enhancedLocationService.initialize();
-
-      // Initialize presence
-      await presenceService.initialize(userId);
-
-      console.log('Services initialized successfully');
-    } catch (error) {
-      console.error('Error initializing services:', error);
-    }
-  };
+  const initialRoute = getSafeRoute();
 
   const persistRoute = (state: any) => {
     try {
@@ -352,14 +355,20 @@ const AppNavigator = () => {
   };
 
   return (
-    <NavigationContainer ref={navigationRef} onStateChange={persistRoute}>
-      <Stack.Navigator 
-        screenOptions={{ headerShown: false }}
-        initialRouteName="AuthScreen"
-      >
+    <NavigationContainer
+      ref={navigationRef}
+      onStateChange={persistRoute}
+      initialState={{
+        routes: [{ name: initialRoute.name, params: initialRoute.params }],
+        index: 0,
+      }}
+    >
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
           {/* Authentication Flow */}
+          <Stack.Screen name="Welcome" component={WelcomeScreen} />
           <Stack.Screen name="AuthScreen" component={AuthScreen} />
-          <Stack.Screen name="AccountTypeSelection" component={AccountTypeSelectionScreen} />
+          <Stack.Screen name="PhoneVerify" component={PhoneVerifyScreen} />
+          <Stack.Screen name="ProfileType" component={ProfileTypeScreen} />
           <Stack.Screen name="CustomerOnboarding" component={CustomerOnboardingScreen} />
           <Stack.Screen name="CleanerOnboarding" component={CleanerOnboardingScreen} />
           <Stack.Screen name="OnboardingComplete" component={OnboardingCompleteScreen} />
@@ -370,18 +379,16 @@ const AppNavigator = () => {
           />
           <Stack.Screen name="Waitlist" component={WaitlistScreen} />
           
-          {/* Main App Flow */}
-          <Stack.Screen name="MainTabs" component={TabNavigator} />
+          {/* Main App Flow - MainTabsScreen keys by user id to force remount when switching accounts */}
+          <Stack.Screen name="MainTabs" component={MainTabsScreen} />
           
           {/* Booking Flow */}
-          <Stack.Screen name="NewBookingFlow" component={NewBookingFlowScreen} />
+          <Stack.Screen name="UnifiedBooking" component={UnifiedBookingScreen} />
           <Stack.Screen name="ServiceDetail" component={ServiceDetailScreen} />
           
           {/* Other Screens */}
           <Stack.Screen name="CleanerProfile" component={CleanerProfileScreen} />
-          <Stack.Screen name="BookingConfirmation" component={BookingConfirmationScreen} />
-          <Stack.Screen name="BookingSummary" component={BookingSummaryScreen} />
-          <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} />
+          <Stack.Screen name="BookingConfirmed" component={BookingConfirmedScreen} />
           <Stack.Screen name="IndividualChat" component={IndividualChatScreen} />
           <Stack.Screen name="Messages" component={MessagesScreen} />
           <Stack.Screen name="RatingReview" component={RatingReviewScreen} />
@@ -404,7 +411,10 @@ const AppNavigator = () => {
           <Stack.Screen name="SavedVideos" component={SavedVideosScreen} />
           <Stack.Screen name="LikedVideos" component={LikedVideosScreen} />
           <Stack.Screen name="FollowList" component={FollowListScreen} />
-          
+          <Stack.Screen name="PostJob" component={PostJobScreen} />
+          <Stack.Screen name="QuoteList" component={QuoteListScreen} />
+          <Stack.Screen name="QuoteAccept" component={QuoteAcceptScreen} />
+          <Stack.Screen name="AdminDashboard" component={AdminDashboard} />
 
         </Stack.Navigator>
       </NavigationContainer>
@@ -432,23 +442,27 @@ export default function App() {
     return <SplashHero onDone={handleSplashFinish} />;
   }
 
+  const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || '';
+
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <LocationProvider>
-          <MessageProvider>
-            <EnhancedMessageWrapper>
-              <ThemeProvider initialTheme={HERO_THEME}>
-                <RoleThemeObserver>
-                  <ToastProvider>
-                    <AppNavigator />
-                  </ToastProvider>
-                </RoleThemeObserver>
-              </ThemeProvider>
-            </EnhancedMessageWrapper>
-          </MessageProvider>
-        </LocationProvider>
-      </AuthProvider>
+      <StripeProvider publishableKey={stripePublishableKey}>
+        <AuthProvider>
+          <LocationProvider>
+            <MessageProvider>
+              <EnhancedMessageWrapper>
+                <ThemeProvider initialTheme={HERO_THEME}>
+                  <RoleThemeObserver>
+                    <ToastProvider>
+                      <AppNavigator />
+                    </ToastProvider>
+                  </RoleThemeObserver>
+                </ThemeProvider>
+              </EnhancedMessageWrapper>
+            </MessageProvider>
+          </LocationProvider>
+        </AuthProvider>
+      </StripeProvider>
     </SafeAreaProvider>
   );
 }
