@@ -287,7 +287,7 @@ const styles = StyleSheet.create({
   heroText: {
     fontSize: 45,
     fontWeight: '800',
-    color: '#06b6d4',
+    color: '#26B7C9',
     letterSpacing: 1,
     textShadowColor: 'rgba(0, 0, 0, 0.4)',
     textShadowOffset: { width: 0, height: 2 },

@@ -20,6 +20,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { wp, hp } from '../../utils/responsive';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 interface ScheduleScreenProps {
   navigation: StackNavigationProp<any>;
@@ -41,6 +42,8 @@ interface Booking {
   duration: string;
   amount: number;
   status: 'confirmed' | 'pending' | 'in_progress' | 'completed';
+  jobLatitude?: number | null;
+  jobLongitude?: number | null;
 }
 
 const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
@@ -111,7 +114,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
           estimated_duration,
           total_amount,
           special_instructions,
-          address:addresses!address_id(street, city, state, zip_code),
+          address:addresses!address_id(street, city, state, zip_code, latitude, longitude),
           customer:users!bookings_customer_id_fkey(id, name, avatar_url)
         `)
         .or(`cleaner_id.eq.${user.id},cleaner_id.is.null`)
@@ -125,16 +128,22 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
         if (!addr) return 'Address not provided';
         return [addr.street, addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ') || 'Address not provided';
       };
-      const transformedBookings: Booking[] = (bookings || []).map((b: any) => ({
-        id: b.id,
-        customerName: b.customer?.name || 'Customer',
-        address: formatAddress(b.address),
-        serviceType: formatServiceType(b.service_type),
-        time: formatDateTime(b.scheduled_time),
-        duration: formatDuration(b.estimated_duration || 120),
-        amount: b.total_amount || 0,
-        status: b.status === 'cleaner_assigned' || b.status === 'cleaner_en_route' ? 'confirmed' : b.status,
-      }));
+      const transformedBookings: Booking[] = (bookings || []).map((b: any) => {
+        const lat = b.address?.latitude;
+        const lng = b.address?.longitude;
+        return {
+          id: b.id,
+          customerName: b.customer?.name || 'Customer',
+          address: formatAddress(b.address),
+          serviceType: formatServiceType(b.service_type),
+          time: formatDateTime(b.scheduled_time),
+          duration: formatDuration(b.estimated_duration || 120),
+          amount: b.total_amount || 0,
+          status: b.status === 'cleaner_assigned' || b.status === 'cleaner_en_route' ? 'confirmed' : b.status,
+          jobLatitude: lat != null && lat !== '' ? Number(lat) : null,
+          jobLongitude: lng != null && lng !== '' ? Number(lng) : null,
+        };
+      });
 
       setUpcomingBookings(transformedBookings);
 
@@ -316,7 +325,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
       <ScrollView 
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#26B7C9" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FFA52F" />
         }
       >
         {selectedTab === 'bookings' ? (
@@ -343,7 +352,7 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
               
               {isLoading ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#26B7C9" />
+                  <ActivityIndicator size="large" color="#FFA52F" />
                   <Text style={styles.loadingText}>Loading schedule...</Text>
                 </View>
               ) : upcomingBookings.length === 0 ? (
@@ -379,6 +388,44 @@ const ScheduleScreen: React.FC<ScheduleScreenProps> = ({ navigation }) => {
                       <Text style={styles.detailText}>{booking.address}</Text>
                     </View>
                   </View>
+
+                  {typeof booking.jobLatitude === 'number' &&
+                    typeof booking.jobLongitude === 'number' &&
+                    Number.isFinite(booking.jobLatitude) &&
+                    Number.isFinite(booking.jobLongitude) && (
+                    <View style={styles.scheduleMapBlock}>
+                      <MapView
+                        provider={PROVIDER_GOOGLE}
+                        style={styles.scheduleMap}
+                        scrollEnabled={false}
+                        zoomEnabled={false}
+                        rotateEnabled={false}
+                        pitchEnabled={false}
+                        initialRegion={{
+                          latitude: booking.jobLatitude!,
+                          longitude: booking.jobLongitude!,
+                          latitudeDelta: 0.02,
+                          longitudeDelta: 0.02,
+                        }}
+                      >
+                        <Marker
+                          coordinate={{
+                            latitude: booking.jobLatitude!,
+                            longitude: booking.jobLongitude!,
+                          }}
+                        />
+                      </MapView>
+                      <TouchableOpacity
+                        style={styles.scheduleLiveMapButton}
+                        onPress={() => (navigation as any).navigate('LiveTracking', { bookingId: booking.id })}
+                        activeOpacity={0.88}
+                      >
+                        <Ionicons name="map" size={16} color="#FFFFFF" />
+                        <Text style={styles.scheduleLiveMapText}>Live map & tracking</Text>
+                        <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {booking.status === 'pending' && (
                     <View style={styles.actionButtons}>
@@ -536,7 +583,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   activeTabText: {
-    color: '#0D9488',
+    color: '#B45309',
     fontWeight: '700',
   },
   bookingsContainer: {
@@ -606,7 +653,7 @@ const styles = StyleSheet.create({
   amountText: {
     fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#0F766E',
+    color: '#B45309',
     marginBottom: hp('0.5%'),
   },
   statusBadge: {
@@ -632,6 +679,30 @@ const styles = StyleSheet.create({
     color: '#718096',
     marginLeft: 8,
   },
+  scheduleMapBlock: {
+    borderRadius: wp('2%'),
+    overflow: 'hidden',
+    marginBottom: hp('1.5%'),
+  },
+  scheduleMap: {
+    width: '100%',
+    height: 120,
+  },
+  scheduleLiveMapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFA52F',
+    paddingVertical: hp('1.1%'),
+    paddingHorizontal: wp('3%'),
+  },
+  scheduleLiveMapText: {
+    flex: 1,
+    fontSize: wp('3.5%'),
+    fontWeight: '600',
+    color: '#ffffff',
+  },
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -648,7 +719,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
   },
   acceptButton: {
-    backgroundColor: '#26B7C9',
+    backgroundColor: '#FFA52F',
   },
   declineButtonText: {
     fontSize: wp('3.5%'),
@@ -703,12 +774,12 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: wp('1%'),
-    backgroundColor: '#26B7C9',
+    backgroundColor: '#FFA52F',
     marginRight: 8,
   },
   toggleText: {
     fontSize: wp('3.5%'),
-    color: '#26B7C9',
+    color: '#FFA52F',
     fontWeight: '600',
   },
   scheduleSection: {
@@ -745,7 +816,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   availabilityToggleActive: {
-    backgroundColor: '#26B7C9',
+    backgroundColor: '#FFA52F',
   },
   toggleKnob: {
     width: 20,

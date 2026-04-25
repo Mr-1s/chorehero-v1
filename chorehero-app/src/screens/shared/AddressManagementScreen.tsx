@@ -17,6 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { geocodeMailingAddress } from '../../services/addressGeocoding';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   AddressManagementScreen: undefined;
@@ -101,16 +103,30 @@ const AddressManagementScreen: React.FC<AddressManagementScreenProps> = ({ navig
           .eq('user_id', user.id);
       }
 
+      const street = newAddress.street.trim();
+      const city = newAddress.city.trim();
+      const state = newAddress.state.trim();
+      const zip_code = newAddress.zip_code.trim();
+
+      const geo = await geocodeMailingAddress({
+        street,
+        city,
+        state,
+        zip_code,
+        country: newAddress.country || 'US',
+      });
+
       const addressData = {
         user_id: user.id,
-        street: newAddress.street.trim(),
-        city: newAddress.city.trim(),
-        state: newAddress.state.trim(),
-        zip_code: newAddress.zip_code.trim(),
+        street,
+        city,
+        state,
+        zip_code,
         country: newAddress.country,
         nickname: newAddress.nickname?.trim() || null,
         access_instructions: newAddress.access_instructions?.trim() || null,
         is_default: newAddress.is_default,
+        ...(geo ? { latitude: geo.latitude, longitude: geo.longitude } : {}),
       };
 
       if (editingAddress?.id) {
@@ -307,7 +323,7 @@ const AddressManagementScreen: React.FC<AddressManagementScreenProps> = ({ navig
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading addresses...</Text>
         </View>
       </SafeAreaView>
@@ -331,7 +347,7 @@ const AddressManagementScreen: React.FC<AddressManagementScreenProps> = ({ navig
           style={styles.addButton}
           onPress={openAddModal}
         >
-          <Ionicons name="add" size={24} color="#3ad3db" />
+          <Ionicons name="add" size={24} color="#26B7C9" />
         </TouchableOpacity>
       </View>
 
@@ -452,16 +468,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 16,
+    marginTop: hp('1.5%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -469,20 +485,20 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   addButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
@@ -494,25 +510,25 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
+    paddingVertical: hp('10%'),
   },
   emptyStateTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
     textAlign: 'center',
   },
   addressCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
@@ -520,7 +536,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   addressTitleRow: {
     flexDirection: 'row',
@@ -528,19 +544,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   addressNickname: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     marginRight: 8,
   },
   defaultBadge: {
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   defaultBadgeText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -552,26 +568,26 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   addressText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   accessInstructions: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     fontStyle: 'italic',
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   setDefaultButton: {
-    marginTop: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    marginTop: hp('1.5%'),
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('4%'),
     backgroundColor: '#F3F4F6',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     alignSelf: 'flex-start',
   },
   setDefaultButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
   },
@@ -583,8 +599,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -593,11 +609,11 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   modalCancelText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
@@ -605,30 +621,30 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   modalSaveText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   modalScrollView: {
     flex: 1,
     padding: 20,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   input: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
+    fontSize: wp('4%'),
     color: '#1F2937',
     backgroundColor: '#FFFFFF',
   },
@@ -646,24 +662,24 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   checkbox: {
     width: 24,
     height: 24,
     borderWidth: 2,
     borderColor: '#D1D5DB',
-    borderRadius: 6,
+    borderRadius: wp('1.5%'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   checkboxChecked: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
   },
   checkboxLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#374151',
   },
 });

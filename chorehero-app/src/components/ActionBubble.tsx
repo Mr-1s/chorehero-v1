@@ -105,8 +105,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   activeBubble: {
-    backgroundColor: '#3ad3db',
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

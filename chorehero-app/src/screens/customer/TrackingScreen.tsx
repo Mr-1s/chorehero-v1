@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { COLORS } from '../../utils/constants';
+import { wp, hp } from '../../utils/responsive';
 
 
 interface TrackingData {
@@ -262,24 +263,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: COLORS.text.primary,
   },
   content: {
     padding: 16,
-    gap: 16,
+    gap: wp('4%'),
   },
   
   // Status Card
   statusCard: {
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   statusGradient: {
@@ -288,10 +289,10 @@ const styles = StyleSheet.create({
   },
   statusHeader: {
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   statusText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: COLORS.text.inverse,
     textAlign: 'center',
@@ -300,30 +301,30 @@ const styles = StyleSheet.create({
   // Details Card
   detailsCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 12,
+    marginBottom: hp('1.5%'),
+    gap: wp('3%'),
   },
   detailLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     flex: 1,
   },
   detailValue: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.primary,
     flex: 2,
@@ -334,26 +335,26 @@ const styles = StyleSheet.create({
   actionsCard: {
     flexDirection: 'row',
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    gap: 16,
+    gap: wp('4%'),
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingVertical: hp('1.5%'),
     backgroundColor: COLORS.background,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.primary,
-    gap: 6,
+    gap: wp('1.5%'),
   },
   actionButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.primary,
   },
@@ -361,7 +362,7 @@ const styles = StyleSheet.create({
   // Timeline Card
   timelineCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -369,13 +370,13 @@ const styles = StyleSheet.create({
   timelineStep: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 12,
+    marginBottom: hp('2%'),
+    gap: wp('3%'),
   },
   timelineMarker: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: COLORS.surface,
     borderWidth: 2,
     borderColor: COLORS.border,
@@ -394,7 +395,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   timelineLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.secondary,
     marginBottom: 2,
@@ -404,7 +405,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   timelineTime: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
 
@@ -413,16 +414,16 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: wp('4%'),
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: COLORS.text.secondary,
   },
   emptyContainer: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 40,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('5%'),
   },
 });
 

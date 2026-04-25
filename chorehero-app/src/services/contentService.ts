@@ -19,6 +19,7 @@ import {
   ContentUploadProgress
 } from '../types/content';
 import { ApiResponse } from '../types/api';
+import type { UserRow, CleanerProfileRow } from '../types/supabaseRows';
 import * as FileSystem from 'expo-file-system/legacy';
 
 class ContentService {
@@ -105,7 +106,12 @@ class ContentService {
         published_at: postData.status !== 'draft' ? new Date().toISOString() : null,
       };
 
-      if (postData.is_bookable != null) insertData.is_bookable = postData.is_bookable;
+      if ((postData as any).service_id) insertData.service_id = (postData as any).service_id;
+      if ((postData as any).pro_service_id) insertData.pro_service_id = (postData as any).pro_service_id;
+      // Always send is_bookable so the row doesn't fall back to the table default
+      // of `false`. The cleaner-feed RPC excludes rows with `is_bookable = false`
+      // (it only shows true OR NULL), so leaving it implicit hides the post.
+      insertData.is_bookable = postData.is_bookable ?? null;
       if (postData.package_type) insertData.package_type = postData.package_type;
       if (postData.base_price_cents != null) insertData.base_price_cents = postData.base_price_cents;
       if (postData.price_range) insertData.price_range = postData.price_range;
@@ -355,17 +361,19 @@ class ContentService {
    * Note: Disabled aggressive validation - just return all posts
    * The video player will handle missing files gracefully
    */
-  async validateVideoUrls(posts: any[]): Promise<any[]> {
+  async validateVideoUrls<T extends { user_id?: string }>(posts: T[]): Promise<T[]> {
     // Skip validation - just return all posts
     // The video player will show an error if a file is missing
     console.log(`✅ Returning all ${posts.length} posts (validation disabled)`);
     return posts;
   }
 
-  private async enrichPostsWithProfiles(posts: any[]): Promise<any[]> {
+  private async enrichPostsWithProfiles<T extends { user_id: string }>(
+    posts: T[]
+  ): Promise<Array<T & { user: (UserRow & { cleaner_profiles: CleanerProfileRow | null }) | null }>> {
     if (!posts || posts.length === 0) return [];
-    const userIds = Array.from(new Set(posts.map((post: any) => post.user_id).filter(Boolean)));
-    if (userIds.length === 0) return posts;
+    const userIds = Array.from(new Set(posts.map((post) => post.user_id).filter(Boolean)));
+    if (userIds.length === 0) return posts.map((post) => ({ ...post, user: null }));
 
     const { data: users } = await supabase
       .from('users')
@@ -377,20 +385,19 @@ class ContentService {
       .select('user_id, hourly_rate, rating_average, total_jobs, verification_status')
       .in('user_id', userIds);
 
-    const userMap = new Map((users || []).map((user: any) => [user.id, user]));
-    const profileMap = new Map((cleanerProfiles || []).map((profile: any) => [profile.user_id, profile]));
+    const userMap = new Map<string, UserRow>(
+      ((users as UserRow[] | null) || []).map((user) => [user.id, user])
+    );
+    const profileMap = new Map<string, CleanerProfileRow>(
+      ((cleanerProfiles as CleanerProfileRow[] | null) || []).map((profile) => [profile.user_id, profile])
+    );
 
-    return posts.map((post: any) => {
-      const user = userMap.get(post.user_id);
-      const cleanerProfile = profileMap.get(post.user_id);
+    return posts.map((post) => {
+      const user = userMap.get(post.user_id) ?? null;
+      const cleanerProfile = profileMap.get(post.user_id) ?? null;
       return {
         ...post,
-        user: user
-          ? {
-              ...user,
-              cleaner_profiles: cleanerProfile || null,
-            }
-          : null,
+        user: user ? { ...user, cleaner_profiles: cleanerProfile } : null,
       };
     });
   }

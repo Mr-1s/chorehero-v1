@@ -10,8 +10,22 @@
 import { supabase } from './supabase';
 import type { Booking } from '../types/cleaner';
 
+interface RawAddress {
+  street: string;
+  city: string;
+  state: string;
+  zip_code: string;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
+}
+
+interface RawJob {
+  headline?: string;
+}
+
 interface RawBooking {
   id: string;
+  job_id: string | null;
   customer_id: string;
   cleaner_id: string | null;
   service_type: string;
@@ -23,7 +37,8 @@ interface RawBooking {
   total_amount: number;
   cleaner_earnings: number | null;
   created_at: string;
-  address: string | null; // Text field with full address
+  messaging_enabled?: boolean;
+  address: RawAddress | null; // Joined from addresses via address_id
   bedrooms: number | null;
   bathrooms: number | null;
   square_feet: number | null;
@@ -33,14 +48,33 @@ interface RawBooking {
     id: string;
     name: string;
     avatar_url: string | null;
+    customer_profile?: {
+      average_rating?: number | null;
+      total_bookings?: number | null;
+    } | Array<{
+      average_rating?: number | null;
+      total_bookings?: number | null;
+    }> | null;
   } | null;
+  job?: RawJob | null; // Joined when booking has job_id (quote flow)
 }
 
 class CleanerBookingService {
+  /**
+   * In-flight mutating actions per (cleaner, booking). Prevents double-tap
+   * accepts and double "mark complete" submissions.
+   */
+  private inFlightActions = new Set<string>();
+
+  private actionKey(cleanerId: string, bookingId: string, action: string): string {
+    return `${cleanerId}:${bookingId}:${action}`;
+  }
+
   private buildBookingSelect(includePets: boolean): string {
     const petFields = includePets ? 'has_pets,\n      pet_details,\n      ' : '';
     return `
       id,
+      job_id,
       customer_id,
       cleaner_id,
       service_type,
@@ -52,17 +86,28 @@ class CleanerBookingService {
       total_amount,
       cleaner_earnings,
       created_at,
-      address,
+      messaging_enabled,
+      address:addresses!address_id(street, city, state, zip_code, latitude, longitude),
       bedrooms,
       bathrooms,
       square_feet,
       ${petFields}
+      job:jobs(headline),
       customer:users!customer_id(
         id,
         name,
-        avatar_url
+        avatar_url,
+        customer_profile:customer_profiles(average_rating, total_bookings)
       )
     `;
+  }
+
+  private parseQuoteJobIdFromSpecial(special: string | null | undefined): string | null {
+    if (!special) return null;
+    const m = special.match(
+      /Job from quote - ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+    );
+    return m ? m[1] : null;
   }
 
   /**
@@ -71,18 +116,34 @@ class CleanerBookingService {
   private transformBooking(raw: RawBooking): Booking {
     const scheduledDate = new Date(raw.scheduled_time);
     
+    const serviceTypeDisplay = raw.job?.headline || this.formatServiceType(raw.service_type);
+    const quoteJobId = raw.job_id || this.parseQuoteJobIdFromSpecial(raw.special_instructions);
+    const customerProfile = Array.isArray(raw.customer?.customer_profile)
+      ? raw.customer?.customer_profile[0]
+      : raw.customer?.customer_profile;
     return {
       id: raw.id,
+      customerId: raw.customer_id || raw.customer?.id,
       customerName: raw.customer?.name || 'Customer',
-      customerAvatarUrl: raw.customer?.avatar_url || 'https://via.placeholder.com/48',
-      customerRating: 4.8, // TODO: Fetch from ratings table
-      customerTotalBookings: 0, // TODO: Count from bookings table
-      serviceType: this.formatServiceType(raw.service_type),
+      customerAvatarUrl: raw.customer?.avatar_url || '',
+      customerRating: Number(customerProfile?.average_rating ?? 0),
+      customerTotalBookings: Number(customerProfile?.total_bookings ?? 0),
+      serviceType: serviceTypeDisplay,
       status: this.mapStatus(raw.status),
       scheduledAt: raw.scheduled_time,
       durationMinutes: raw.estimated_duration,
       distanceMiles: 2.5, // TODO: Calculate from cleaner location
-      addressLine1: raw.address || 'Address not provided',
+      addressLine1: raw.address
+        ? [raw.address.street, raw.address.city, raw.address.state, raw.address.zip_code].filter(Boolean).join(', ')
+        : 'Address not provided',
+      jobLatitude:
+        raw.address?.latitude != null && raw.address.latitude !== ''
+          ? Number(raw.address.latitude)
+          : null,
+      jobLongitude:
+        raw.address?.longitude != null && raw.address.longitude !== ''
+          ? Number(raw.address.longitude)
+          : null,
       hasSpecialRequests: !!raw.special_instructions,
       specialRequestText: raw.special_instructions || undefined,
       totalPrice: parseFloat(String(raw.total_amount)) || 0,
@@ -95,6 +156,8 @@ class CleanerBookingService {
       hasPets: raw.has_pets ?? this.extractHasPets(raw.special_instructions),
       petDetails: raw.pet_details || null,
       accessInstructions: raw.access_instructions || null,
+      messagingEnabled: !!raw.messaging_enabled,
+      quoteJobId: quoteJobId || null,
     };
   }
 
@@ -130,7 +193,7 @@ class CleanerBookingService {
       'pending': 'offered',
       'confirmed': 'accepted',
       'cleaner_en_route': 'on_the_way',
-      'cleaner_arrived': 'on_the_way',
+      'cleaner_arrived': 'arrived',
       'in_progress': 'in_progress',
       'completed': 'completed',
       'cancelled': 'cancelled',
@@ -138,10 +201,15 @@ class CleanerBookingService {
     return statusMap[status] || 'offered';
   }
 
+  private isValidUUID(id: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  }
+
   /**
    * Get available bookings for a cleaner (jobs they can accept)
    */
   async getAvailableBookings(cleanerId: string): Promise<Booking[]> {
+    if (!this.isValidUUID(cleanerId)) return [];
     try {
       // Get cleaner's service radius
       const { data: cleanerProfile } = await supabase
@@ -183,16 +251,23 @@ class CleanerBookingService {
 
   /**
    * Get active bookings for a cleaner (confirmed + in-progress jobs)
+   * 7-day window: only shows jobs scheduled within the next 7 days
    * Note: 'pending' status bookings appear in Available Jobs, not here
    */
   async getActiveBookings(cleanerId: string): Promise<Booking[]> {
+    if (!this.isValidUUID(cleanerId)) return [];
     try {
+      const now = new Date();
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       const runQuery = async (includePets: boolean) => (
         supabase
           .from('bookings')
           .select(this.buildBookingSelect(includePets))
           .eq('cleaner_id', cleanerId)
           .in('status', ['confirmed', 'cleaner_assigned', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
+          .gte('scheduled_time', oneDayAgo.toISOString())
+          .lte('scheduled_time', sevenDaysFromNow.toISOString())
           .order('scheduled_time', { ascending: true })
       );
 
@@ -217,6 +292,7 @@ class CleanerBookingService {
    * Get past bookings for a cleaner (completed jobs)
    */
   async getPastBookings(cleanerId: string): Promise<Booking[]> {
+    if (!this.isValidUUID(cleanerId)) return [];
     try {
       const runQuery = async (includePets: boolean) => (
         supabase
@@ -250,6 +326,12 @@ class CleanerBookingService {
    * Blocks if Stripe onboarding not complete (prevents accepted jobs that can't pay out)
    */
   async acceptBooking(bookingId: string, cleanerId: string): Promise<boolean> {
+    const key = this.actionKey(cleanerId, bookingId, 'accept');
+    if (this.inFlightActions.has(key)) {
+      console.warn('acceptBooking: duplicate request ignored for', key);
+      return false;
+    }
+    this.inFlightActions.add(key);
     try {
       // Enforce Stripe onboarding and background check before accepting jobs
       const { data: profile, error: profileError } = await supabase
@@ -296,6 +378,8 @@ class CleanerBookingService {
     } catch (err) {
       console.error('❌ Error in acceptBooking:', err);
       return false;
+    } finally {
+      this.inFlightActions.delete(key);
     }
   }
 
@@ -313,7 +397,12 @@ class CleanerBookingService {
    * Mark job complete (triggers escrow release via enqueue_cleaner_payout).
    * Verifies cleaner owns booking and status is in_progress.
    */
-  async markJobComplete(bookingId: string, cleanerId: string): Promise<boolean> {
+  async markJobComplete(bookingId: string, cleanerId: string): Promise<{ success: boolean; error?: string }> {
+    const key = this.actionKey(cleanerId, bookingId, 'complete');
+    if (this.inFlightActions.has(key)) {
+      return { success: false, error: 'Completion is already being processed.' };
+    }
+    this.inFlightActions.add(key);
     try {
       const { data: result, error } = await supabase.rpc('complete_booking', {
         p_booking_id: bookingId,
@@ -325,13 +414,22 @@ class CleanerBookingService {
 
       const rpcResult = result as { success: boolean; error?: string };
       if (!rpcResult.success) {
-        throw new Error(rpcResult.error || 'Failed to complete booking');
+        return { success: false, error: rpcResult.error || 'Failed to complete booking' };
       }
 
-      return true;
-    } catch (err) {
+      return { success: true };
+    } catch (err: any) {
       console.error('❌ Error in markJobComplete:', err);
-      return false;
+      const msg = err?.message || err?.error_description || String(err);
+      if (msg.includes('42703') || msg.includes('completed_at')) {
+        return { success: false, error: 'Database needs update. Run migration 063 (add completed_at to bookings).' };
+      }
+      if (msg.includes('Invalid status') || msg.includes('in_progress')) {
+        return { success: false, error: 'Tap "Start Job" first, then "Mark Complete".' };
+      }
+      return { success: false, error: msg || 'Failed to complete booking' };
+    } finally {
+      this.inFlightActions.delete(key);
     }
   }
 
@@ -347,7 +445,9 @@ class CleanerBookingService {
 
       // Set actual times based on status
       if (status === 'in_progress') {
-        updates.actual_start_time = new Date().toISOString();
+        const now = new Date().toISOString();
+        updates.actual_start_time = now;
+        updates.started_at = now; // Migration 066
       } else if (status === 'completed') {
         updates.actual_end_time = new Date().toISOString();
       }
@@ -408,7 +508,7 @@ class CleanerBookingService {
   }
 
   /**
-   * Subscribe to new available bookings in real-time
+   * Subscribe to new available bookings in real-time (marketplace: status=pending)
    */
   subscribeToNewBookings(
     cleanerId: string,
@@ -426,12 +526,41 @@ class CleanerBookingService {
         },
         async (payload) => {
           console.log('🔔 New booking available:', payload.new);
-          // Fetch full booking details
           const bookings = await this.getAvailableBookings(cleanerId);
           const newBooking = bookings.find(b => b.id === payload.new.id);
           if (newBooking) {
             onNewBooking(newBooking);
           }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }
+
+  /**
+   * Subscribe to new bookings assigned to this cleaner (quote-accepted flow).
+   * When a customer pays for a quote, the booking is created with cleaner_id set.
+   */
+  subscribeToNewAssignedBookings(
+    cleanerId: string,
+    onNewAssigned: () => void
+  ) {
+    const channel = supabase
+      .channel('new-assigned-bookings')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bookings',
+          filter: `cleaner_id=eq.${cleanerId}`,
+        },
+        (payload) => {
+          console.log('🔔 New booking assigned to you (quote accepted):', payload.new?.id);
+          onNewAssigned();
         }
       )
       .subscribe();

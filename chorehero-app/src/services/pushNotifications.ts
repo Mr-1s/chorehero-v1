@@ -1,16 +1,27 @@
 import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 
-// Configure notification behavior
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+/** Android push notifications were removed from Expo Go in SDK 53. Skip registration when in Expo Go. */
+function isExpoGoAndroid(): boolean {
+  const isExpoGo =
+    Constants.appOwnership === 'expo' ||
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  return Platform.OS === 'android' && isExpoGo;
+}
+
+// Configure notification behavior (skip in Expo Go Android to avoid SDK 53 remote-notifications error)
+if (!isExpoGoAndroid()) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 export interface NotificationData {
   type: 'booking_request' | 'booking_update' | 'message' | 'job_reminder' | 'payment' | 'rating_request';
@@ -28,6 +39,10 @@ class PushNotificationService {
   private responseListener: any = null;
 
   async initialize(userId: string): Promise<void> {
+    if (isExpoGoAndroid()) {
+      console.log('Push notifications are not supported in Expo Go on Android (SDK 53+). Use a development build.');
+      return;
+    }
     if (!Device.isDevice) {
       console.log('Must use physical device for Push Notifications');
       return;
@@ -60,7 +75,7 @@ class PushNotificationService {
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF6B6B',
+        lightColor: '#E6B200',
       });
 
       // Create specific channels for different notification types
@@ -224,30 +239,29 @@ class PushNotificationService {
     });
   }
 
-  // Send push notification through backend
+  // Send push notification via Supabase Edge Function (send-push)
   async sendPushNotification(
     targetUserId: string,
     notificationData: NotificationData
   ): Promise<void> {
     try {
-      // Send through backend API
-      const response = await fetch('/api/notifications/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await this.getAuthToken()}`,
+      await supabase.functions.invoke('send-push', {
+        body: {
+          userId: targetUserId,
+          title: notificationData.title,
+          body: notificationData.body,
+          data: {
+            ...notificationData.data,
+            type: notificationData.type,
+            bookingId: notificationData.bookingId,
+          },
         },
-        body: JSON.stringify({
-          target_user_id: targetUserId,
-          notification: notificationData,
-        }),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to send push notification');
-      }
     } catch (error) {
-      console.error('Error sending push notification:', error);
+      // Non-blocking: push failures are expected in Expo Go, simulator, or when user has no token
+      if (__DEV__) {
+        console.log('Push notification skipped (expected in dev):', (error as Error)?.message);
+      }
     }
   }
 

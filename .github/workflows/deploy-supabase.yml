@@ -45,4 +45,8 @@ jobs:
         run: |
           cd chorehero-app
           supabase functions deploy create-payment-intent --project-ref $SUPABASE_PROJECT_REF
+          supabase functions deploy create-quote-payment-intent --project-ref $SUPABASE_PROJECT_REF
+          supabase functions deploy confirm-quote-payment --project-ref $SUPABASE_PROJECT_REF
           supabase functions deploy stripe-webhook --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt
+          supabase functions deploy process-payouts --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt
+          supabase functions deploy process-refund --project-ref $SUPABASE_PROJECT_REF --no-verify-jwt

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,14 +22,15 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { NavigationProp } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import FloatingNavigation from '../../components/FloatingNavigation';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { useLocationContext } from '../../context/LocationContext';
 import { supabase } from '../../services/supabase';
 import { categoryService, CategoryService, CategoryCleaner } from '../../services/category';
 import { contentService } from '../../services/contentService';
+import { discoverService, ComingSoonService } from '../../services/discoverService';
 import { guestModeService, GuestService } from '../../services/guestModeService';
 import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
 import { exploreService, ExploreProviderRow, ExploreSortOrder } from '../../services/exploreService';
@@ -42,6 +43,11 @@ import { zipLookupService } from '../../services/zipLookupService';
 import { wp, hp } from '../../utils/responsive';
 import { updateGuestSession } from '../../utils/guestSession';
 import { iconForServiceCategory } from '../../utils/serviceCategoryIcons';
+import { navigateToChoresContent } from '../../navigation/mainTabsContentNavigation';
+import { useAuth } from '../../hooks/useAuth';
+import { useMessages } from '../../context/MessageContext';
+import { notificationService } from '../../services/notificationService';
+import { navigateRoot } from '../../navigation/navigationRef';
 
 
 
@@ -135,6 +141,8 @@ interface VideoContent {
 }
 
 const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
+  const { user } = useAuth();
+  const { unreadCount: unreadMessagesCount } = useMessages();
   const [selectedCategory, setSelectedCategory] = useState('Featured');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchState, setSearchState] = useState<SearchState>({
@@ -146,15 +154,21 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
   const [searchResults, setSearchResults] = useState<ExploreProviderRow[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [trendingCleaners, setTrendingCleaners] = useState<CategoryCleaner[]>([]);
+  // Personalized cleaner picks (proximity + rating + verified). Rendered in
+  // its own "Top picks for you" row above Trending.
+  const [recommendedCleaners, setRecommendedCleaners] = useState<CategoryCleaner[]>([]);
   const [popularServices, setPopularServices] = useState<CategoryService[]>([]);
   const [recommendedServices, setRecommendedServices] = useState<CategoryService[]>([]);
+  // Coming-soon services and the customer's interest signups (so we can
+  // render "Notify me" buttons in a confirmed/unconfirmed state).
+  const [comingSoonServices, setComingSoonServices] = useState<ComingSoonService[]>([]);
+  const [comingSoonSignups, setComingSoonSignups] = useState<Set<string>>(new Set());
   const [featuredVideos, setFeaturedVideos] = useState<VideoContent[]>([]);
   const [serviceCategories, setServiceCategories] = useState<GuestService[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingServices, setLoadingServices] = useState(false);
   const [couponClaimed, setCouponClaimed] = useState(false);
   const [loadingVideos, setLoadingVideos] = useState(false);
-  const [unreadMessages, setUnreadMessages] = useState(0);
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
   const [videoCategories, setVideoCategories] = useState<string[]>(['Featured']);
   const [imageLoadingStates, setImageLoadingStates] = useState<{[key: string]: boolean}>({});
@@ -188,6 +202,30 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     skipTutorial,
     triggerTutorial 
   } = useTutorial();
+
+  /** Bell: in-app notification inbox (bookings, likes, etc.) + unread chat as activity signal. */
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        try {
+          if (!user?.id) {
+            if (alive) setHasUnreadNotifications(unreadMessagesCount > 0);
+            return;
+          }
+          const inboxUnread = await notificationService.getUnreadCount(user.id);
+          if (alive) {
+            setHasUnreadNotifications(inboxUnread > 0 || unreadMessagesCount > 0);
+          }
+        } catch {
+          if (alive) setHasUnreadNotifications(unreadMessagesCount > 0);
+        }
+      })();
+      return () => {
+        alive = false;
+      };
+    }, [user?.id, unreadMessagesCount])
+  );
 
   // Load video categories from uploaded videos
   const loadVideoCategories = async () => {
@@ -225,11 +263,32 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     }
   };
 
+  // Load coming-soon services + the customer's existing signups so the
+  // section is ready immediately and the "Notify me" buttons reflect state.
+  const loadComingSoon = useCallback(async () => {
+    try {
+      const services = await discoverService.getComingSoonServices();
+      setComingSoonServices(services);
+      if (user?.id) {
+        const { data } = await supabase
+          .from('service_interest_signups')
+          .select('service_id')
+          .eq('user_id', user.id);
+        if (data) {
+          setComingSoonSignups(new Set(data.map((row: { service_id: string }) => row.service_id)));
+        }
+      }
+    } catch (e) {
+      console.warn('loadComingSoon failed:', e);
+    }
+  }, [user?.id]);
+
   // Load initial data
   useEffect(() => {
     loadCategoryData('Featured');
     loadServiceCategories();
     loadVideoCategories();
+    void loadComingSoon();
     // Start subtle claim button animation
     startClaimButtonAnimation();
   }, []);
@@ -402,26 +461,8 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
         console.log(`✅ Loaded ${videos.length} real videos for category: ${category || 'Featured'}`);
         setFeaturedVideos(videos);
       } else {
-        // Fallback: always show content - use demo videos so users never see "No videos available"
-        const demoVideos = guestModeService.getDemoVideos().slice(0, 6);
-        const videos = demoVideos.map((v) => ({
-          id: v.id,
-          title: v.title,
-          description: v.description,
-          media_url: v.video_url,
-          thumbnail_url: v.thumbnail_url,
-          user: {
-            id: v.cleaner_id ?? v.id,
-            name: v.cleaner_name,
-            avatar_url: v.cleaner_avatar,
-            role: 'cleaner',
-          },
-          view_count: v.view_count || 0,
-          like_count: v.like_count || 0,
-          created_at: v.created_at,
-        }));
-        console.log(`📺 Using ${videos.length} demo videos (feed empty)`);
-        setFeaturedVideos(videos);
+        setFeaturedVideos([]);
+        console.log('📺 No real featured videos for this category; skipping demo');
       }
     } catch (error) {
       console.error('❌ Error loading featured videos:', error);
@@ -485,59 +526,92 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
       // Load videos filtered by the selected category
       await loadFeaturedVideos(category);
 
-      if (useMockData) {
-        // Load all three sections in parallel
-        const [cleanersResponse, servicesResponse, recommendedResponse] = await Promise.all([
-          categoryService.getCleanersBySpecialty(category),
-          categoryService.getServicesByCategory(category),
-          categoryService.getRecommendedServices(undefined, category)
-        ]);
+      // ----- Trending cleaners -----
+      // Was: rating-sorted cleaners by specialty (ignored availability and
+      // location). Now: SQL `get_trending_cleaners` scores by 7-day content
+      // engagement, filters to `is_available = true`, respects radius.
+      const lat = location?.coords?.latitude;
+      const lng = location?.coords?.longitude;
+      const trendingPromise = discoverService.getTrendingCleaners({
+        lat,
+        lng,
+        radiusMiles: 50,
+        limit: 10,
+      });
 
-        if (cleanersResponse.success) {
-          setTrendingCleaners(cleanersResponse.data);
-        }
+      // ----- Recommended for You (cleaners) -----
+      // SQL `get_recommended_cleaners` weighted on proximity + rating +
+      // verification. Customer-scoped via the optional `userId`. Falls back
+      // to trending if the personalization returns nothing (e.g. brand-new
+      // user with no location yet).
+      const recommendedCleanersPromise = discoverService.getRecommendedCleaners({
+        lat,
+        lng,
+        userId: user?.id,
+        radiusMiles: 50,
+        limit: 8,
+      });
 
-        if (servicesResponse.success && servicesResponse.data.length > 0) {
-          setPopularServices(servicesResponse.data);
-        } else {
-          const guestServices = await guestModeService.getGuestServiceCategories();
-          setPopularServices(guestServices);
-        }
+      // ----- Popular services + recommended services (unchanged paths) -----
+      const [servicesResponse, recommendedResponse] = await Promise.all([
+        categoryService.getServicesByCategory(category),
+        categoryService.getRecommendedServices(undefined, category),
+      ]);
 
-        if (recommendedResponse.success && recommendedResponse.data.length > 0) {
-          setRecommendedServices(recommendedResponse.data);
-        } else {
-          const guestServices = await guestModeService.getGuestServiceCategories();
-          setRecommendedServices(guestServices.slice(0, 6));
-        }
+      const [trendingRows, recommendedCleanerRows] = await Promise.all([
+        trendingPromise,
+        recommendedCleanersPromise,
+      ]);
+
+      // Trending → CategoryCleaner shape so the existing card renderer works.
+      setTrendingCleaners(
+        trendingRows.map((r) => ({
+          id: r.user_id,
+          name: r.name || 'ChoreHero',
+          avatar_url: r.avatar_url || '',
+          rating_average: Number(r.rating_average ?? 0),
+          total_jobs: Number(r.total_jobs ?? 0),
+          hourly_rate: Number(r.hourly_rate ?? 0),
+          specialties: [],
+          bio: '',
+          verification_status: 'verified',
+        }))
+      );
+
+      // Recommended cleaners — also CategoryCleaner shape, rendered in a new
+      // "Top picks for you" row using the same trending card visual.
+      setRecommendedCleaners(
+        recommendedCleanerRows.map((r) => ({
+          id: r.user_id,
+          name: r.name || 'ChoreHero',
+          avatar_url: r.avatar_url || '',
+          rating_average: Number(r.rating_average ?? 0),
+          total_jobs: Number(r.total_jobs ?? 0),
+          hourly_rate: Number(r.hourly_rate ?? 0),
+          specialties: [],
+          bio: '',
+          verification_status: r.verification_status ?? 'pending',
+        }))
+      );
+
+      // ----- Popular services empty fallback -----
+      if (servicesResponse.success && servicesResponse.data.length > 0) {
+        setPopularServices(servicesResponse.data);
       } else {
-        // For production mode, try to load real data but fallback to enhanced mock
-        console.log('📱 Loading real data for production mode...');
-        const [cleanersResponse, servicesResponse, recommendedResponse] = await Promise.all([
-          categoryService.getCleanersBySpecialty(category),
-          categoryService.getServicesByCategory(category),
-          categoryService.getRecommendedServices(undefined, category)
-        ]);
-
-        if (cleanersResponse.success) {
-          setTrendingCleaners(cleanersResponse.data);
-        }
-
-        if (servicesResponse.success && servicesResponse.data.length > 0) {
-          setPopularServices(servicesResponse.data);
-        } else {
-          const guestServices = await guestModeService.getGuestServiceCategories();
-          setPopularServices(guestServices);
-        }
-
-        if (recommendedResponse.success && recommendedResponse.data.length > 0) {
-          setRecommendedServices(recommendedResponse.data);
-        } else {
-          const guestServices = await guestModeService.getGuestServiceCategories();
-          setRecommendedServices(guestServices.slice(0, 6));
-        }
+        const guestServices = await guestModeService.getGuestServiceCategories();
+        setPopularServices(guestServices);
       }
 
+      // ----- Recommended SERVICES (legacy fallback path) -----
+      // Kept so the existing "Recommended for You" services strip still
+      // populates with category-relevant rows when the new cleaner picks
+      // section is empty.
+      if (recommendedResponse.success && recommendedResponse.data.length > 0) {
+        setRecommendedServices(recommendedResponse.data);
+      } else {
+        const guestServices = await guestModeService.getGuestServiceCategories();
+        setRecommendedServices(guestServices.slice(0, 6));
+      }
     } catch (error) {
       console.error('Error loading category data:', error);
       // Set empty data on error when not using mock data
@@ -862,10 +936,10 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
     
     // Navigate to VideoFeed with featured videos
     // Pass the featured videos array and the initial video to start on
-    navigation.navigate('VideoFeed' as any, {
+    navigateToChoresContent(navigation as any, {
       source: 'featured',
       initialVideoId: cardData.id,
-      videos: featuredVideos.map(v => ({ id: v.id })), // Pass video IDs for ordering
+      videos: featuredVideos.map(v => ({ id: v.id })),
     });
   };
 
@@ -1037,8 +1111,9 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           )}
           <TouchableOpacity 
             style={styles.notificationButton} 
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('NotificationsScreen')}
+            activeOpacity={0.85}
+            onPress={() => navigateRoot('NotificationsScreen')}
+            accessibilityLabel="Notifications and activity"
           >
             <Ionicons name="notifications-outline" size={24} color="#1C1C1E" />
             {hasUnreadNotifications && <View style={styles.notificationBadge} />}
@@ -1169,6 +1244,20 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           ) : null}
         </View>
 
+        {/* Top picks for you (personalized cleaners) */}
+        {recommendedCleaners.length > 0 && (
+          <View style={styles.section}>
+            {renderSectionHeader('Top picks for you')}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.trendingCleanersContainer}
+            >
+              {recommendedCleaners.map(renderTrendingCleanerCard)}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Trending Cleaners */}
         <View style={styles.section}>
           {renderSectionHeader(`Trending ${selectedCategory !== 'Featured' ? selectedCategory + ' ' : ''}Cleaners`.trim())}
@@ -1185,18 +1274,14 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
             >
               {trendingCleaners.map(renderTrendingCleanerCard)}
             </ScrollView>
-          ) : !useMockData ? (
-            <EmptyState 
+          ) : (
+            <EmptyState
               {...EmptyStateConfigs.savedCleaners}
-              title="No cleaners available"
-              subtitle="Cleaners will appear here when professionals join your area."
-              showFeatures={true}
+              title="No trending cleaners yet"
+              subtitle="When pros in your area post videos this week, they'll show up here."
+              showFeatures={false}
               actions={[]}
             />
-          ) : (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No cleaners found for {selectedCategory}</Text>
-            </View>
           )}
         </View>
 
@@ -1224,6 +1309,66 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
             />
           ) : null}
         </View>
+
+        {/* Coming Soon services — registers customer interest so we can warm
+           the supply side before launch instead of leaving an empty section. */}
+        {comingSoonServices.length > 0 && (
+          <View style={styles.section}>
+            {renderSectionHeader('Coming soon')}
+            <View style={styles.comingSoonGrid}>
+              {comingSoonServices.map((svc) => {
+                const isSignedUp = comingSoonSignups.has(svc.id);
+                return (
+                  <View key={svc.id} style={styles.comingSoonCard}>
+                    <View style={styles.comingSoonIconWrap}>
+                      <Ionicons name="time-outline" size={22} color="#475569" />
+                    </View>
+                    <Text style={styles.comingSoonTitle} numberOfLines={1}>{svc.name}</Text>
+                    {svc.description ? (
+                      <Text style={styles.comingSoonSubtitle} numberOfLines={2}>
+                        {svc.description}
+                      </Text>
+                    ) : null}
+                    <TouchableOpacity
+                      style={[styles.comingSoonBtn, isSignedUp && styles.comingSoonBtnDone]}
+                      onPress={async () => {
+                        if (!user?.id) {
+                          Alert.alert('Sign in needed', 'Create an account to get notified when this launches.');
+                          return;
+                        }
+                        if (isSignedUp) return;
+                        // Optimistic — we de-dupe server-side via UNIQUE.
+                        setComingSoonSignups((prev) => new Set(prev).add(svc.id));
+                        const res = await discoverService.signUpForServiceInterest({
+                          userId: user.id,
+                          serviceId: svc.id,
+                        });
+                        if (!res.success) {
+                          // Roll back on real failure (not duplicate).
+                          setComingSoonSignups((prev) => {
+                            const next = new Set(prev);
+                            next.delete(svc.id);
+                            return next;
+                          });
+                          Alert.alert('Could not sign up', res.error || 'Try again in a moment.');
+                        }
+                      }}
+                    >
+                      <Ionicons
+                        name={isSignedUp ? 'checkmark-circle' : 'notifications-outline'}
+                        size={14}
+                        color={isSignedUp ? '#047857' : '#26B7C9'}
+                      />
+                      <Text style={[styles.comingSoonBtnText, isSignedUp && styles.comingSoonBtnTextDone]}>
+                        {isSignedUp ? "We'll notify you" : 'Notify me'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Special Offers Banner */}
         <View style={styles.offerSection}>
@@ -1303,9 +1448,6 @@ const DiscoverScreen: React.FC<DiscoverScreenProps> = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-      
-      {/* Floating Navigation */}
-      <FloatingNavigation navigation={navigation} currentScreen="Discover" />
     </GestureHandlerRootView>
   );
 };
@@ -1772,6 +1914,65 @@ const styles = StyleSheet.create({
     fontSize: wp('3%'),
     color: '#26B7C9',
     textAlign: 'center',
+  },
+  // ----- Coming Soon section -----
+  comingSoonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: wp('3%'),
+    paddingHorizontal: wp('4%'),
+  },
+  comingSoonCard: {
+    width: (width - wp('8%') - wp('3%')) / 2,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: wp('3%'),
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 6,
+  },
+  comingSoonIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comingSoonTitle: {
+    fontSize: wp('3.5%'),
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  comingSoonSubtitle: {
+    fontSize: wp('3%'),
+    color: '#64748B',
+    lineHeight: wp('4.2%'),
+  },
+  comingSoonBtn: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#26B7C9',
+    backgroundColor: 'rgba(38, 183, 201, 0.06)',
+    alignSelf: 'flex-start',
+  },
+  comingSoonBtnDone: {
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+  },
+  comingSoonBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#26B7C9',
+  },
+  comingSoonBtnTextDone: {
+    color: '#047857',
   },
   recommendedServicesContainer: {
     paddingHorizontal: wp('5%'),

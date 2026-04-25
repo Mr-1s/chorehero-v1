@@ -23,6 +23,8 @@ export interface EmptyStateProps {
   features?: EmptyStateFeature[];
   actions?: EmptyStateAction[];
   showFeatures?: boolean;
+  /** When set, primary/secondary CTAs use this color instead of customer teal (e.g. pro orange). */
+  ctaAccentColor?: string;
 }
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
@@ -33,13 +35,21 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   features = [],
   actions = [],
   showFeatures = true,
+  ctaAccentColor,
 }) => {
+  const accent = ctaAccentColor ?? gradientColors[0];
+  const primaryBtnStyle = ctaAccentColor
+    ? [styles.primaryCTA, { backgroundColor: ctaAccentColor }]
+    : styles.primaryCTA;
+  const secondaryBtnStyle = ctaAccentColor
+    ? [styles.secondaryCTA, { borderColor: ctaAccentColor }]
+    : styles.secondaryCTA;
   return (
     <View style={styles.emptyState}>
       {/* Icon */}
       <View style={styles.emptyIconContainer}>
         <View style={[styles.emptyIconCircle, { backgroundColor: '#F1F5F9' }]}>
-          <Ionicons name={icon as any} size={26} color={gradientColors[0]} />
+          <Ionicons name={icon as any} size={26} color={accent} />
         </View>
       </View>
 
@@ -55,7 +65,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
               <Ionicons 
                 name={feature.icon as any} 
                 size={20} 
-                color={feature.color || gradientColors[0]} 
+                color={feature.color || accent} 
               />
               <Text style={styles.featureText}>{feature.text}</Text>
             </View>
@@ -69,17 +79,23 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           {actions.map((action, index) => (
             <TouchableOpacity
               key={index}
-              style={action.primary ? styles.primaryCTA : styles.secondaryCTA}
+              style={action.primary ? primaryBtnStyle : secondaryBtnStyle}
               onPress={action.onPress}
             >
               {action.icon && (
                 <Ionicons 
                   name={action.icon as any} 
                   size={18} 
-                  color={action.primary ? "#ffffff" : gradientColors[0]} 
+                  color={action.primary ? "#ffffff" : accent} 
                 />
               )}
-              <Text style={action.primary ? styles.primaryCTAText : styles.secondaryCTAText}>
+              <Text
+                style={
+                  action.primary
+                    ? styles.primaryCTAText
+                    : [styles.secondaryCTAText, ctaAccentColor ? { color: ctaAccentColor } : undefined]
+                }
+              >
                 {action.label}
               </Text>
             </TouchableOpacity>
@@ -230,13 +246,13 @@ export const EmptyStateConfigs = {
   // Cleaner dashboard empty states
   jobOpportunities: {
     icon: 'briefcase-outline',
-    title: 'No job opportunities',
-    subtitle: 'New cleaning jobs will appear here. Make sure your profile is complete to get more bookings.',
-    gradientColors: ['#3B82F6', '#2563EB'] as const,
+    title: 'No open jobs right now',
+    subtitle: 'When new requests come in, a short preview appears here. Use Browse jobs for the full list and filters.',
+    gradientColors: ['#FFA52F', '#E8941A'] as const,
     features: [
-      { icon: 'location', text: 'Local jobs', color: '#3B82F6' },
-      { icon: 'cash', text: 'Competitive pay', color: '#3B82F6' },
-      { icon: 'time', text: 'Flexible schedule', color: '#3B82F6' },
+      { icon: 'location', text: 'Local jobs', color: '#E8941A' },
+      { icon: 'cash', text: 'Competitive pay', color: '#E8941A' },
+      { icon: 'time', text: 'Flexible schedule', color: '#E8941A' },
     ],
   },
 

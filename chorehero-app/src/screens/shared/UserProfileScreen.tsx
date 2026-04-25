@@ -22,6 +22,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { contentService } from '../../services/contentService';
 import { COLORS } from '../../utils/constants';
 import { ContentPost, UserProfileResponse } from '../../types/content';
+import { wp, hp } from '../../utils/responsive';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -300,7 +301,7 @@ const UserProfileScreen: React.FC<UserProfileProps> = ({ navigation, route }) =>
             {profile.cleaner_profile && (
               <>
                 <View style={styles.ratingContainer}>
-                  <Ionicons name="star" size={16} color="#FFD700" />
+                  <Ionicons name="star" size={16} color="#E6B200" />
                   <Text style={styles.ratingText}>
                     {profile.cleaner_profile.rating_average.toFixed(1)}
                   </Text>
@@ -470,7 +471,7 @@ const UserProfileScreen: React.FC<UserProfileProps> = ({ navigation, route }) =>
                   </Text>
                 </View>
                 <View style={styles.experienceItem}>
-                  <Ionicons name="star-outline" size={20} color="#FFD700" />
+                  <Ionicons name="star-outline" size={20} color="#E6B200" />
                   <Text style={styles.experienceText}>
                     {profile.cleaner_profile.rating_average.toFixed(1)} average rating
                   </Text>
@@ -503,13 +504,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
   },
@@ -523,49 +524,49 @@ const styles = StyleSheet.create({
   profileAvatar: {
     width: 80,
     height: 80,
-    borderRadius: 40,
+    borderRadius: wp('10%'),
     marginRight: 16,
   },
   profileInfo: {
     flex: 1,
   },
   profileName: {
-    fontSize: 22,
+    fontSize: wp('5.5%'),
     fontWeight: '700',
     color: COLORS.text.primary,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   ratingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   ratingText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
     marginLeft: 4,
   },
   jobsText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     marginLeft: 4,
   },
   specialtiesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   specialtyTag: {
     backgroundColor: COLORS.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   specialtyText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.primary,
     fontWeight: '500',
   },
@@ -573,8 +574,8 @@ const styles = StyleSheet.create({
   // Stats
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: COLORS.border,
@@ -584,40 +585,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: COLORS.text.primary,
     marginBottom: 2,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
 
   // Action Buttons
   actionButtons: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 12,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
+    gap: wp('3%'),
   },
   bookButton: {
     flex: 1,
     backgroundColor: COLORS.primary,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('2%'),
     alignItems: 'center',
   },
   bookButtonText: {
     color: COLORS.text.inverse,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   followButton: {
     flex: 1,
     backgroundColor: COLORS.surface,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('2%'),
     alignItems: 'center',
     borderWidth: 1,
     borderColor: COLORS.primary,
@@ -627,7 +628,7 @@ const styles = StyleSheet.create({
   },
   followButtonText: {
     color: COLORS.primary,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   followButtonTextActive: {
@@ -645,9 +646,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 12,
-    gap: 6,
+    paddingVertical: hp('2.2%'),
+    paddingHorizontal: wp('3%'),
+    gap: wp('1.5%'),
     minHeight: 52, // Ensure adequate touch target
   },
   tabButtonActive: {
@@ -655,7 +656,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.primary,
   },
   tabButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.secondary,
   },
@@ -669,12 +670,12 @@ const styles = StyleSheet.create({
   },
   postsRow: {
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   postItem: {
     width: (screenWidth - 52) / 2, // Account for padding and gap
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -692,31 +693,31 @@ const styles = StyleSheet.create({
     top: 8,
     right: 8,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 4,
   },
   postInfo: {
     padding: 12,
   },
   postTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     lineHeight: 18,
   },
   postStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   postStat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   postStatText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
   postLikeButton: {
@@ -724,7 +725,7 @@ const styles = StyleSheet.create({
     bottom: 12,
     right: 12,
     backgroundColor: COLORS.background,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -736,16 +737,16 @@ const styles = StyleSheet.create({
   // Empty Posts
   emptyPostsContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
-    gap: 12,
+    paddingVertical: hp('5%'),
+    gap: wp('3%'),
   },
   emptyPostsTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: COLORS.text.primary,
   },
   emptyPostsSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     textAlign: 'center',
   },
@@ -753,17 +754,17 @@ const styles = StyleSheet.create({
   // Info Tab
   infoContainer: {
     padding: 20,
-    gap: 24,
+    gap: wp('6%'),
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   bioSection: {},
   bioText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     lineHeight: 20,
   },
@@ -771,17 +772,17 @@ const styles = StyleSheet.create({
   experienceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 12,
+    marginBottom: hp('1.5%'),
+    gap: wp('3%'),
   },
   experienceText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
     flex: 1,
   },
   joinedSection: {},
   joinedText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
   },
 
@@ -790,28 +791,28 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: wp('4%'),
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: COLORS.text.secondary,
   },
   errorContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: wp('4%'),
   },
   errorTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
   },
   backButton: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingHorizontal: wp('8%'),
+    paddingVertical: hp('1.7%'),
+    borderRadius: wp('3%'),
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
@@ -823,7 +824,7 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     color: COLORS.text.inverse,
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     textAlign: 'center',
     letterSpacing: 0.3,

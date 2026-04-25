@@ -21,6 +21,8 @@ export interface FeedItem {
   post_id?: string;
   provider_id: string;
   video_source: string;
+  /** When true, show "Sample" badge and Book Now opens waitlist modal */
+  isDemo?: boolean;
   provider_metadata: {
     name: string;
     rating: number;

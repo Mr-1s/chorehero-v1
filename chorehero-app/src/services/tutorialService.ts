@@ -11,12 +11,23 @@ export interface TutorialStep {
   title: string;
   description: string;
   targetElement?: string; // Component to highlight
+  /**
+   * Optional screen to navigate to before painting this step. Lets the tour
+   * cycle through the app instead of stacking modals on a single screen.
+   * Must be a route registered on the root navigator (e.g. `MainTabs`,
+   * `EditProfileScreen`, `PayoutSetup`).
+   */
+  targetScreen?: string;
   position: 'top' | 'bottom' | 'center';
   action?: 'tap' | 'swipe' | 'scroll' | 'wait';
   duration?: number; // Auto-advance after X seconds
   skippable: boolean;
   showOverlay: boolean;
   animation?: 'bounce' | 'pulse' | 'glow';
+  /** Brand accent for this step. Defaults to the tutorial's userType. */
+  tone?: 'customer' | 'cleaner';
+  /** Optional Ionicon name to show in the tooltip header bubble. */
+  icon?: string;
 }
 
 export interface Tutorial {
@@ -36,112 +47,142 @@ class TutorialService {
    * Core tutorials for different user journeys
    */
   private tutorials: Tutorial[] = [
-    // Customer First-Time Tutorial
+    // Customer First-Time Tutorial — version 2 redesign with teal theme +
+    // a quick cycle through Videos/Discover/Bookings/Profile.
     {
       id: 'customer_welcome',
       name: 'Welcome Tour for Customers',
       userType: 'customer',
       trigger: 'first_login',
       isRequired: false,
-      version: 1,
+      version: 2,
       steps: [
         {
           id: 'welcome',
-          title: '🎉 Welcome to ChoreHero!',
-          description: 'Let\'s take a quick tour to help you find the perfect cleaner for your needs. Tap anywhere to continue!',
+          title: 'Welcome to ChoreHero',
+          description: "Quick tour: we'll show you the four tabs you'll use most — Videos, Discover, Bookings, and Profile.",
           position: 'center',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'customer',
+          icon: 'sparkles',
+          targetScreen: 'MainTabs',
         },
         {
           id: 'feed_intro',
-          title: '📱 Your Smart Feed',
-          description: 'This feed shows cleaners near you, sorted by relevance. Swipe up to see more!',
+          title: 'Your video feed',
+          description: 'See real work from local pros. Swipe up to browse, tap a video to view the pro and book.',
           position: 'center',
-          action: 'swipe',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'customer',
+          icon: 'play-circle',
         },
         {
           id: 'discover_tab',
-          title: '🔍 Discover Services',
-          description: 'Use the Discover tab to browse by service type - kitchen, bathroom, deep cleaning, and more!',
+          title: 'Discover services',
+          description: 'Browse popular services, trending pros near you, and packages you can book in one tap.',
           position: 'center',
-          action: 'tap',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'customer',
+          icon: 'compass',
         },
         {
-          id: 'booking_hint',
-          title: '⚡ Quick Booking',
-          description: 'When you find a cleaner you like, tap their profile to see services and book instantly!',
+          id: 'post_job',
+          title: 'Or post a job',
+          description: "Don't see what you need? Post a job and pros will send you 60-second video quotes.",
           position: 'center',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'customer',
+          icon: 'megaphone',
         },
         {
           id: 'profile_setup',
-          title: '👤 You\'re All Set!',
-          description: 'Complete your profile for faster bookings. Enjoy using ChoreHero!',
+          title: "You're all set",
+          description: 'Add your address and a payment method from the Profile tab so booking is one tap.',
           position: 'center',
           skippable: true,
-          showOverlay: false
-        }
-      ]
+          showOverlay: false,
+          tone: 'customer',
+          icon: 'person-circle',
+        },
+      ],
     },
     
-    // Cleaner First-Time Tutorial
+    // Cleaner First-Time Tutorial — version 2 redesign with orange theme +
+    // cycles the cleaner through the actual screens they'll work in.
     {
       id: 'cleaner_welcome',
       name: 'Hero Onboarding',
       userType: 'cleaner',
       trigger: 'first_login',
       isRequired: false,
-      version: 1,
+      version: 2,
       steps: [
         {
           id: 'welcome',
-          title: '🦸‍♀️ Welcome, ChoreHero!',
-          description: 'You\'re now part of our cleaning hero network. Let\'s set you up for success! Tap anywhere to continue.',
+          title: 'Welcome to ChoreHero',
+          description: "You're a Pro now. We'll walk you through the four screens you'll live in: Dashboard, Jobs, Profile, and Earnings.",
           position: 'center',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'sparkles',
+          targetScreen: 'MainTabs',
         },
         {
-          id: 'content_creation',
-          title: '📹 Showcase Your Work',
-          description: 'Upload videos of your cleaning process to attract more customers. Show your expertise!',
+          id: 'jobs_tab',
+          title: 'Jobs come in here',
+          description: 'New job requests appear under Requests. Quotes you\'ve sent live under Quotes. Booked work shows under Booked.',
           position: 'center',
-          action: 'tap',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'briefcase',
         },
         {
-          id: 'pricing_setup',
-          title: '💰 Set Your Rates',
-          description: 'Set service-specific pricing in your profile. This helps customers know what to expect!',
+          id: 'profile_setup',
+          title: 'Finish your profile',
+          description: 'Customers won\'t see you until your profile is complete and you\'re online. Edit your bio, area, and rate from the Profile tab.',
           position: 'center',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'person-circle',
         },
         {
-          id: 'availability',
-          title: '📅 Manage Availability',
-          description: 'Keep your schedule updated so customers can book you when you\'re free.',
+          id: 'payouts',
+          title: 'Get paid',
+          description: 'Set up Stripe payouts under Settings → Payouts. We deposit your earnings 1–2 business days after each completed job.',
           position: 'center',
-          action: 'tap',
           skippable: true,
-          showOverlay: false
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'cash',
         },
         {
-          id: 'earnings_tracking',
-          title: '📊 You\'re All Set!',
-          description: 'Monitor your earnings, ratings, and bookings in your profile. Start accepting jobs!',
+          id: 'video_quote',
+          title: 'Win with video',
+          description: 'When a customer posts a job, send a 60-second video quote. Pros who introduce themselves on video get booked first.',
           position: 'center',
           skippable: true,
-          showOverlay: false
-        }
-      ]
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'videocam',
+        },
+        {
+          id: 'ready',
+          title: "You're all set",
+          description: 'Toggle yourself online from Profile, then watch the Jobs tab. Good luck out there!',
+          position: 'center',
+          skippable: true,
+          showOverlay: false,
+          tone: 'cleaner',
+          icon: 'rocket',
+        },
+      ],
     },
 
     // Feature-Specific Tutorials

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, StatusBar, TouchableOpacity, FlatList, Image, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -7,9 +8,12 @@ import { notificationService, type Notification } from '../../services/notificat
 import { useAuth } from '../../hooks/useAuth';
 import { wp, hp } from '../../utils/responsive';
 
-const getIcon = (type) => {
+const getIcon = (type: string) => {
   switch (type) {
     case 'booking': return 'calendar-outline';
+    case 'message': return 'chatbubble-outline';
+    case 'like': return 'heart-outline';
+    case 'comment': return 'chatbubbles-outline';
     case 'service': return 'checkmark-circle-outline';
     case 'payment': return 'card-outline';
     case 'system': return 'sparkles-outline';
@@ -23,36 +27,55 @@ const NotificationsScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  useEffect(() => {
-    loadNotifications();
-  }, [user?.id]);
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     setLoading(true);
     try {
       if (user?.id) {
         const userNotifications = await notificationService.getNotificationsForUser(user.id);
-        setNotifications(userNotifications.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        setNotifications(
+          userNotifications.sort(
+            (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          )
+        );
       }
     } catch (error) {
       console.error('Error loading notifications:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      void loadNotifications();
+    }
+  }, [user?.id, loadNotifications]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        void loadNotifications();
+      }
+    }, [user?.id, loadNotifications])
+  );
 
   const markAllAsRead = async () => {
-    if (user?.id) {
-      await notificationService.markAllAsRead(user.id);
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
-    }
+    if (!user?.id) return;
+    // Optimistic so the badge clears instantly; refetch reconciles state with the server.
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    await notificationService.markAllAsRead(user.id);
+    await loadNotifications();
   };
 
   const markAsRead = async (notificationId: string) => {
-    await notificationService.markAsRead(notificationId);
-    setNotifications(notifications.map(n => 
-      n.id === notificationId ? { ...n, read: true } : n
-    ));
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
+    );
+    const ok = await notificationService.markAsRead(notificationId);
+    if (!ok) {
+      // Server rejected the update — pull the truth back so the badge does not lie.
+      await loadNotifications();
+    }
   };
 
   const formatTimestamp = (timestamp: string | Date) => {

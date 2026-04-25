@@ -224,7 +224,25 @@ class EnhancedLocationService {
     if (!this.currentSession) return;
 
     try {
-      // Create location update record
+      // Build insert payload - only columns that exist in location_updates schema
+      const insertPayload = {
+        booking_id: this.currentSession.bookingId,
+        user_id: this.currentSession.userId,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        accuracy: location.coords.accuracy || 0,
+        heading: location.coords.heading ?? null,
+        speed: location.coords.speed ?? null,
+      };
+
+      // Save to database (address/eta not in schema - omit for now)
+      const { error } = await supabase
+        .from('location_updates')
+        .insert(insertPayload);
+
+      if (error) throw error;
+
+      // Update current session for broadcast
       const locationUpdate: Omit<LocationUpdate, 'id'> = {
         bookingId: this.currentSession.bookingId,
         userId: this.currentSession.userId,
@@ -234,38 +252,9 @@ class EnhancedLocationService {
         timestamp: new Date().toISOString(),
       };
 
-      // Get address for significant location changes
-      const address = await this.reverseGeocode(
-        location.coords.latitude,
-        location.coords.longitude
-      );
-
-      if (address.success) {
-        locationUpdate.address = address.data?.address;
-      }
-
-      // Calculate ETA if destination is available
-      const eta = await this.calculateETA(
-        location.coords.latitude,
-        location.coords.longitude,
-        this.currentSession.bookingId
-      );
-
-      if (eta.success) {
-        locationUpdate.eta = eta.data;
-      }
-
-      // Save to database
-      const { error } = await supabase
-        .from('location_updates')
-        .insert(locationUpdate);
-
-      if (error) throw error;
-
-      // Update current session
       this.currentSession.lastUpdate = {
         ...locationUpdate,
-        id: '', // Would be returned from database
+        id: '',
       };
 
       // Broadcast location update to subscribers

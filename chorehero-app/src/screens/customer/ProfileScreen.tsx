@@ -12,18 +12,22 @@ import {
   Alert,
   RefreshControl,
   Dimensions,
+  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import { AppState } from 'react-native';
 import { supabase } from '../../services/supabase';
+import { uploadService } from '../../services/uploadService';
 import { userStatsService } from '../../services/userStatsService';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
-import FloatingNavigation from '../../components/FloatingNavigation';
+import { wp, hp } from '../../utils/responsive';
+import { Row } from '../../components/ui';
 
 const { width } = Dimensions.get('window');
 
@@ -139,8 +143,16 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   };
 
   useEffect(() => {
-    loadProfileData();
-  }, []);
+    if (!user?.id) {
+      loadMockData();
+      setIsLoading(false);
+      return;
+    }
+    // Show UI immediately with empty stats; load real data in background
+    loadMockData();
+    setIsLoading(false);
+    loadProfileDataInBackground();
+  }, [user?.id]);
 
   // Keep local avatar preview in sync with authenticated user
   useEffect(() => {
@@ -149,52 +161,64 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
     }
   }, [user?.avatar_url]);
 
+  /** Load profile data in background; does not block UI. */
+  const loadProfileDataInBackground = async () => {
+    if (!user?.id || user.id.startsWith('demo_')) return;
+    try {
+      const timeoutMs = 8000;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Profile load timeout')), timeoutMs)
+      );
+
+      const [statsResult, upcomingResult, recentResult] = await Promise.race([
+        Promise.all([
+          userStatsService.getCustomerStats(user.id),
+          userStatsService.getCustomerUpcomingBookings(user.id),
+          userStatsService.getCustomerRecentActivity(user.id, 5),
+        ]),
+        timeoutPromise,
+      ]);
+
+      const realStats = statsResult.success ? statsResult.data! : null;
+      const realUpcoming = upcomingResult.success ? upcomingResult.data! : null;
+      const realRecent = recentResult.success ? recentResult.data! : null;
+
+      if (realStats) setUserStats(realStats);
+      if (realUpcoming) setUpcomingBookings(realUpcoming);
+      if (realRecent) setRecentBookings(realRecent);
+    } catch (e) {
+      // Silent fail - UI already shows empty state
+    }
+  };
+
   const loadProfileData = async () => {
     try {
       setIsLoading(true);
-
-      // Check if user is authenticated and try to load real data
       if (user?.id && !user.id.startsWith('demo_')) {
         try {
-          // Real authenticated user - load their actual data from database
-          console.log('✅ REAL USER detected - loading actual data for:', user.email, user.name, 'ID:', user.id);
-          
-          // Load real statistics from database
-          const [statsResult, upcomingResult, recentResult] = await Promise.all([
-            userStatsService.getCustomerStats(user.id),
-            userStatsService.getCustomerUpcomingBookings(user.id),
-            userStatsService.getCustomerRecentActivity(user.id, 5)
+          const timeoutMs = 8000;
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Profile load timeout')), timeoutMs)
+          );
+          const [statsResult, upcomingResult, recentResult] = await Promise.race([
+            Promise.all([
+              userStatsService.getCustomerStats(user.id),
+              userStatsService.getCustomerUpcomingBookings(user.id),
+              userStatsService.getCustomerRecentActivity(user.id, 5),
+            ]),
+            timeoutPromise,
           ]);
-
-          // Use real data if available, fall back to empty states
-          const realStats = statsResult.success ? statsResult.data! : {
-            totalBookings: 0,
-            completedBookings: 0,
-            totalSpent: 0,
-            favoriteCleaners: 0,
-          };
-
-          const realUpcoming = upcomingResult.success ? upcomingResult.data! : [];
-          const realRecent = recentResult.success ? recentResult.data! : [];
-
+          const realStats = statsResult.success ? statsResult.data! : { totalBookings: 0, completedBookings: 0, totalSpent: 0, favoriteCleaners: 0 };
           setUserStats(realStats);
-          setUpcomingBookings(realUpcoming);
-          setRecentBookings(realRecent);
-
-          console.log('📊 Loaded real user statistics:', realStats);
-          
+          setUpcomingBookings(upcomingResult.success ? upcomingResult.data! : []);
+          setRecentBookings(recentResult.success ? recentResult.data! : []);
         } catch (dbError) {
-          console.error('Database error loading profile data:', dbError);
-          // Fall back to mock data
           loadMockData();
         }
-             } else {
-         // No authenticated user or demo user, use mock data
-         console.log('🎭 DEMO/NO USER detected - loading mock data for:', user?.email || 'no user', 'ID:', user?.id || 'none');
-         loadMockData();
-       }
+      } else {
+        loadMockData();
+      }
     } catch (error) {
-      console.error('Profile load error:', error);
       loadMockData();
     } finally {
       setIsLoading(false);
@@ -347,7 +371,17 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
       icon: 'flash',
       onPress: () => navigation.navigate('BookingFlow', {}),
     };
+    // Mirrors the cleaner profile's "Edit profile" shortcut so customers can
+    // jump straight to their profile editor without burying it inside Settings.
+    const editProfileAction = {
+      id: 'edit-profile',
+      title: 'Edit profile',
+      subtitle: 'Update name, contact, address & preferences',
+      icon: 'create-outline',
+      onPress: () => (navigation as any).navigate('EditProfileScreen'),
+    };
     const secondaryActions = [
+      editProfileAction,
       hasLastPro
         ? {
             id: 'rebook',
@@ -378,7 +412,10 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
               title: 'Refer a Friend',
               subtitle: 'Get $20 for each Hero referral',
               icon: 'gift',
-              onPress: () => Alert.alert('Refer a Friend', 'Invite link coming soon!'),
+              onPress: () =>
+                Share.share({
+                  message: 'Get $20 off your first cleaning on ChoreHero: https://chorehero.app',
+                }).catch(() => {}),
             },
           ]
         : []),
@@ -387,56 +424,40 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
         title: 'My Favorites',
         subtitle: 'Saved cleaners',
         icon: 'heart',
-        onPress: () => Alert.alert('Favorites', 'Feature coming soon!'),
+        onPress: () => navigation.navigate('SavedServices'),
       },
     ];
+    const allActions = [primaryAction, ...secondaryActions];
     return (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.quickActionsGrid}>
-          <TouchableOpacity
-            key={primaryAction.id}
-            style={[styles.quickActionCard, styles.quickActionPrimary]}
-            onPress={primaryAction.onPress}
-          >
-            <View style={styles.quickActionContent}>
-              <Ionicons name={primaryAction.icon as any} size={22} color="#26B7C9" />
-              <View style={styles.quickActionTextStack}>
-                <Text style={styles.quickActionTitle}>{primaryAction.title}</Text>
-                <Text style={styles.quickActionSubtitle}>{primaryAction.subtitle}</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-          <View style={styles.quickActionsRow}>
-            {secondaryActions.map((action) => (
-              <TouchableOpacity
-                key={action.id}
-                style={[styles.quickActionCard, styles.quickActionSecondary]}
+        <View style={styles.quickActionsList}>
+          {allActions.map((action) => (
+            <View key={action.id} style={styles.quickActionRow}>
+              <Row
+                leadingIcon={action.icon as any}
+                title={action.title}
+                subtitle={action.subtitle}
+                chevron
                 onPress={action.onPress}
-              >
-                {action.id === 'rebook' && hasLastPro && (
-                  <TouchableOpacity
-                    style={styles.favoriteToggle}
-                    onPress={toggleLastProFavorite}
-                    accessibilityLabel="Toggle favorite cleaner"
-                  >
-                    <Ionicons
-                      name={isLastProFavorite ? 'heart' : 'heart-outline'}
-                      size={16}
-                      color="#26B7C9"
-                    />
-                  </TouchableOpacity>
-                )}
-                <View style={styles.quickActionContent}>
-                  <Ionicons name={action.icon as any} size={20} color="#26B7C9" />
-                  <View style={styles.quickActionTextStack}>
-                    <Text style={styles.quickActionTitle}>{action.title}</Text>
-                    <Text style={styles.quickActionSubtitle}>{action.subtitle}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
+                trailing={
+                  action.id === 'rebook' && hasLastPro ? (
+                    <TouchableOpacity
+                      onPress={toggleLastProFavorite}
+                      accessibilityLabel="Toggle favorite cleaner"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons
+                        name={isLastProFavorite ? 'heart' : 'heart-outline'}
+                        size={18}
+                        color="#26B7C9"
+                      />
+                    </TouchableOpacity>
+                  ) : undefined
+                }
+              />
+            </View>
+          ))}
         </View>
       </View>
     );
@@ -479,7 +500,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
             style={styles.rebookButton}
             onPress={() => navigation.navigate('BookingFlow', { cleanerId: booking.cleaner.id })}
           >
-            <Ionicons name="repeat" size={16} color="#3ad3db" />
+            <Ionicons name="repeat" size={16} color="#26B7C9" />
             <Text style={styles.rebookText}>Book Again</Text>
           </TouchableOpacity>
         )}
@@ -605,7 +626,7 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading your profile...</Text>
         </View>
       </SafeAreaView>
@@ -615,13 +636,44 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
   const handleChangeAvatar = async () => {
     const persist = async (uri: string) => {
       if (!user?.id) return;
-      const { error } = await supabase
-        .from('users')
-        .update({ avatar_url: uri, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
-      if (!error) {
-        setAvatarUri(uri);
-        await refreshUser();
+      // Wait for app to be active after ImagePicker (avoids session loss on resume)
+      if (AppState.currentState !== 'active') {
+        await new Promise<void>((resolve) => {
+          const sub = AppState.addEventListener('change', (s) => {
+            if (s === 'active') {
+              sub.remove();
+              setTimeout(resolve, 400);
+            }
+          });
+          if (AppState.currentState === 'active') {
+            sub.remove();
+            setTimeout(resolve, 400);
+          }
+        });
+      } else {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      try {
+        let urlToSave = uri;
+        if (uri.startsWith('file://')) {
+          const upload = await uploadService.uploadFile(uri, 'image');
+          if (!upload.success || !upload.url) {
+            Alert.alert('Upload failed', 'Could not upload photo. Please try again.');
+            return;
+          }
+          urlToSave = upload.url;
+        }
+        const { error } = await supabase
+          .from('users')
+          .update({ avatar_url: urlToSave, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+        if (!error) {
+          setAvatarUri(urlToSave);
+          await refreshUser();
+        }
+      } catch (e) {
+        console.warn('Avatar update failed:', e);
+        Alert.alert('Error', 'Failed to update profile photo. Please try again.');
       }
     };
     try {
@@ -671,9 +723,6 @@ const CustomerProfileScreen: React.FC<ProfileScreenProps> = ({ navigation }) => 
         {/* Bottom spacing for navigation */}
         <View style={styles.bottomSpacing} />
       </ScrollView>
-
-      {/* Floating Navigation */}
-      <FloatingNavigation navigation={navigation as any} currentScreen="Profile" />
     </SafeAreaView>
   );
 };
@@ -700,9 +749,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   profileGradient: {
-    paddingTop: 12,
+    paddingTop: hp('1.5%'),
     paddingBottom: 30,
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   profileHeaderContent: {
     flexDirection: 'row',
@@ -729,7 +778,7 @@ const styles = StyleSheet.create({
     borderRadius: 35,
   },
   profileAvatarText: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '700',
     color: '#374151',
   },
@@ -737,29 +786,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileName: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   profileEmail: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   memberSince: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   memberSinceText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
   },
   settingsButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -768,23 +817,23 @@ const styles = StyleSheet.create({
   // Performance
   performanceSection: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
+    marginHorizontal: wp('5%'),
     marginTop: -15,
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    borderRadius: wp('4%'),
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('4%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 8,
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   performanceTitle: {
     fontSize: 13,
     fontWeight: '600',
     color: '#6B7280',
-    marginBottom: 10,
+    marginBottom: hp('1.2%'),
   },
   performanceRow: {
     flexDirection: 'row',
@@ -795,13 +844,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   performanceNumber: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '800',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   performanceLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     textAlign: 'center',
   },
@@ -809,34 +858,34 @@ const styles = StyleSheet.create({
     width: 1,
     backgroundColor: '#E5E7EB',
     alignSelf: 'stretch',
-    marginHorizontal: 8,
+    marginHorizontal: wp('2%'),
   },
   statsContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
+    marginHorizontal: wp('5%'),
     marginTop: -15,
-    borderRadius: 16,
-    paddingVertical: 20,
+    borderRadius: wp('4%'),
+    paddingVertical: hp('2.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     textAlign: 'center',
   },
@@ -848,61 +897,41 @@ const styles = StyleSheet.create({
 
   // Sections
   section: {
-    marginBottom: 24,
-    paddingHorizontal: 20,
+    marginBottom: hp('3%'),
+    paddingHorizontal: wp('5%'),
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   sectionLink: {
-    fontSize: 14,
-    color: '#3ad3db',
+    fontSize: wp('3.5%'),
+    color: '#26B7C9',
     fontWeight: '500',
   },
 
-  // Quick Actions
-  quickActionsGrid: {
-    gap: 12,
-  },
-  quickActionCard: {
-    borderRadius: 12,
+  // Quick Actions — unified Row list
+  quickActionsList: {
     backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 3,
   },
-  quickActionPrimary: {
-    width: '100%',
-    minHeight: 96,
-  },
-  quickActionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  quickActionSecondary: {
-    width: (width - 56) / 2,
-    minHeight: 96,
-  },
-  quickActionContent: {
-    padding: 14,
-    alignItems: 'flex-start',
-    justifyContent: 'flex-start',
-    gap: 8,
-  },
-  quickActionTextStack: {
-    gap: 4,
+  quickActionRow: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
   },
   favoriteToggle: {
     position: 'absolute',
@@ -910,7 +939,7 @@ const styles = StyleSheet.create({
     right: 10,
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -922,7 +951,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   quickActionTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -934,10 +963,10 @@ const styles = StyleSheet.create({
   // Booking Cards
   bookingCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 16,
-    marginBottom: 12,
-    shadowColor: 'rgba(58, 211, 219, 0.15)',
+    marginBottom: hp('1.5%'),
+    shadowColor: 'rgba(38, 183, 201, 0.15)',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 10,
@@ -946,7 +975,7 @@ const styles = StyleSheet.create({
   bookingHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   cleanerAvatar: {
     width: 50,
@@ -958,24 +987,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cleanerName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 2,
   },
   serviceTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginBottom: 2,
   },
   bookingDate: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('1.5%'),
   },
   statusText: {
     fontSize: 11,
@@ -989,7 +1018,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   bookingPrice: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -997,21 +1026,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0FDFA',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 4,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('2%'),
+    gap: wp('1%'),
   },
   rebookText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
 
   // Account Options
   accountOptions: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#E5E7EB',
@@ -1020,18 +1049,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('2%'),
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
   accountOptionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   accountOptionText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#1F2937',
     fontWeight: '500',
   },
@@ -1047,10 +1076,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: wp('4%'),
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   bottomSpacing: {

@@ -21,6 +21,7 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { wp, hp } from '../../utils/responsive';
 
 type TabParamList = {
   Home: undefined;
@@ -367,7 +368,7 @@ const RatingReviewScreen: React.FC<RatingReviewProps> = ({ navigation, route }) 
               disabled={!canSubmit}
             >
               <LinearGradient
-                colors={canSubmit ? [COLORS.primary, '#E97E0B'] : [COLORS.border, COLORS.border]}
+                colors={canSubmit ? [COLORS.primary, '#26B7C9'] : [COLORS.border, COLORS.border]}
                 style={styles.submitButtonGradient}
               >
                 {isSubmitting ? (
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.lg,
     marginTop: SPACING.lg,
     marginBottom: SPACING.xl,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
   },
   serviceCardBlur: {
@@ -478,7 +479,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: SPACING.md,
   },
   cleanerAvatar: {
@@ -538,7 +539,7 @@ const styles = StyleSheet.create({
   },
   textInputContainer: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: SPACING.md,
@@ -573,7 +574,7 @@ const styles = StyleSheet.create({
   addPhotoButton: {
     width: 100,
     height: 100,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 2,
     borderColor: COLORS.border,
     borderStyle: 'dashed',
@@ -595,14 +596,14 @@ const styles = StyleSheet.create({
   uploadedPhoto: {
     width: 100,
     height: 100,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
   },
   removePhotoButton: {
     position: 'absolute',
     top: -8,
     right: -8,
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
   },
   submitContainer: {
     position: 'absolute',
@@ -617,7 +618,7 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.xl,
   },
   submitButton: {
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },

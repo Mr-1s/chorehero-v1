@@ -3,8 +3,13 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Database } from '../types/database';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://kluwipcdwaaeqxjmbcti.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsdXdpcGNkd2FhZXF4am1iY3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3NjU1MjMsImV4cCI6MjA4MzM0MTUyM30.PzteskAkmJjArB4h1RIUkjHis3H_JPnMeRO2jr-9vi4';
+// SECURITY: Never ship a hardcoded fallback Supabase URL / anon key. The
+// previous fallback caused forks/clean clones to talk to a live project when
+// `.env` was missing. `validateEnv()` runs at app boot and surfaces a clear
+// error if these are unset; falling back to empty strings here guarantees
+// supabase-js fails loudly instead of silently hitting the wrong project.
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 const isDevelopmentMode = process.env.EXPO_PUBLIC_DEV_MODE === 'true';
 
 // Create a mock client for development mode

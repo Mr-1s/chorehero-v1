@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,42 +19,79 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { SkeletonBlock, SkeletonList } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 import { COLORS } from '../../utils/constants';
 
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { notificationService } from '../../services/notificationService';
-import { jobService, type JobServiceResponse, type Job } from '../../services/jobService';
+import { jobService, type JobServiceResponse } from '../../services/jobService';
+import { jobQuoteService, type Job as BoardJob } from '../../services/jobQuoteService';
 import NetworkStatusIndicator from '../../components/NetworkStatusIndicator';
 import { supabase } from '../../services/supabase';
 import { cleanerBookingService } from '../../services/cleanerBookingService';
 import { wp, hp } from '../../utils/responsive';
+import { useCleanerStore } from '../../store/cleanerStore';
+import { cleanerTheme } from '../../utils/theme';
+import {
+  getProfileCompletionFields,
+  getNextCleanerCompletionNavTarget,
+  mergeUserForProfileCompletion,
+  type ProfileCompletionField,
+} from '../../utils/cleanerProfileCompletion';
 
 const { width } = Dimensions.get('window');
+const { shadows } = cleanerTheme;
+/** Pro / seller accent — align with bottom nav active (orange), not customer teal. */
+const BRAND = cleanerTheme.colors.primary;
+const BRAND_GRADIENT_END = cleanerTheme.colors.primaryDark;
+const UI = {
+  bg: COLORS.background,
+  surface: COLORS.surface,
+  border: COLORS.border,
+  borderSoft: COLORS.borderSoft,
+  textPrimary: COLORS.text.primary,
+  textSecondary: COLORS.text.secondary,
+  textMuted: COLORS.text.muted,
+  textInverse: COLORS.text.inverse,
+  primary: BRAND,
+  success: COLORS.success,
+  warning: COLORS.warning,
+  error: COLORS.error,
+  info: COLORS.info,
+};
+const STATS_GRADIENT_END = cleanerTheme.colors.primaryLight;
+
+const profileCompletionDismissedKey = (uid: string) => `@chore:profile_checklist_dismissed:${uid}`;
+/** Survives screen remount / tab change until AsyncStorage write completes. */
+const sessionProfileChecklistDismissed = new Set<string>();
 
 type StackParamList = {
-  CleanerDashboard: undefined;
-  CleanerProfile: undefined;
-  JobsScreen: undefined;
-  EarningsScreen: undefined;
-  ScheduleScreen: undefined;
-  ActiveJob: { jobId: string };
+  Dashboard: undefined;
+  Jobs: undefined;
+  Earnings: undefined;
+  Schedule: undefined;
   ChatScreen: { bookingId: string; otherParticipant: any };
   UnifiedBooking: { serviceId?: string; serviceName?: string; basePrice?: number; duration?: number };
   Profile: undefined;
   Content: undefined;
   CleanerProfileEdit: undefined;
   VideoUpload: undefined;
+  Tips: undefined;
   NotificationsScreen: undefined;
+  IndividualChat: { bookingId: string; otherParticipant: { id: string; name: string; avatar_url: string; role: string } };
   JobDetails: { jobId: string };
+  QuoteJobDetail: { jobId: string };
+  EditProfileScreen: undefined;
+  SettingsScreen: undefined;
 };
 
 type CleanerDashboardProps = {
-  navigation: StackNavigationProp<StackParamList, 'CleanerDashboard'>;
+  navigation: StackNavigationProp<StackParamList, 'Dashboard'>;
 };
 
 interface JobOpportunity {
@@ -83,18 +120,21 @@ interface ActiveJob {
 }
 
 const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [weeklyEarnings, setWeeklyEarnings] = useState(0);
   const [completedJobs, setCompletedJobs] = useState(0);
   const [rating, setRating] = useState(0);
   const [jobOpportunities, setJobOpportunities] = useState<JobOpportunity[]>([]);
+  const [quoteJobPreview, setQuoteJobPreview] = useState<BoardJob[]>([]);
   const [activeJob, setActiveJob] = useState<ActiveJob | null>(null);
-  const [useDemoData, setUseDemoData] = useState(false); // Always use real data
+  const [useDemoData] = useState(false);
+  const [completionFields, setCompletionFields] = useState<ProfileCompletionField[]>([]);
+  const [profileCardDismissed, setProfileCardDismissed] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [weeklyGoal, setWeeklyGoal] = useState(400);
   const [isEditingGoal, setIsEditingGoal] = useState(false);
@@ -102,14 +142,79 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   // Animation refs for micro-interactions
   const notificationPulse = useRef(new Animated.Value(1)).current;
   const badgeShimmer = useRef(new Animated.Value(0)).current;
-  const celebrationScale = useRef(new Animated.Value(0)).current;
-  const [showCelebration, setShowCelebration] = useState(false);
-
   useEffect(() => {
     loadDashboardData();
     loadNotificationCount();
     startNotificationAnimation();
   }, [useDemoData]);
+
+  /** Load dismissed flag; merge so we do not re-show the card if storage lags a fresh dismiss. */
+  const applyProfileDismissedFromStorage = useCallback((uid: string) => {
+    (async () => {
+      try {
+        const v = await AsyncStorage.getItem(profileCompletionDismissedKey(uid));
+        setProfileCardDismissed((prev) => {
+          if (v === '1' || sessionProfileChecklistDismissed.has(uid)) return true;
+          if (v == null && prev) return true;
+          return false;
+        });
+      } catch {
+        setProfileCardDismissed((prev) => prev);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (isAuthLoading) return;
+    if (!isAuthenticated) {
+      setProfileCardDismissed(false);
+      return;
+    }
+    const uid = user?.id;
+    if (!uid || uid.startsWith('demo_')) {
+      setProfileCardDismissed(false);
+      return;
+    }
+    (async () => {
+      try {
+        const v = await AsyncStorage.getItem(profileCompletionDismissedKey(uid));
+        if (cancelled) return;
+        setProfileCardDismissed((prev) => {
+          if (v === '1' || sessionProfileChecklistDismissed.has(uid)) return true;
+          if (v == null && prev) return true;
+          return false;
+        });
+      } catch {
+        if (!cancelled) {
+          setProfileCardDismissed((prev) => prev);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isAuthenticated, isAuthLoading]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      sessionProfileChecklistDismissed.clear();
+    }
+  }, [user?.id]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const uid = user?.id;
+      if (uid && !uid.startsWith('demo_') && isAuthenticated) {
+        if (sessionProfileChecklistDismissed.has(uid)) {
+          setProfileCardDismissed(true);
+        }
+        applyProfileDismissedFromStorage(uid);
+      }
+      void loadDashboardData();
+      void loadNotificationCount();
+    }, [user?.id, useDemoData, isAuthenticated, applyProfileDismissedFromStorage])
+  );
 
   // Realtime: when customer cancels, refresh dashboard so job disappears
   useEffect(() => {
@@ -178,28 +283,6 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     }
   };
 
-  // Profile completion celebration
-  const triggerProfileCelebration = async () => {
-    setShowCelebration(true);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    
-    Animated.sequence([
-      Animated.timing(celebrationScale, {
-        toValue: 1,
-        duration: 800,
-        useNativeDriver: true,
-      }),
-      Animated.delay(3000),
-      Animated.timing(celebrationScale, {
-        toValue: 0,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setShowCelebration(false);
-    });
-  };
-
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
@@ -209,120 +292,169 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
         setCompletedJobs(0);
         setRating(0);
         setJobOpportunities([]);
+        setQuoteJobPreview([]);
         setActiveJob(null);
+        setCompletionFields([]);
         return;
       }
 
       console.log('📊 Loading cleaner dashboard for:', user.id);
 
-      // Get date ranges
-      const now = new Date();
-      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
-
-      // Fetch completed bookings for earnings
-      const { data: completedBookings, error: earningsError } = await supabase
-        .from('bookings')
-        .select('id, total_amount, cleaner_earnings, scheduled_time, completed_at')
-        .eq('cleaner_id', user.id)
-        .eq('status', 'completed');
-
-      if (earningsError) {
-        console.error('❌ Error fetching earnings:', earningsError);
+      await useCleanerStore.getState().fetchDashboard();
+      const c = useCleanerStore.getState().currentCleaner;
+      let todayTotal = c?.todayEarnings ?? 0;
+      let weekTotal = c?.weeklyEarnings ?? 0;
+      let totalJobs = c?.totalJobs ?? 0;
+      let ratingVal = c?.rating ?? 0;
+      if (useDemoData) {
+        todayTotal = 128.0;
+        weekTotal = 420.0;
+        totalJobs = 7;
+        ratingVal = 4.8;
       }
-
-      // Calculate earnings
-      let todayTotal = 0;
-      let weekTotal = 0;
-      let totalJobs = completedBookings?.length || 0;
-
-      (completedBookings || []).forEach(booking => {
-        const earnings = booking.cleaner_earnings || (booking.total_amount * 0.81) || 0;
-        const completedDate = new Date(booking.completed_at || booking.scheduled_time);
-        
-        if (completedDate >= startOfToday) {
-          todayTotal += earnings;
-        }
-        if (completedDate >= startOfWeek) {
-          weekTotal += earnings;
-        }
-      });
-
       setTodayEarnings(todayTotal);
       setWeeklyEarnings(weekTotal);
       setCompletedJobs(totalJobs);
+      setRating(ratingVal);
+      setIsOnline(c?.isOnline ?? false);
 
-      // Fetch cleaner profile for rating
-      const { data: profile } = await supabase
+      const { data: profileRow, error: profileRowErr } = await supabase
         .from('cleaner_profiles')
-        .select('rating_average')
+        .select('*, user:users(*)')
         .eq('user_id', user.id)
-        .single();
-
-      setRating(profile?.rating_average || 0);
-
-      // Fetch available jobs using the service
-      const availableJobs = await cleanerBookingService.getAvailableBookings(user.id);
-      
-      // Transform to job opportunities format
-      const opportunities = availableJobs.map(job => ({
-        id: job.id,
-        customer_name: job.customerName,
-        customer_avatar: job.customerAvatarUrl || '',
-        service_type: job.serviceType,
-        address: job.addressLine1,
-        distance: job.distanceMiles,
-        estimated_duration: job.durationMinutes,
-        payment: job.payoutToCleaner,
-        scheduled_time: new Date(job.scheduledAt).toLocaleString([], { 
-          weekday: 'short', 
-          month: 'short', 
-          day: 'numeric',
-          hour: '2-digit', 
-          minute: '2-digit' 
-        }),
-        priority: job.isInstant ? 'high' : 'medium' as 'high' | 'medium' | 'low',
-      }));
-
-      setJobOpportunities(opportunities);
-
-      // Fetch active job (in progress)
-      const activeJobs = await cleanerBookingService.getActiveBookings(user.id);
-      const inProgressJob = activeJobs.find(j => 
-        ['in_progress', 'cleaner_arrived', 'cleaner_en_route'].includes(j.status)
-      );
-
-      if (inProgressJob) {
-        setActiveJob({
-          id: inProgressJob.id,
-          customer_name: inProgressJob.customerName,
-          customer_avatar: inProgressJob.customerAvatarUrl || '',
-          service_type: inProgressJob.serviceType,
-          address: inProgressJob.addressLine1,
-          status: inProgressJob.status,
-          scheduled_time: new Date(inProgressJob.scheduledAt).toLocaleString([], {
-            weekday: 'short',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          payment: inProgressJob.payoutToCleaner,
-        });
-      } else {
-        setActiveJob(null);
+        .maybeSingle();
+      if (profileRowErr) {
+        console.warn('cleaner_profiles fetch for completion card:', profileRowErr);
+      }
+      const joinedUser = profileRow?.user;
+      const u = Array.isArray(joinedUser) ? joinedUser[0] : joinedUser;
+      const userMerged = mergeUserForProfileCompletion(u, user);
+      const fields = getProfileCompletionFields(profileRow, userMerged);
+      setCompletionFields(fields);
+      if (fields.length > 0 && fields.every((f) => f.filled)) {
+        sessionProfileChecklistDismissed.delete(user.id);
+        try {
+          await AsyncStorage.removeItem(profileCompletionDismissedKey(user.id));
+        } catch {
+          // no-op
+        }
+        setProfileCardDismissed(false);
       }
 
-      console.log('✅ Dashboard loaded:', {
+      if (useDemoData) {
+        setJobOpportunities([]);
+        setQuoteJobPreview([]);
+        setActiveJob(null);
+      } else {
+        const proId = user.id;
+        let quotePreview: BoardJob[] = [];
+        try {
+          const { data: cp } = await supabase
+            .from('cleaner_profiles')
+            .select('service_radius_km, specialties')
+            .eq('user_id', proId)
+            .single();
+          const radiusMiles =
+            cp?.service_radius_km != null ? Math.round(Number(cp.service_radius_km) * 0.621371) : 50;
+          const firstSpecialty = cp?.specialties?.[0];
+          const proCategory = firstSpecialty ? jobQuoteService.specialtyToCategory(firstSpecialty) : undefined;
+          let proLat: number | undefined;
+          let proLng: number | undefined;
+          const { data: addr } = await supabase
+            .from('addresses')
+            .select('latitude, longitude')
+            .eq('user_id', proId)
+            .not('latitude', 'is', null)
+            .not('longitude', 'is', null)
+            .order('is_default', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (addr?.latitude != null && addr?.longitude != null) {
+            proLat = Number(addr.latitude);
+            proLng = Number(addr.longitude);
+          }
+          const qRes = await jobQuoteService.getAvailableJobsForPro(
+            proId,
+            proLat,
+            proLng,
+            proCategory ?? undefined,
+            radiusMiles
+          );
+          if (qRes.success && qRes.data) {
+            quotePreview = qRes.data.slice(0, 3);
+          }
+        } catch {
+          quotePreview = [];
+        }
+        setQuoteJobPreview(quotePreview);
+
+        const availableJobs = await cleanerBookingService.getAvailableBookings(user.id);
+        const opportunities = availableJobs
+          .slice(0, 3)
+          .map((job) => ({
+            id: job.id,
+            customer_name: job.customerName,
+            customer_avatar: job.customerAvatarUrl || '',
+            service_type: job.serviceType,
+            address: job.addressLine1,
+            distance: job.distanceMiles,
+            estimated_duration: job.durationMinutes,
+            payment: job.payoutToCleaner,
+            scheduled_time: new Date(job.scheduledAt).toLocaleString([], {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            priority: job.isInstant ? 'high' : ('medium' as 'high' | 'medium' | 'low'),
+          }));
+        setJobOpportunities(opportunities);
+
+        const activeBookings = await cleanerBookingService.getActiveBookings(user.id);
+        const inProgressJob = activeBookings[0] ?? null;
+        if (inProgressJob) {
+          const st = inProgressJob.status;
+          const uiStatus: ActiveJob['status'] =
+            st === 'on_the_way'
+              ? 'en_route'
+              : st === 'arrived'
+                ? 'arrived'
+                : st === 'in_progress'
+                  ? 'in_progress'
+                  : 'confirmed';
+          setActiveJob({
+            id: inProgressJob.id,
+            customer_name: inProgressJob.customerName,
+            customer_avatar: inProgressJob.customerAvatarUrl || '',
+            service_type: inProgressJob.serviceType,
+            address: inProgressJob.addressLine1,
+            status: uiStatus,
+            scheduled_time: new Date(inProgressJob.scheduledAt).toLocaleString([], {
+              weekday: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            payment: inProgressJob.payoutToCleaner,
+          });
+        } else {
+          setActiveJob(null);
+        }
+      }
+
+      console.log('✅ Dashboard loaded', {
         todayEarnings: todayTotal,
         weeklyEarnings: weekTotal,
         completedJobs: totalJobs,
-        availableJobs: opportunities.length,
+        useDemoData,
       });
-
     } catch (error) {
       console.error('❌ Dashboard load error:', error);
-      try { (showToast as any) && showToast({ type: 'error', message: 'Failed to load dashboard data' }); } catch {}
+      try {
+        (showToast as any) && showToast({ type: 'error', message: 'Failed to load dashboard data' });
+      } catch {
+        // ignore
+      }
     } finally {
       setIsLoading(false);
     }
@@ -334,9 +466,13 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     setRefreshing(false);
   };
 
-  const toggleOnlineStatus = () => {
-    setIsOnline(!isOnline);
-    // TODO: Update online status in backend
+  const toggleOnlineStatus = async () => {
+    const success = await useCleanerStore.getState().toggleOnlineStatus();
+    if (!success) {
+      Alert.alert('Could not update status', 'Please try again in a moment.');
+      return;
+    }
+    setIsOnline(useCleanerStore.getState().currentCleaner?.isOnline ?? false);
   };
 
   const handleAcceptJob = async (jobId: string) => {
@@ -396,7 +532,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           'Job Accepted! 🎉',
           'The job has been added to your active jobs. You can now contact the customer.',
           [
-            { text: 'View Active Jobs', onPress: () => navigation.navigate('JobsScreen') },
+            { text: 'View Active Jobs', onPress: () => navigation.navigate('Jobs') },
             { text: 'OK' }
           ]
         );
@@ -493,11 +629,11 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'confirmed': return '#3B82F6';
-      case 'en_route': return '#F59E0B';
-      case 'arrived': return '#10B981';
-      case 'in_progress': return '#8B5CF6';
-      default: return '#6B7280';
+      case 'confirmed': return UI.info;
+      case 'en_route': return UI.warning;
+      case 'arrived': return UI.success;
+      case 'in_progress': return UI.primary;
+      default: return UI.textSecondary;
     }
   };
 
@@ -513,85 +649,149 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'high': return '#EF4444';
-      case 'medium': return '#F59E0B';
-      case 'low': return '#10B981';
-      default: return '#6B7280';
+      case 'high': return UI.error;
+      case 'medium': return UI.warning;
+      case 'low': return UI.success;
+      default: return UI.textSecondary;
     }
   };
 
-  const renderProfileCompletion = () => {
-    const completionItems = [
-      { key: 'photo', label: 'Profile Photo', completed: !!user?.avatar_url },
-      { key: 'bio', label: 'Bio Description', completed: false },
-      { key: 'video', label: 'Intro Video', completed: false },
-      { key: 'verification', label: 'ID Verification', completed: false },
-      { key: 'background', label: 'Background Check', completed: true }
-    ];
-    
-    const completedCount = completionItems.filter(item => item.completed).length;
-    const completionPercentage = (completedCount / completionItems.length) * 100;
-    
-    // Show celebration when reaching 100% completion
-    if (completionPercentage >= 100) {
-      if (!showCelebration) {
-        triggerProfileCelebration();
-      }
-      return null; // Hide when complete
-    }
-    
-    return (
-      <View style={styles.profileCompletionCard}>
-        <View style={styles.completionHeader}>
-          <View>
-            <Text style={styles.completionTitle}>Complete Your Profile</Text>
-            <Text style={styles.completionSubtitle}>
-              {Math.round(completionPercentage)}% complete • {5 - completedCount} items remaining
-            </Text>
-          </View>
-          <Ionicons name="close" size={20} color="#6B7280" />
-        </View>
-        
-        <View style={styles.progressBarContainer}>
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${completionPercentage}%` }]} />
-          </View>
-        </View>
-        
-        <View style={styles.completionItems}>
-          {completionItems
-            .filter(item => !item.completed)
-            .slice(0, 2)
-            .map(item => (
-              <View key={item.key} style={styles.completionItem}>
-                <Ionicons name="ellipse-outline" size={16} color="#EF4444" />
-                <Text style={styles.completionItemText}>{item.label}</Text>
-              </View>
-            ))}
-        </View>
-        
-        <View style={styles.completionNote}>
-          <Text style={styles.completionNoteText}>
-            Complete your intro video and ID verification to unlock more jobs and higher earnings!
-          </Text>
-        </View>
+  const rankFromProfileCompletionPct = (p: number) => {
+    if (p >= 100) return { name: 'Profile complete', blurb: 'You are set to get bookings' };
+    if (p >= 75) return { name: 'Almost there', blurb: 'Finish the last few items' };
+    if (p >= 50) return { name: 'Strong start', blurb: 'Add details to build trust' };
+    if (p >= 25) return { name: 'Getting going', blurb: 'Every step helps' };
+    return { name: 'Build your profile', blurb: 'Complete each step' };
+  };
 
-        <View style={styles.completionActions}>
-          <TouchableOpacity 
-            style={styles.completeProfileButton}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            <Ionicons name="person" size={16} color={COLORS.text.inverse} />
-            <Text style={styles.completeProfileButtonText}>Complete Profile</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.uploadContentButton}
-            onPress={() => navigation.navigate('Content')}
-          >
-            <Ionicons name="videocam" size={16} color={COLORS.primary} />
-            <Text style={styles.uploadContentButtonText}>Upload Content</Text>
-          </TouchableOpacity>
+  const profilePrimaryAction = (incomplete: ProfileCompletionField[]) => {
+    if (incomplete.length === 1 && incomplete[0].id === 'background') {
+      return { mode: 'settings' as const };
+    }
+    return { mode: 'edit' as const };
+  };
+
+  const renderProfileCompletion = () => {
+    if (completionFields.length === 0) {
+      return null;
+    }
+
+    const incomplete = completionFields.filter((f) => !f.filled);
+    const totalW = completionFields.reduce((s, f) => s + f.weight, 0);
+    const filledW = completionFields.reduce((s, f) => s + (f.filled ? f.weight : 0), 0);
+    const pct = totalW > 0 ? Math.round((filledW / totalW) * 1000) / 10 : 0;
+    const remaining = incomplete.length;
+    const { name: rankName, blurb: rankBlurb } = rankFromProfileCompletionPct(pct);
+    const primary = profilePrimaryAction(incomplete);
+    const onlyBackgroundPending = primary.mode === 'settings';
+
+    const goNextProfileStep = () => {
+      const target = getNextCleanerCompletionNavTarget(incomplete);
+      navigation.navigate(target as keyof StackParamList);
+    };
+
+    if (incomplete.length === 0) {
+      return null;
+    }
+
+    if (profileCardDismissed) {
+      return null;
+    }
+
+    return (
+      <View style={styles.profileCompletionOuter}>
+        <View style={[styles.profileCompletionShadow, shadows.metricFloat]}>
+          <View style={styles.profileCompletionClip}>
+            <View style={styles.profileCompletionCard}>
+              <View style={styles.completionHeader}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.completionTitle}>
+                    {onlyBackgroundPending ? 'Almost there' : 'Profile checklist'}
+                  </Text>
+                  <View style={styles.completionRankRow}>
+                    <Ionicons name="trophy" size={14} color={BRAND} />
+                    <Text style={styles.completionRankText}>
+                      {rankName} · {rankBlurb}
+                    </Text>
+                  </View>
+                  <Text style={styles.completionSubtitle}>
+                    {Math.round(pct)}%{remaining > 0 ? ` · ${remaining} left` : ''}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (user?.id && !user.id.startsWith('demo_')) {
+                      sessionProfileChecklistDismissed.add(user.id);
+                    }
+                    setProfileCardDismissed(true);
+                    if (user?.id && !user.id.startsWith('demo_')) {
+                      try {
+                        await AsyncStorage.setItem(profileCompletionDismissedKey(user.id), '1');
+                      } catch {
+                        // no-op
+                      }
+                    }
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss profile reminder"
+                >
+                  <Ionicons name="close" size={20} color={UI.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.progressBarContainer}>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${Math.min(pct, 100)}%` }]} />
+                </View>
+              </View>
+
+              <View style={styles.completionItems}>
+                {incomplete.slice(0, 2).map((item) => (
+                  <View key={item.id} style={styles.completionItem}>
+                    <Ionicons name="ellipse-outline" size={16} color={UI.error} />
+                    <Text style={styles.completionItemText}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {onlyBackgroundPending ? (
+                <View style={styles.completionNote}>
+                  <Text style={styles.completionNoteText}>
+                    Background check still processing — your score updates when it clears.
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.completionActions}>
+                {onlyBackgroundPending ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.completeProfileButton}
+                      onPress={() => navigation.navigate('SettingsScreen')}
+                    >
+                      <Ionicons name="settings-outline" size={16} color={UI.textInverse} />
+                      <Text style={styles.completeProfileButtonText} numberOfLines={1}>
+                        Account & status
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.uploadContentButton}
+                      onPress={() => navigation.navigate('Profile')}
+                    >
+                      <Ionicons name="person" size={16} color={BRAND} />
+                      <Text style={styles.uploadContentButtonText}>View profile</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity style={styles.completeProfileButton} onPress={goNextProfileStep}>
+                    <Ionicons name="arrow-forward-circle" size={16} color={UI.textInverse} />
+                    <Text style={styles.completeProfileButtonText}>Continue</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -607,48 +807,54 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     };
 
     return (
-      <View style={styles.goalsCard}>
-        <View style={styles.goalsHeader}>
-          <Ionicons name="trophy" size={20} color="#F59E0B" />
-          <Text style={styles.goalsTitle}>This Week's Goal</Text>
-          <TouchableOpacity onPress={handleGoalPress} style={styles.editGoalButton}>
-            <Ionicons name="pencil" size={16} color={COLORS.primary} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.goalsContent}>
-          {isEditingGoal ? (
-            <View style={styles.goalEditContainer}>
-              <Text style={styles.goalEditLabel}>Weekly Goal</Text>
-              <TextInput
-                style={styles.goalEditInput}
-                value={weeklyGoal.toString()}
-                onChangeText={(text) => {
-                  const value = parseInt(text) || 0;
-                  setWeeklyGoal(value);
-                }}
-                onBlur={() => setIsEditingGoal(false)}
-                keyboardType="numeric"
-                selectTextOnFocus
-                autoFocus
-              />
-            </View>
-          ) : (
-            <TouchableOpacity onPress={handleGoalPress}>
-              <Text style={styles.goalsAmount}>${weeklyGoal}</Text>
-            </TouchableOpacity>
-          )}
-          <View style={styles.goalsProgress}>
-            <View style={styles.goalsProgressBar}>
-              <Animated.View 
-                style={[
-                  styles.goalsProgressFill, 
-                  { width: `${progressPercentage}%` }
-                ]} 
-              />
-            </View>
-            <Text style={styles.goalsProgressText}>
-              {progressPercentage.toFixed(0)}% there! • ${remaining.toFixed(2)} remaining
-            </Text>
+      <View style={styles.goalsRowOuter}>
+        <View style={[styles.goalsShadow, shadows.metricFloat]}>
+          <View style={styles.goalsClip}>
+            <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.goalsCardGradient}>
+              <View style={styles.goalsHeader}>
+                <Ionicons name="trophy" size={20} color={UI.warning} />
+                <Text style={styles.goalsTitle}>This Week's Goal</Text>
+                <TouchableOpacity onPress={handleGoalPress} style={styles.editGoalButton}>
+                  <Ionicons name="pencil" size={16} color={BRAND} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.goalsContent}>
+                {isEditingGoal ? (
+                  <View style={styles.goalEditContainer}>
+                    <Text style={styles.goalEditLabel}>Weekly Goal</Text>
+                    <TextInput
+                      style={styles.goalEditInput}
+                      value={weeklyGoal.toString()}
+                      onChangeText={(text) => {
+                        const value = parseInt(text) || 0;
+                        setWeeklyGoal(value);
+                      }}
+                      onBlur={() => setIsEditingGoal(false)}
+                      keyboardType="numeric"
+                      selectTextOnFocus
+                      autoFocus
+                    />
+                  </View>
+                ) : (
+                  <TouchableOpacity onPress={handleGoalPress}>
+                    <Text style={styles.goalsAmount}>${weeklyGoal}</Text>
+                  </TouchableOpacity>
+                )}
+                <View style={styles.goalsProgress}>
+                  <View style={styles.goalsProgressBar}>
+                    <Animated.View
+                      style={[
+                        styles.goalsProgressFill,
+                        { width: `${progressPercentage}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.goalsProgressText}>
+                    {progressPercentage.toFixed(0)}% there! • ${remaining.toFixed(2)} remaining
+                  </Text>
+                </View>
+              </View>
+            </LinearGradient>
           </View>
         </View>
       </View>
@@ -656,41 +862,42 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   };
 
   const renderStatsCard = () => (
-    <View style={styles.statsContainer}>
-      <LinearGradient
-        colors={['#FFFFFF', '#FEF3C7']}
-        style={styles.statsGradient}
-      >
-        <View style={styles.statsHeader}>
-          <Text style={styles.statsTitle}>Today's Performance</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('EarningsScreen')}>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.primary} />
-          </TouchableOpacity>
+    <View style={styles.statsOuter}>
+      <View style={[styles.statsShadow, shadows.metricFloat]}>
+        <View style={styles.statsClip}>
+          <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.statsGradient}>
+            <View style={styles.statsHeader}>
+              <Text style={styles.statsTitle}>Today's Performance</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Earnings')}>
+                <Ionicons name="chevron-forward" size={20} color={BRAND} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.statsGrid}>
+              <View style={styles.statItem}>
+                <Ionicons name="cash" size={18} color={BRAND} style={styles.statIcon} />
+                <Text style={styles.statValue}>${todayEarnings.toFixed(2)}</Text>
+                <Text style={styles.statLabel}>Today</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="trending-up" size={18} color={BRAND} style={styles.statIcon} />
+                <Text style={styles.statValue}>${weeklyEarnings.toFixed(2)}</Text>
+                <Text style={styles.statLabel}>This Week</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="checkmark-circle" size={18} color={BRAND} style={styles.statIcon} />
+                <Text style={styles.statValue}>{completedJobs}</Text>
+                <Text style={styles.statLabel}>Jobs Done</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Ionicons name="star" size={18} color={BRAND} style={styles.statIcon} />
+                <Text style={styles.statValue}>{rating.toFixed(1)}</Text>
+                <Text style={styles.statLabel}>Rating</Text>
+              </View>
+            </View>
+          </LinearGradient>
         </View>
-        
-        <View style={styles.statsGrid}>
-                <View style={styles.statItem}>
-        <Ionicons name="cash" size={18} color={COLORS.success} style={styles.statIcon} />
-        <Text style={styles.statValue}>${todayEarnings.toFixed(2)}</Text>
-        <Text style={styles.statLabel}>Today</Text>
       </View>
-      <View style={styles.statItem}>
-        <Ionicons name="trending-up" size={18} color={COLORS.primary} style={styles.statIcon} />
-        <Text style={styles.statValue}>${weeklyEarnings.toFixed(2)}</Text>
-        <Text style={styles.statLabel}>This Week</Text>
-      </View>
-      <View style={styles.statItem}>
-        <Ionicons name="checkmark-circle" size={18} color={COLORS.secondary} style={styles.statIcon} />
-        <Text style={styles.statValue}>{completedJobs}</Text>
-        <Text style={styles.statLabel}>Jobs Done</Text>
-      </View>
-      <View style={styles.statItem}>
-        <Ionicons name="star" size={18} color={COLORS.primary} style={styles.statIcon} />
-        <Text style={styles.statValue}>{rating.toFixed(1)}</Text>
-        <Text style={styles.statLabel}>Rating</Text>
-      </View>
-        </View>
-      </LinearGradient>
     </View>
   );
 
@@ -698,14 +905,14 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     <View style={styles.onlineToggleContainer}>
       <View style={styles.onlineToggleContent}>
         <View style={styles.onlineStatus}>
-          <View style={[styles.statusDot, { backgroundColor: isOnline ? '#10B981' : '#EF4444' }]} />
+          <View style={[styles.statusDot, { backgroundColor: isOnline ? UI.success : UI.error }]} />
           <Text style={styles.onlineStatusText}>
             {isOnline ? 'Available for Jobs' : 'Offline'}
           </Text>
         </View>
         
         <TouchableOpacity
-          style={[styles.toggleButton, { backgroundColor: isOnline ? '#10B981' : '#EF4444' }]}
+          style={[styles.toggleButton, { backgroundColor: isOnline ? UI.success : UI.error }]}
           onPress={toggleOnlineStatus}
         >
           <Text style={styles.toggleButtonText}>
@@ -723,141 +930,227 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Active Job</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('ActiveJob', { jobId: activeJob.id })}>
+          <TouchableOpacity onPress={() => navigation.navigate('JobDetails', { jobId: activeJob.id })}>
             <Text style={styles.viewAllText}>View Details</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.activeJobCard}>
-          <View style={styles.activeJobHeader}>
-            <Image source={{ uri: activeJob.customer_avatar }} style={styles.customerAvatar} />
-            <View style={styles.activeJobInfo}>
-              <Text style={styles.customerName}>{activeJob.customer_name}</Text>
-              <Text style={styles.serviceType}>{activeJob.service_type}</Text>
-              <Text style={styles.jobAddress}>{activeJob.address}</Text>
-            </View>
-            <View style={styles.activeJobStatus}>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(activeJob.status) }]}>
-                <Text style={styles.statusText}>{getStatusText(activeJob.status)}</Text>
-              </View>
-              <Text style={styles.jobPayment}>${activeJob.payment.toFixed(2)}</Text>
-            </View>
-          </View>
+        <View style={styles.activeJobWrap}>
+          <View style={[styles.activeJobShadow, shadows.metricFloat]}>
+            <View style={styles.activeJobClip}>
+              <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.activeJobCardGradient}>
+                <View style={styles.activeJobHeader}>
+                  {activeJob.customer_avatar ? (
+                    <Image source={{ uri: activeJob.customer_avatar }} style={styles.customerAvatar} />
+                  ) : (
+                    <View style={[styles.customerAvatar, styles.customerAvatarPlaceholder]}>
+                      <Ionicons name="person" size={20} color={UI.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.activeJobInfo}>
+                    <Text style={styles.customerName}>{activeJob.customer_name}</Text>
+                    <Text style={styles.serviceType}>{activeJob.service_type}</Text>
+                    <Text style={styles.jobAddress}>{activeJob.address}</Text>
+                  </View>
+                  <View style={styles.activeJobStatus}>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(activeJob.status) }]}>
+                      <Text style={styles.statusText}>{getStatusText(activeJob.status)}</Text>
+                    </View>
+                    <Text style={styles.jobPayment}>${activeJob.payment.toFixed(2)}</Text>
+                  </View>
+                </View>
 
-          <View style={styles.activeJobActions}>
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => navigation.navigate('IndividualChat', { 
-                bookingId: activeJob.id,
-                otherParticipant: {
-                  id: 'customer-1',
-                  name: activeJob.customer_name,
-                  avatar_url: activeJob.customer_avatar,
-                  role: 'customer'
-                }
-              })}
-            >
-              <Ionicons name="chatbubble" size={18} color={COLORS.primary} />
-              <Text style={styles.actionButtonText}>Chat</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons name="navigate" size={18} color={COLORS.primary} />
-              <Text style={styles.actionButtonText}>Navigate</Text>
-            </TouchableOpacity>
+                <View style={styles.activeJobActions}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => navigation.navigate('IndividualChat', {
+                      bookingId: activeJob.id,
+                      otherParticipant: {
+                        id: 'customer-1',
+                        name: activeJob.customer_name,
+                        avatar_url: activeJob.customer_avatar,
+                        role: 'customer'
+                      }
+                    })}
+                  >
+                    <Ionicons name="chatbubble" size={18} color={BRAND} />
+                    <Text style={styles.actionButtonText}>Chat</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.actionButton}>
+                    <Ionicons name="navigate" size={18} color={BRAND} />
+                    <Text style={styles.actionButtonText}>Navigate</Text>
+                  </TouchableOpacity>
+                </View>
+              </LinearGradient>
+            </View>
           </View>
         </View>
       </View>
     );
   };
 
+  const hasOpportunityPreview = quoteJobPreview.length > 0 || jobOpportunities.length > 0;
+
   const renderJobOpportunities = () => (
     <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>New Opportunities Near You</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('JobsScreen')}>
-          <Text style={styles.viewAllText}>View All</Text>
-        </TouchableOpacity>
+      <View style={styles.opportunitiesHeaderBlock}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>New opportunities</Text>
+        </View>
       </View>
 
-      {jobOpportunities.length > 0 ? (
-        jobOpportunities.map((job) => (
-          <TouchableOpacity 
-            key={job.id} 
-            style={[styles.jobCard, styles.jobCardElevated]}
-            onPress={() => navigation.navigate('JobDetails', { jobId: job.id })}
-            activeOpacity={0.8}
-          >
-            <View style={styles.jobHeader}>
-              <Image source={{ uri: job.customer_avatar }} style={styles.customerAvatar} />
-              <View style={styles.jobInfo}>
-                <View style={styles.jobTitleRow}>
-                  <Text style={styles.customerName}>{job.customer_name}</Text>
-                  <Animated.View 
-                    style={[
-                      styles.jobStatusContainer,
-                      { transform: [{ scale: badgeShimmer.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: [1, 1.1, 1],
-                      })}] }
-                    ]}
-                  >
-                    <Ionicons name="flash" size={14} color="#FFFFFF" />
-                    <Text style={styles.jobStatusText}>
-                      {job.priority === 'high' ? 'INSTANT' : 'NEW'}
-                    </Text>
-                  </Animated.View>
-                </View>
-                <Text style={styles.serviceType}>{job.service_type}</Text>
-                <Text style={styles.jobAddress}>{job.address}</Text>
-                <View style={styles.jobDetails}>
-                  <Text style={styles.jobDetailText}>{job.distance} mi away</Text>
-                  <Text style={styles.jobDetailText}>•</Text>
-                  <Text style={styles.jobDetailText}>{job.estimated_duration} min</Text>
-                  <Text style={styles.jobDetailText}>•</Text>
-                  <Text style={styles.jobDetailText}>{job.scheduled_time}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.jobFooter}>
-              <Text style={styles.jobPayment}>${job.payment.toFixed(2)}</Text>
-              <TouchableOpacity 
-                style={[
-                  styles.acceptButton, 
-                  job.isAccepting && styles.acceptButtonLoading
-                ]}
-                onPress={() => handleAcceptJob(job.id)}
-                disabled={job.isAccepting}
-              >
-                {job.isAccepting ? (
-                  <View style={styles.acceptButtonLoadingContent}>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.acceptButtonText}>Accepting...</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.acceptButtonText}>Accept</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        ))
-      ) : (
+      {!hasOpportunityPreview ? (
         <EmptyState
           {...EmptyStateConfigs.jobOpportunities}
+          ctaAccentColor={BRAND}
           actions={[
             {
-              label: 'Complete Profile',
-              onPress: () => navigation.navigate('EditProfile'),
-              icon: 'person'
+              label: 'Browse jobs',
+              onPress: () => navigation.navigate('Jobs'),
+              icon: 'briefcase',
+              primary: true,
             },
-            {
-              label: 'View All Jobs',
-              onPress: () => navigation.navigate('JobsScreen'),
-              icon: 'briefcase'
-            }
           ]}
         />
+      ) : (
+        <View style={styles.opportunitiesList}>
+          {quoteJobPreview.map((qj) => (
+            <View key={`quote-${qj.id}`} style={[styles.jobCardLift, shadows.metricFloat]}>
+              <TouchableOpacity
+                style={styles.jobCard}
+                onPress={() => navigation.navigate('QuoteJobDetail', { jobId: qj.id })}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={[UI.surface, STATS_GRADIENT_END]}
+                  style={[styles.jobCardGradientFill, styles.quotePreviewRow]}
+                >
+                  <View style={styles.quotePreviewRowInner}>
+                    <View style={styles.quotePreviewIcon}>
+                      <Ionicons name="videocam" size={22} color={BRAND} />
+                    </View>
+                    <View style={styles.quotePreviewTextCol}>
+                      <Text style={styles.quotePreviewHeadline} numberOfLines={2}>
+                        {qj.headline}
+                      </Text>
+                      <View style={styles.quotePreviewMeta}>
+                        <Text style={styles.quotePreviewCategory}>
+                          {jobQuoteService.getCategoryLabel(qj.category)}
+                        </Text>
+                        {qj.distance_miles != null && (
+                          <Text style={styles.quotePreviewDistance}>{qj.distance_miles} mi away</Text>
+                        )}
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={UI.textSecondary} />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          {jobOpportunities.map((job) => (
+            <View key={job.id} style={[styles.jobCardLift, shadows.metricFloat]}>
+            <TouchableOpacity
+              style={styles.jobCard}
+              onPress={() => navigation.navigate('JobDetails', { jobId: job.id })}
+              activeOpacity={0.8}
+            >
+              <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.jobCardGradientFill}>
+              <View style={styles.jobHeader}>
+                {job.customer_avatar ? (
+                  <Image source={{ uri: job.customer_avatar }} style={styles.customerAvatar} />
+                ) : (
+                  <View style={[styles.customerAvatar, styles.customerAvatarPlaceholder]}>
+                    <Ionicons name="person" size={20} color={UI.textMuted} />
+                  </View>
+                )}
+                <View style={styles.jobInfo}>
+                  <View style={styles.jobTitleRow}>
+                    <Text style={styles.customerName}>{job.customer_name}</Text>
+                    <Animated.View
+                      style={[
+                        styles.jobStatusContainer,
+                        {
+                          transform: [
+                            {
+                              scale: badgeShimmer.interpolate({
+                                inputRange: [0, 0.5, 1],
+                                outputRange: [1, 1.1, 1],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <Ionicons name="flash" size={14} color={UI.textInverse} />
+                      <Text style={styles.jobStatusText}>
+                        {job.priority === 'high' ? 'INSTANT' : 'NEW'}
+                      </Text>
+                    </Animated.View>
+                  </View>
+                  <Text style={styles.serviceType}>{job.service_type}</Text>
+                  <Text style={styles.jobAddress}>{job.address}</Text>
+                  <View style={styles.jobDetails}>
+                    <Text style={styles.jobDetailText}>{job.distance} mi away</Text>
+                    <Text style={styles.jobDetailText}>•</Text>
+                    <Text style={styles.jobDetailText}>{job.estimated_duration} min</Text>
+                    <Text style={styles.jobDetailText}>•</Text>
+                    <Text style={styles.jobDetailText}>{job.scheduled_time}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.jobFooter}>
+                <Text style={styles.jobPayment}>${job.payment.toFixed(2)}</Text>
+                <TouchableOpacity
+                  style={[styles.acceptButton, job.isAccepting && styles.acceptButtonLoading]}
+                  onPress={() => handleAcceptJob(job.id)}
+                  disabled={job.isAccepting}
+                >
+                  <LinearGradient
+                    colors={[BRAND, BRAND_GRADIENT_END]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.acceptButtonGradient}
+                  >
+                    {job.isAccepting ? (
+                      <View style={styles.acceptButtonLoadingContent}>
+                        <ActivityIndicator size="small" color={UI.textInverse} />
+                        <Text style={styles.acceptButtonText}>Accepting...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.acceptButtonText}>Accept</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+              </LinearGradient>
+            </TouchableOpacity>
+            </View>
+          ))}
+
+          <View style={[styles.browseJobsLift, shadows.metricFloat]}>
+          <TouchableOpacity
+            style={styles.browseJobsButtonWrap}
+            onPress={() => navigation.navigate('Jobs')}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel="Browse all open jobs"
+          >
+            <LinearGradient
+              colors={[UI.surface, STATS_GRADIENT_END]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.browseJobsGradient}
+            >
+              <Text style={styles.browseJobsButtonText}>Browse jobs</Text>
+              <Ionicons name="arrow-forward" size={20} color={BRAND} />
+            </LinearGradient>
+          </TouchableOpacity>
+          </View>
+        </View>
       )}
     </View>
   );
@@ -866,37 +1159,53 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
     <View style={styles.quickActionsContainer}>
       <Text style={styles.sectionTitle}>Quick Actions</Text>
       <View style={styles.quickActionsGrid}>
-        <TouchableOpacity 
-          style={styles.quickActionButton}
-          onPress={() => navigation.navigate('ScheduleScreen')}
-        >
-          <Ionicons name="calendar" size={24} color={COLORS.primary} />
-          <Text style={styles.quickActionText}>Schedule</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.quickActionButton}
-          onPress={() => navigation.navigate('EarningsScreen')}
-        >
-          <Ionicons name="card" size={24} color={COLORS.primary} />
-          <Text style={styles.quickActionText}>Earnings</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.quickActionButton}
-          onPress={() => navigation.navigate('VideoUpload')}
-        >
-          <Ionicons name="videocam" size={24} color={COLORS.primary} />
-          <Text style={styles.quickActionText}>Create Post</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.quickActionButton}
-          onPress={() => navigation.navigate('CleanerProfileEdit')}
-        >
-          <Ionicons name="person" size={24} color={COLORS.primary} />
-          <Text style={styles.quickActionText}>Profile</Text>
-        </TouchableOpacity>
+        <View style={[styles.quickActionLift, shadows.metricFloat]}>
+          <TouchableOpacity
+            style={styles.quickActionTouchable}
+            onPress={() => navigation.navigate('Schedule')}
+          >
+            <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.quickActionGradient}>
+              <Ionicons name="calendar" size={24} color={BRAND} />
+              <Text style={styles.quickActionText}>Schedule</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.quickActionLift, shadows.metricFloat]}>
+          <TouchableOpacity
+            style={styles.quickActionTouchable}
+            onPress={() => navigation.navigate('Earnings')}
+          >
+            <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.quickActionGradient}>
+              <Ionicons name="card" size={24} color={BRAND} />
+              <Text style={styles.quickActionText}>Earnings</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.quickActionLift, shadows.metricFloat]}>
+          <TouchableOpacity
+            style={styles.quickActionTouchable}
+            onPress={() => navigation.navigate('VideoUpload')}
+          >
+            <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.quickActionGradient}>
+              <Ionicons name="videocam" size={24} color={BRAND} />
+              <Text style={styles.quickActionText}>Create Post</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.quickActionLift, shadows.metricFloat]}>
+          <TouchableOpacity
+            style={styles.quickActionTouchable}
+            onPress={() => navigation.navigate('Tips')}
+          >
+            <LinearGradient colors={[UI.surface, STATS_GRADIENT_END]} style={styles.quickActionGradient}>
+              <Ionicons name="bulb" size={24} color={BRAND} />
+              <Text style={styles.quickActionText}>Tips</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -904,7 +1213,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+        <StatusBar barStyle="dark-content" backgroundColor={UI.surface} />
         <ScrollView contentContainerStyle={{ padding: 16 }}>
           <View style={{ gap: wp('4%') }}>
             <SkeletonBlock height={64} />
@@ -918,7 +1227,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <StatusBar barStyle="dark-content" backgroundColor={UI.surface} />
       
       <NetworkStatusIndicator onNetworkChange={(isConnected) => {
         console.log('Network status changed:', isConnected);
@@ -931,44 +1240,15 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
           <View style={styles.headerLeft}>
             <Text style={styles.greeting}>Good morning,</Text>
             <Text style={styles.userName}>{user?.name || 'Professional Cleaner'}! 👋</Text>
-            
-            {/* Online/Offline Toggle - Moved to header for better hierarchy */}
-            <TouchableOpacity
-              style={styles.headerToggle}
-              onPress={toggleOnlineStatus}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={isOnline ? 'Go offline' : 'Go online'}
-              accessibilityHint="Toggle your availability for receiving new jobs"
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <View style={[styles.statusDot, { backgroundColor: isOnline ? COLORS.success : COLORS.error }]} />
-              <Text style={styles.onlineStatusTextSmall}>
-                {isOnline ? 'Available for Jobs' : 'Currently Offline'}
-              </Text>
-              <View
-                style={[styles.toggleButtonSmall, { backgroundColor: isOnline ? COLORS.success : COLORS.error }]}
-              >
-                <Text style={styles.toggleButtonTextSmall}>
-                  {isOnline ? 'Online' : 'Offline'}
-                </Text>
-              </View>
-            </TouchableOpacity>
+            {/*
+              The dashboard header used to host an Online/Offline toggle pill.
+              The canonical control now lives on the Profile screen, and online
+              status is reflected by the green ring around the avatar in the
+              header. Keeps the dashboard cleaner and avoids duplicate UI.
+            */}
           </View>
           
           <View style={styles.headerRight}>
-            {/* Demo Toggle */}
-            <TouchableOpacity 
-              style={styles.demoToggleButton}
-              onPress={() => setUseDemoData(!useDemoData)}
-            >
-              <Ionicons 
-                name={useDemoData ? "eye" : "eye-off"} 
-                size={20} 
-                color={useDemoData ? COLORS.primary : COLORS.text.secondary} 
-              />
-            </TouchableOpacity>
-            
             {/* Notifications */}
             <TouchableOpacity 
               style={styles.notificationButton}
@@ -993,22 +1273,28 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
               )}
             </TouchableOpacity>
             
-            {/* Profile with Edit Button */}
+            {/*
+              Profile avatar with online-status ring.
+              The ring is GREEN only when the cleaner is online AND profile is
+              complete enough to take jobs. Otherwise the avatar stays plain so
+              cleaners aren't misled into thinking they're discoverable.
+            */}
             <View style={styles.profileContainer}>
-              <TouchableOpacity style={styles.profileButton}>
-                <Image 
-                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=26B7C9&color=fff&size=120&font-size=0.4&format=png` }} 
-                  style={styles.profileImage} 
+              <TouchableOpacity style={styles.profileButton} accessibilityRole="button" accessibilityLabel={isOnline ? 'You are online' : 'You are offline'}>
+                {isOnline ? <View style={styles.profileOnlineRing} /> : null}
+                <Image
+                  source={{ uri: user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Cleaner')}&background=FFA52F&color=fff&size=120&font-size=0.4&format=png` }}
+                  style={styles.profileImage}
                 />
-                <View style={styles.profileBadge}>
-                  <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                <View style={[styles.profileBadge, { backgroundColor: isOnline ? UI.success : UI.textMuted }]}>
+                  <Ionicons name="checkmark" size={12} color={UI.textInverse} />
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.editProfileButton}
                 onPress={() => navigation.navigate('CleanerProfileEdit')}
               >
-                <Ionicons name="pencil" size={14} color={COLORS.primary} />
+                <Ionicons name="pencil" size={14} color={BRAND} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1025,66 +1311,13 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
       >
         {renderProfileCompletion()}
         
-        {/* Development Mock Data Toggle - Only visible in dev mode */}
-        {__DEV__ && (
-          <View style={styles.devToggleContainer}>
-            <View style={styles.devToggleHeader}>
-              <Ionicons name="code" size={16} color={COLORS.text.secondary} />
-              <Text style={styles.devToggleTitle}>Development Mode</Text>
-            </View>
-            <View style={styles.devToggleRow}>
-              <Text style={styles.devToggleLabel}>Show Mock Data</Text>
-              <TouchableOpacity
-                style={[styles.devToggleButton, useDemoData && styles.devToggleButtonActive]}
-                onPress={() => {
-                  // Demo toggle disabled - always use real data
-                }}
-              >
-                <View style={[styles.devToggleThumb, useDemoData && styles.devToggleThumbActive]} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.devToggleDescription}>
-              Toggle to experience empty states and real user flows
-            </Text>
-          </View>
-        )}
-        
         {renderStatsCard()}
         {renderGoalsTracker()}
+        {renderQuickActions()}
         {renderActiveJob()}
         {renderJobOpportunities()}
       </ScrollView>
-      
-      <CleanerFloatingNavigation 
-        navigation={navigation as any}
-        currentScreen="Dashboard"
-      />
 
-      {/* Profile Completion Celebration */}
-      {showCelebration && (
-        <Animated.View 
-          style={[
-            styles.celebrationOverlay,
-            { transform: [{ scale: celebrationScale }] }
-          ]}
-        >
-          <View style={styles.celebrationContent}>
-            <Text style={styles.celebrationEmoji}>🎉</Text>
-            <Text style={styles.celebrationTitle}>Profile Complete!</Text>
-            <Text style={styles.celebrationMessage}>
-              Congratulations! Your profile is now 100% complete. 
-              You'll receive more job opportunities and higher earnings!
-            </Text>
-            <View style={styles.celebrationConfetti}>
-              <Text style={styles.confettiItem}>✨</Text>
-              <Text style={styles.confettiItem}>🎊</Text>
-              <Text style={styles.confettiItem}>⭐</Text>
-              <Text style={styles.confettiItem}>🌟</Text>
-              <Text style={styles.confettiItem}>💫</Text>
-            </View>
-          </View>
-        </Animated.View>
-      )}
     </SafeAreaView>
   );
 };
@@ -1092,7 +1325,7 @@ const CleanerDashboardScreen: React.FC<CleanerDashboardProps> = ({ navigation })
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: UI.bg,
   },
   loadingContainer: {
     flex: 1,
@@ -1102,15 +1335,15 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: hp('2%'),
     fontSize: wp('4%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
   },
   header: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: UI.surface,
     paddingHorizontal: wp('5%'),
     paddingTop: hp('1.5%'),
     paddingBottom: hp('1.4%'),
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomColor: UI.borderSoft,
   },
   headerContent: {
     flexDirection: 'row',
@@ -1119,23 +1352,38 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: wp('3.5%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
     marginBottom: hp('0.5%'),
   },
   userName: {
     fontSize: wp('6%'),
     fontWeight: '700',
-    color: '#1F2937',
+    color: UI.textPrimary,
   },
   profileButton: {
     width: 44,
     height: 44,
     borderRadius: wp('5.5%'),
-    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
   },
   profileImage: {
     width: '100%',
     height: '100%',
+    borderRadius: wp('5.5%'),
+  },
+  // Green pulse around the avatar when the cleaner is online and visible to
+  // customers. Sized 4px larger than the photo so it reads as a ring.
+  profileOnlineRing: {
+    position: 'absolute',
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
+    borderRadius: wp('5.5%') + 3,
+    borderWidth: 2.5,
+    borderColor: UI.success,
   },
   scrollView: {
     flex: 1,
@@ -1144,15 +1392,21 @@ const styles = StyleSheet.create({
     paddingBottom: 120, // Extra space for floating nav
     paddingTop: hp('1%'),
   },
-  statsContainer: {
+  statsOuter: {
     marginHorizontal: wp('5%'),
     marginTop: hp('1.5%'),
     marginBottom: hp('2%'),
+  },
+  statsShadow: {
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  statsClip: {
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    borderColor: UI.borderSoft,
+    backgroundColor: UI.surface,
   },
   statsGradient: {
     padding: 18,
@@ -1166,7 +1420,7 @@ const styles = StyleSheet.create({
   statsTitle: {
     fontSize: wp('4.5%'),
     fontWeight: '600',
-    color: COLORS.primary,
+    color: BRAND,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -1188,12 +1442,12 @@ const styles = StyleSheet.create({
   onlineToggleContainer: {
     marginHorizontal: wp('5%'),
     marginBottom: hp('2%'),
-    backgroundColor: '#FFFFFF',
+    backgroundColor: UI.surface,
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: UI.border,
   },
   onlineToggleContent: {
     flexDirection: 'row',
@@ -1213,7 +1467,7 @@ const styles = StyleSheet.create({
   onlineStatusText: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#1F2937',
+    color: UI.textPrimary,
   },
   toggleButton: {
     paddingHorizontal: wp('5%'),
@@ -1223,34 +1477,48 @@ const styles = StyleSheet.create({
   toggleButtonText: {
     fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: UI.textInverse,
   },
   section: {
     marginHorizontal: wp('5%'),
     marginBottom: hp('3.5%'),
   },
+  opportunitiesHeaderBlock: {
+    marginBottom: hp('1%'),
+  },
+  opportunitiesList: {
+    width: '100%',
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: hp('2%'),
+    marginBottom: hp('0.5%'),
   },
   sectionTitle: {
     fontSize: wp('5%'),
     fontWeight: '700',
-    color: '#1F2937',
+    color: UI.textPrimary,
   },
   viewAllText: {
     fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#26B7C9',
+    color: UI.primary,
   },
-  activeJobCard: {
-    backgroundColor: '#FFFFFF',
+  activeJobWrap: {},
+  activeJobShadow: {
     borderRadius: 16,
-    padding: 16,
+    backgroundColor: 'transparent',
+  },
+  activeJobClip: {
+    borderRadius: 16,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: UI.borderSoft,
+  },
+  activeJobCardGradient: {
+    padding: 16,
+    borderRadius: 16,
   },
   activeJobHeader: {
     flexDirection: 'row',
@@ -1262,24 +1530,29 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     marginRight: 16,
   },
+  customerAvatarPlaceholder: {
+    backgroundColor: UI.borderSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   activeJobInfo: {
     flex: 1,
   },
   customerName: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#1F2937',
+    color: UI.textPrimary,
     marginBottom: hp('0.5%'),
   },
   serviceType: {
     fontSize: wp('3.5%'),
-    color: '#26B7C9',
+    color: UI.primary,
     fontWeight: '500',
     marginBottom: hp('0.5%'),
   },
   jobAddress: {
     fontSize: wp('3%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
   },
   activeJobStatus: {
     alignItems: 'flex-end',
@@ -1293,43 +1566,118 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: wp('3%'),
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: UI.textInverse,
   },
   jobPayment: {
     fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#1F2937',
+    color: UI.textPrimary,
   },
   activeJobActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingTop: hp('2%'),
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: UI.border,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     height: 44,
     paddingHorizontal: wp('4%'),
-    backgroundColor: '#FFFFFF',
+    backgroundColor: UI.surface,
     borderRadius: wp('5.5%'),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: UI.borderSoft,
   },
   actionButtonText: {
     fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#26B7C9',
+    color: UI.primary,
     marginLeft: 8,
   },
+  jobCardLift: {
+    marginBottom: hp('1%'),
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
   jobCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
+    borderWidth: 0,
+    overflow: 'hidden',
+  },
+  jobCardGradientFill: {
     borderRadius: 16,
     padding: 14,
-    marginBottom: hp('1%'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: UI.borderSoft,
+  },
+  quotePreviewRow: {
+    paddingVertical: 12,
+  },
+  quotePreviewRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quotePreviewIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  quotePreviewTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quotePreviewHeadline: {
+    fontSize: wp('3.8%'),
+    fontWeight: '600',
+    color: UI.textPrimary,
+  },
+  quotePreviewMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  quotePreviewCategory: {
+    fontSize: wp('3.2%'),
+    color: BRAND,
+    fontWeight: '500',
+  },
+  quotePreviewDistance: {
+    fontSize: wp('3%'),
+    color: UI.textSecondary,
+    marginLeft: 8,
+  },
+  browseJobsLift: {
+    marginTop: hp('0.5%'),
+    borderRadius: 14,
+    backgroundColor: 'transparent',
+  },
+  browseJobsButtonWrap: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  browseJobsGradient: {
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: UI.borderSoft,
+  },
+  browseJobsButtonText: {
+    fontSize: wp('4%'),
+    fontWeight: '700',
+    color: UI.textPrimary,
   },
   jobHeader: {
     flexDirection: 'row',
@@ -1355,7 +1703,7 @@ const styles = StyleSheet.create({
   },
   jobDetailText: {
     fontSize: wp('3%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
     marginRight: 8,
   },
   jobFooter: {
@@ -1364,21 +1712,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   acceptButton: {
-    backgroundColor: '#26B7C9',
+    height: 42,
+    paddingHorizontal: 0,
+    borderRadius: 999,
+    overflow: 'hidden',
+    minWidth: 100,
+    alignSelf: 'flex-end',
+  },
+  acceptButtonGradient: {
+    minWidth: 100,
     height: 42,
     paddingHorizontal: wp('5%'),
-    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 999,
   },
   acceptButtonText: {
     fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: UI.textInverse,
   },
   acceptButtonLoading: {
-    backgroundColor: '#6B7280',
-    opacity: 0.8,
+    opacity: 0.85,
   },
   acceptButtonLoadingContent: {
     flexDirection: 'row',
@@ -1393,20 +1748,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: hp('2%'),
   },
-  quickActionButton: {
-    backgroundColor: '#FFFFFF',
+  quickActionLift: {
     width: (width - 60) / 4,
     aspectRatio: 1,
     borderRadius: 14,
+    backgroundColor: 'transparent',
+  },
+  quickActionTouchable: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  quickActionGradient: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: UI.borderSoft,
   },
   quickActionText: {
     fontSize: wp('3%'),
     fontWeight: '500',
-    color: '#1F2937',
+    color: UI.textPrimary,
     marginTop: hp('1%'),
     textAlign: 'center',
   },
@@ -1423,7 +1787,7 @@ const styles = StyleSheet.create({
   },
   onlineStatusTextSmall: {
     fontSize: wp('3%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
     fontWeight: '500',
   },
   toggleButtonSmall: {
@@ -1433,7 +1797,7 @@ const styles = StyleSheet.create({
   },
   toggleButtonTextSmall: {
     fontSize: 11,
-    color: '#FFFFFF',
+    color: UI.textInverse,
     fontWeight: '600',
   },
   profileBadge: {
@@ -1443,26 +1807,31 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#10B981',
+    backgroundColor: UI.success,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: UI.surface,
   },
   // Profile Completion Styles
-  profileCompletionCard: {
+  profileCompletionOuter: {
     marginHorizontal: wp('5%'),
     marginBottom: hp('3%'),
-    backgroundColor: '#FFFFFF',
+  },
+  profileCompletionShadow: {
+    borderRadius: wp('4%'),
+    backgroundColor: 'transparent',
+  },
+  profileCompletionClip: {
+    borderRadius: wp('4%'),
+    overflow: 'hidden',
+  },
+  profileCompletionCard: {
+    backgroundColor: UI.surface,
     borderRadius: wp('4%'),
     padding: 20,
     borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 3,
+    borderLeftColor: BRAND,
   },
   completionHeader: {
     flexDirection: 'row',
@@ -1473,25 +1842,36 @@ const styles = StyleSheet.create({
   completionTitle: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#1F2937',
+    color: UI.textPrimary,
     marginBottom: hp('0.5%'),
+  },
+  completionRankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: hp('0.4%'),
+  },
+  completionRankText: {
+    fontSize: wp('3.1%'),
+    fontWeight: '600',
+    color: BRAND,
   },
   completionSubtitle: {
     fontSize: wp('3%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
   },
   progressBarContainer: {
     marginBottom: hp('2%'),
   },
   progressBar: {
     height: 6,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: UI.borderSoft,
     borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#26B7C9',
+    backgroundColor: UI.primary,
     borderRadius: 3,
   },
   completionItems: {
@@ -1505,31 +1885,39 @@ const styles = StyleSheet.create({
   },
   completionItemText: {
     fontSize: wp('3.5%'),
-    color: '#374151',
+    color: UI.textSecondary,
   },
   completeProfileButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: hp('1%'),
+    justifyContent: 'center',
+    gap: wp('2%'),
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('3%'),
+    backgroundColor: BRAND,
+    borderRadius: wp('3%'),
   },
   completeProfileButtonText: {
     fontSize: wp('3.5%'),
-    color: '#26B7C9',
+    color: UI.textInverse,
     fontWeight: '600',
   },
   // Goals Tracker Styles
-  goalsCard: {
+  goalsRowOuter: {
     marginHorizontal: wp('5%'),
     marginBottom: hp('3%'),
-    backgroundColor: '#FFFFFF',
+  },
+  goalsShadow: {
     borderRadius: wp('4%'),
+    backgroundColor: 'transparent',
+  },
+  goalsClip: {
+    borderRadius: wp('4%'),
+    overflow: 'hidden',
+  },
+  goalsCardGradient: {
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
   },
   goalsHeader: {
     flexDirection: 'row',
@@ -1540,13 +1928,13 @@ const styles = StyleSheet.create({
   goalsTitle: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#1F2937',
+    color: UI.textPrimary,
     flex: 1,
   },
   editGoalButton: {
     padding: 4,
     borderRadius: wp('3%'),
-    backgroundColor: `${COLORS.primary}15`,
+    backgroundColor: `${BRAND}22`,
   },
   goalEditContainer: {
     alignItems: 'center',
@@ -1559,14 +1947,14 @@ const styles = StyleSheet.create({
   goalEditInput: {
     fontSize: wp('6%'),
     fontWeight: '700',
-    color: '#10B981',
+    color: UI.success,
     textAlign: 'center',
     paddingHorizontal: wp('2%'),
     paddingVertical: hp('0.5%'),
     borderWidth: 2,
-    borderColor: COLORS.primary,
+    borderColor: BRAND,
     borderRadius: wp('2%'),
-    backgroundColor: '#FFFFFF',
+    backgroundColor: UI.surface,
     minWidth: 80,
   },
   goalsContent: {
@@ -1577,7 +1965,7 @@ const styles = StyleSheet.create({
   goalsAmount: {
     fontSize: wp('6%'),
     fontWeight: '700',
-    color: '#10B981',
+    color: UI.success,
   },
   goalsProgress: {
     flex: 1,
@@ -1585,19 +1973,19 @@ const styles = StyleSheet.create({
   },
   goalsProgressBar: {
     height: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: UI.borderSoft,
     borderRadius: wp('1%'),
     overflow: 'hidden',
     marginBottom: hp('0.5%'),
   },
   goalsProgressFill: {
     height: '100%',
-    backgroundColor: '#F59E0B',
+    backgroundColor: UI.warning,
     borderRadius: wp('1%'),
   },
   goalsProgressText: {
     fontSize: wp('3%'),
-    color: '#6B7280',
+    color: UI.textSecondary,
     textAlign: 'right',
   },
   // Enhanced Stats Styles
@@ -1661,30 +2049,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: COLORS.border,
-    shadowColor: '#000',
+    shadowColor: UI.textPrimary,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
-  // Enhanced Job Cards
-  jobCardElevated: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-    transform: [{ scale: 1 }],
-  },
   jobStatusContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primary,
+    backgroundColor: BRAND,
     paddingHorizontal: wp('2%'),
     paddingVertical: hp('0.5%'),
     borderRadius: wp('3%'),
     gap: wp('1%'),
-    shadowColor: COLORS.primary,
+    shadowColor: BRAND,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -1693,7 +2072,7 @@ const styles = StyleSheet.create({
   jobStatusText: {
     fontSize: wp('2.5%'),
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: UI.textInverse,
     textTransform: 'uppercase',
   },
   // Empty Jobs State
@@ -1720,7 +2099,7 @@ const styles = StyleSheet.create({
   completeProfileButtonAlt: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primary,
+    backgroundColor: BRAND,
     paddingHorizontal: wp('6%'),
     paddingVertical: hp('1.5%'),
     borderRadius: wp('3%'),
@@ -1744,7 +2123,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.surface,
     borderWidth: 2,
-    borderColor: COLORS.primary,
+    borderColor: BRAND,
     paddingVertical: hp('1.5%'),
     paddingHorizontal: wp('4%'),
     borderRadius: wp('3%'),
@@ -1753,7 +2132,7 @@ const styles = StyleSheet.create({
   },
   uploadContentButtonText: {
     fontSize: wp('3.5%'),
-    color: COLORS.primary,
+    color: BRAND,
     fontWeight: '600',
   },
   // Empty Jobs Actions
@@ -1765,7 +2144,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.surface,
     borderWidth: 2,
-    borderColor: COLORS.primary,
+    borderColor: BRAND,
     paddingHorizontal: wp('6%'),
     paddingVertical: hp('1.5%'),
     borderRadius: wp('3%'),
@@ -1774,7 +2153,7 @@ const styles = StyleSheet.create({
   },
   testBookingButtonText: {
     fontSize: wp('3.5%'),
-    color: COLORS.primary,
+    color: BRAND,
     fontWeight: '600',
   },
   // Demo Toggle Styles
@@ -1789,120 +2168,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  
-  // Dev Toggle Styles
-  devToggleContainer: {
-    backgroundColor: COLORS.surface,
-    marginHorizontal: wp('4%'),
-    marginBottom: hp('2%'),
-    padding: 16,
-    borderRadius: wp('3%'),
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderStyle: 'dashed',
-  },
-  devToggleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: hp('1.5%'),
-  },
-  devToggleTitle: {
-    fontSize: wp('3.5%'),
-    fontWeight: '600',
-    color: COLORS.text.secondary,
-    marginLeft: 6,
-  },
-  devToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: hp('1%'),
-  },
-  devToggleLabel: {
-    fontSize: wp('4%'),
-    fontWeight: '500',
-    color: COLORS.text.primary,
-  },
-  devToggleButton: {
-    width: 48,
-    height: 28,
-    borderRadius: wp('3.5%'),
-    backgroundColor: '#e5e7eb',
-    padding: 2,
-    justifyContent: 'center',
-  },
-  devToggleButtonActive: {
-    backgroundColor: COLORS.primary,
-  },
-  devToggleThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: wp('3%'),
-    backgroundColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  devToggleThumbActive: {
-    alignSelf: 'flex-end',
-  },
-  devToggleDescription: {
-    fontSize: wp('3%'),
-    color: COLORS.text.secondary,
-    lineHeight: 16,
-  },
-  
-  // Celebration Overlay Styles
-  celebrationOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-  },
-  celebrationContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: wp('5%'),
-    padding: 32,
-    margin: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  celebrationEmoji: {
-    fontSize: wp('20%'),
-    marginBottom: hp('2%'),
-  },
-  celebrationTitle: {
-    fontSize: wp('6%'),
-    fontWeight: '800',
-    color: COLORS.text.primary,
-    marginBottom: hp('1.5%'),
-    textAlign: 'center',
-  },
-  celebrationMessage: {
-    fontSize: wp('4%'),
-    color: COLORS.text.secondary,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: hp('2.5%'),
-  },
-  celebrationConfetti: {
-    flexDirection: 'row',
-    gap: wp('4%'),
-  },
-  confettiItem: {
-    fontSize: wp('5%'),
-    opacity: 0.8,
+  demoToggleButtonActive: {
+    borderColor: BRAND,
+    backgroundColor: `${BRAND}18`,
   },
 });
 

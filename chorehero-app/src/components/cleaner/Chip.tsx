@@ -66,9 +66,9 @@ const getColorPalette = (color: ChipColor, isActive: boolean) => {
       };
     case 'teal':
       return {
-        bg: isActive ? colors.accentTeal : '#E0F7FA',
+        bg: isActive ? colors.accentTeal : colors.primaryLight,
         border: colors.accentTeal,
-        text: isActive ? colors.textInverse : colors.accentTeal,
+        text: isActive ? colors.textInverse : colors.primary,
       };
     case 'grey':
     default:

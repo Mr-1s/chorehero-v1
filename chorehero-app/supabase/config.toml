@@ -301,6 +301,15 @@ enabled = false
 # Obtain from https://clerk.com/setup/supabase
 # domain = "example.clerk.accounts.dev"
 
+[functions.create-quote-payment-intent]
+verify_jwt = true
+
+[functions.confirm-quote-payment]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 # Configure one of the supported request policies: `oneshot`, `per_worker`.

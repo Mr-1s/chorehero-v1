@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, SafeAreaView, StatusBar, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { wp, hp } from '../../utils/responsive';
 
 const faqs = [
   { q: 'How do I book a cleaning?', a: 'Go to the Booking tab and follow the steps to schedule your cleaning.' },
@@ -29,16 +30,16 @@ const HelpScreen = ({ navigation }) => (
       ))}
       <Text style={styles.sectionTitle}>Contact Support</Text>
       <TouchableOpacity style={styles.contactButton} onPress={() => Alert.alert('Contact', 'Email: support@chorehero.app\nPhone: +1-555-HERO-123')}>
-        <Ionicons name="mail" size={20} color="#3ad3db" />
+        <Ionicons name="mail" size={20} color="#26B7C9" />
         <Text style={styles.contactButtonText}>Email Us</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.contactButton} onPress={() => Alert.alert('Contact', 'Phone: +1-555-HERO-123')}>
-        <Ionicons name="call" size={20} color="#3ad3db" />
+        <Ionicons name="call" size={20} color="#26B7C9" />
         <Text style={styles.contactButtonText}>Call Us</Text>
       </TouchableOpacity>
       <Text style={styles.sectionTitle}>Submit a Support Request</Text>
       <View style={styles.supportFormPlaceholder}>
-        <Ionicons name="document-text-outline" size={32} color="#3ad3db" />
+        <Ionicons name="document-text-outline" size={32} color="#26B7C9" />
         <Text style={styles.supportFormText}>Support request form coming soon!</Text>
       </View>
     </ScrollView>
@@ -47,19 +48,19 @@ const HelpScreen = ({ navigation }) => (
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
-  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: '600', color: '#1F2937' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: wp('5%'), paddingVertical: hp('2%'), backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+  backButton: { width: 44, height: 44, borderRadius: wp('5.5%'), backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: wp('4.5%'), fontWeight: '600', color: '#1F2937' },
   scrollView: { flex: 1 },
-  scrollContent: { paddingBottom: 40 },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#374151', marginTop: 24, marginBottom: 12, marginHorizontal: 20 },
-  faqItem: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginHorizontal: 20, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  faqQ: { fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: 4 },
-  faqA: { fontSize: 14, color: '#6B7280' },
-  contactButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0FDFA', borderRadius: 12, paddingHorizontal: 20, paddingVertical: 14, marginHorizontal: 20, marginBottom: 12, gap: 8 },
-  contactButtonText: { fontSize: 16, fontWeight: '600', color: '#3ad3db', marginLeft: 8 },
-  supportFormPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderRadius: 16, padding: 24, marginHorizontal: 20, marginTop: 12 },
-  supportFormText: { fontSize: 14, color: '#6B7280', marginTop: 8, textAlign: 'center' },
+  scrollContent: { paddingBottom: hp('5%') },
+  sectionTitle: { fontSize: wp('4%'), fontWeight: '600', color: '#374151', marginTop: hp('3%'), marginBottom: hp('1.5%'), marginHorizontal: wp('5%') },
+  faqItem: { backgroundColor: '#FFFFFF', borderRadius: wp('3%'), padding: 16, marginHorizontal: wp('5%'), marginBottom: hp('1.5%'), shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  faqQ: { fontSize: 15, fontWeight: '600', color: '#1F2937', marginBottom: hp('0.5%') },
+  faqA: { fontSize: wp('3.5%'), color: '#6B7280' },
+  contactButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0FDFA', borderRadius: wp('3%'), paddingHorizontal: wp('5%'), paddingVertical: hp('1.7%'), marginHorizontal: wp('5%'), marginBottom: hp('1.5%'), gap: wp('2%') },
+  contactButtonText: { fontSize: wp('4%'), fontWeight: '600', color: '#26B7C9', marginLeft: 8 },
+  supportFormPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#F3F4F6', borderRadius: wp('4%'), padding: 24, marginHorizontal: wp('5%'), marginTop: hp('1.5%') },
+  supportFormText: { fontSize: wp('3.5%'), color: '#6B7280', marginTop: hp('1%'), textAlign: 'center' },
 });
 
 export default HelpScreen; 

@@ -46,7 +46,7 @@ export const DEFAULT_AVATARS = {
 // Fallback solid color avatars with initials
 export const FALLBACK_AVATARS = {
   colors: [
-    '#3ad3db', // ChoreHero primary
+    '#26B7C9', // ChoreHero primary
     '#6366F1', // Indigo
     '#8B5CF6', // Violet  
     '#EC4899', // Pink

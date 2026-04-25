@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Image,
@@ -16,16 +15,18 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { COLORS, TYPOGRAPHY } from '../../utils/constants';
 import { useAuth } from '../../hooks/useAuth';
-import { messageService, type ChatMessage } from '../../services/messageService';
+import { messageService } from '../../services/messageService';
 import { supabase } from '../../services/supabase';
 import { getConversationId } from '../../utils/conversationId';
 import { wp, hp } from '../../utils/responsive';
+import { validateOutgoingChatMessage } from '../../utils/messagingPolicy';
 
 type TabParamList = {
   Home: undefined;
@@ -75,6 +76,8 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   /** Route may pass placeholders like "general" — only real UUIDs tie to bookings / RLS */
   const bookingUuid = isUuid(bookingId) ? bookingId : undefined;
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const [contextTitle, setContextTitle] = useState<string>('Booking');
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,6 +123,33 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
     };
   }, [currentRoomId]);
 
+  /** Realtime INSERTs for this thread — cleaned up on blur/unmount; dedupes optimistic rows from send. */
+  useEffect(() => {
+    if (!currentRoomId || !user?.id) return;
+
+    const subscription = messageService.subscribeToMessages(currentRoomId, (newMessage) => {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMessage.id)) return prev;
+        const transformedMessage: Message = {
+          id: newMessage.id,
+          text: newMessage.content,
+          sender: newMessage.sender_id === user.id ? 'user' : 'cleaner',
+          timestamp: new Date(newMessage.created_at),
+          type: (newMessage.message_type as 'text' | 'image' | 'system') || 'text',
+        };
+        return [...prev, transformedMessage];
+      });
+
+      if (newMessage.sender_id !== user.id) {
+        void messageService.markMessagesAsRead(currentRoomId, user.id);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [currentRoomId, user?.id]);
+
   const initializeChat = async () => {
     try {
       setLoading(true);
@@ -136,11 +166,27 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
       if (bookingUuid) {
         const { data: booking } = await supabase
           .from('bookings')
-          .select('id, messaging_enabled')
+          .select('id, messaging_enabled, service_type, job_id')
           .eq('id', bookingUuid)
           .single();
         if (!booking?.messaging_enabled) {
           setMessagingUnlocked(false);
+        }
+        const b = booking as { service_type?: string; job_id?: string | null } | null;
+        if (b?.service_type) {
+          setContextTitle(
+            String(b.service_type)
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c) => c.toUpperCase())
+          );
+        }
+        if (b?.job_id) {
+          const { data: jobRow } = await supabase
+            .from('jobs')
+            .select('headline')
+            .eq('id', b.job_id)
+            .maybeSingle();
+          if (jobRow?.headline) setContextTitle(String(jobRow.headline));
         }
       } else if (bookingId && !bookingUuid) {
         setMessagingUnlocked(false);
@@ -198,7 +244,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         console.log('💬 Loading messages for room:', roomToUse);
         setRealChatMode(true);
         
-        // Load real messages
+        // Load real messages (realtime subscription lives in useEffect below)
         const response = await messageService.getMessages(roomToUse);
         if (response.success && response.data) {
           const transformedMessages: Message[] = response.data.map(msg => ({
@@ -214,27 +260,6 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         } else {
           setMessages([]); // Empty chat, no mock
         }
-        
-        // Subscribe to real-time messages
-        const subscription = messageService.subscribeToMessages(roomToUse, (newMessage) => {
-          const transformedMessage: Message = {
-            id: newMessage.id,
-            text: newMessage.content,
-            sender: newMessage.sender_id === user.id ? 'user' : 'cleaner',
-            timestamp: new Date(newMessage.created_at),
-            type: newMessage.message_type as 'text' | 'image' | 'system' || 'text',
-          };
-          
-          setMessages(prev => [...prev, transformedMessage]);
-          
-          if (newMessage.sender_id !== user.id) {
-            messageService.markMessagesAsRead(roomToUse!, user.id);
-          }
-        });
-        
-        return () => {
-          subscription?.unsubscribe();
-        };
       } else {
         console.log('💬 No chat room available - showing empty state');
         setRealChatMode(true);
@@ -273,28 +298,31 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
     service: 'Cleaning Service',
   };
 
-  // Enhanced Quick reply options with categories
   const quickReplyTemplates = {
     general: [
-      '👍 Looks good!',
-      '✨ Thank you!',
-      '❓ I have a question',
-      '👌 Perfect!',
+      'Looks good — thanks!',
+      'I have a quick question',
+      'Perfect, see you then',
+      'Appreciate the update',
     ],
     service: [
-      '📷 Can you send a photo?',
-      '💡 Extra attention to kitchen please',
-      '🚿 Don\'t forget the bathroom',
-      '🧹 Please vacuum the carpet',
-      '🪟 Windows need cleaning too',
+      'Could you send a photo when done?',
+      'Extra attention in the kitchen please',
+      'Please vacuum the carpets',
+      'Windows if time allows',
     ],
     location: [
-      '⏰ What\'s the ETA?',
-      '🔑 Key is under the mat',
-      '🚪 Please ring the doorbell',
-      '🅿️ Parking is available in front',
-      '🐕 Please be careful of my pet',
+      "What's your ETA?",
+      'Please use the access instructions in the app',
+      'Please ring the doorbell',
+      'Heads up — pet on site',
     ],
+  } as const;
+
+  const quickReplyLabel: Record<typeof quickReplyCategory, string> = {
+    general: 'General',
+    service: 'Job details',
+    location: 'Arrival',
   };
 
   const quickReplies = quickReplyTemplates[quickReplyCategory];
@@ -351,6 +379,12 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   const sendMessageText = async (messageText: string) => {
     if (!messageText.trim()) return;
 
+    const policy = validateOutgoingChatMessage(messageText);
+    if (!policy.ok) {
+      Alert.alert('Message not sent', policy.message);
+      return;
+    }
+
     if (realChatMode && currentRoomId && user) {
       try {
         const response = await messageService.sendMessage({
@@ -361,14 +395,29 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         });
 
         if (response.success && response.data) {
-          console.log('✅ Message sent successfully');
+          const msg = response.data;
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev;
+            return [
+              ...prev,
+              {
+                id: msg.id,
+                text: msg.content,
+                sender: msg.sender_id === user.id ? 'user' : 'cleaner',
+                timestamp: new Date(msg.created_at),
+                type: (msg.message_type as 'text' | 'image' | 'system') || 'text',
+              },
+            ];
+          });
         } else {
           console.error('❌ Failed to send message:', response.error);
           setMessage(messageText);
+          Alert.alert('Message not sent', response.error || 'Could not send. Check connection and booking chat access.');
         }
       } catch (error) {
         console.error('❌ Error sending message:', error);
         setMessage(messageText);
+        Alert.alert('Message not sent', error instanceof Error ? error.message : 'Could not send.');
       }
       return;
     }
@@ -492,8 +541,8 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loadingText}>Loading conversation...</Text>
@@ -503,51 +552,44 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       
-      {/* Header with Service Context */}
-      <BlurView intensity={90} style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
         <View style={styles.headerContent}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-            <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={handleBackPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="arrow-back" size={22} color={COLORS.text.primary} />
           </TouchableOpacity>
-          
+
           <View style={styles.headerInfo}>
-            <Image source={{ uri: participant.avatar }} style={styles.headerAvatar} />
+            <Image
+              source={{ uri: participant.avatar || undefined }}
+              style={styles.headerAvatar}
+            />
             <View style={styles.headerDetails}>
-              <Text style={styles.cleanerName}>{participant.name}</Text>
-              <View style={styles.serviceInfo}>
-                <View style={styles.statusIndicator} />
-                <Text style={styles.statusText}>{participant.status}</Text>
-                <Text style={styles.serviceDivider}>•</Text>
-                <Text style={styles.serviceText}>{participant.service}</Text>
-              </View>
+              <Text style={styles.cleanerName} numberOfLines={1}>
+                {participant.name}
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
+                {contextTitle}
+                {trackableStatus
+                  ? ` · ${trackableStatus === 'cleaner_en_route' ? 'En route' : 'In progress'}`
+                  : ''}
+              </Text>
             </View>
           </View>
-
-          <TouchableOpacity style={styles.callButton} onPress={handleCallCleaner}>
-            <Ionicons name="call" size={20} color={COLORS.primary} />
-          </TouchableOpacity>
         </View>
-      </BlurView>
-
-      {/* Service Context Card */}
-      <View style={styles.serviceCard}>
-        <BlurView intensity={20} style={styles.serviceCardBlur}>
-          <View style={styles.serviceCardContent}>
-            <View style={styles.serviceHeader}>
-              <Ionicons name="home" size={20} color={COLORS.primary} />
-              <Text style={styles.serviceTitle}>Kitchen Deep Clean</Text>
-              {trackableStatus && (
-                <Text style={styles.serviceETA}>
-                  {trackableStatus === 'cleaner_en_route' ? 'En Route' : 'In Progress'}
-                </Text>
-              )}
-            </View>
-            {/* Track Service button removed - mock tracking until v2 */}
-          </View>
-        </BlurView>
+        <View style={styles.policyStrip}>
+          <Ionicons name="shield-checkmark" size={14} color="#047B9B" />
+          <Text style={styles.policyStripText} numberOfLines={2}>
+            Keep booking and payment on ChoreHero. Off-platform contact isn’t allowed.
+          </Text>
+        </View>
       </View>
 
       {/* Messages */}
@@ -568,73 +610,70 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
         )}
       </ScrollView>
 
-      {/* Quick Reply Categories - hide when messaging locked */}
       {messagingUnlocked && (
-      <View style={styles.quickReplyCategoriesContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
-          {Object.keys(quickReplyTemplates).map((category) => (
-            <TouchableOpacity
-              key={category}
-              style={[
-                styles.categoryTab,
-                quickReplyCategory === category && styles.activeCategoryTab
-              ]}
-              onPress={() => setQuickReplyCategory(category as any)}
-            >
-              <Text style={[
-                styles.categoryTabText,
-                quickReplyCategory === category && styles.activeCategoryTabText
-              ]}>
-                {category.charAt(0).toUpperCase() + category.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-      )}
-
-      {/* Quick Replies - hide when messaging locked */}
-      {messagingUnlocked && (
-      <ScrollView
-        horizontal
-        style={styles.quickRepliesContainer}
-        contentContainerStyle={styles.quickRepliesContent}
-        showsHorizontalScrollIndicator={false}
-      >
-        {quickReplies.map((reply, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.quickReplyButton}
-            onPress={() => handleQuickReply(reply)}
+        <View style={styles.suggestionsPanel}>
+          <Text style={styles.suggestionsTitle}>Suggested replies</Text>
+          <View style={styles.categoryRow}>
+            {(['general', 'service', 'location'] as const).map((key) => {
+              const active = quickReplyCategory === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.categoryPill, active && styles.categoryPillActive]}
+                  onPress={() => setQuickReplyCategory(key)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.categoryPillText, active && styles.categoryPillTextActive]}>
+                    {quickReplyLabel[key]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <ScrollView
+            horizontal
+            style={styles.quickRepliesScroll}
+            contentContainerStyle={styles.quickRepliesContent}
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.quickReplyText}>{reply}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+            {quickReplies.map((reply, index) => (
+              <TouchableOpacity
+                key={`${quickReplyCategory}-${index}`}
+                style={styles.quickReplyChip}
+                onPress={() => handleQuickReply(reply)}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.quickReplyChipText}>{reply}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
       )}
 
       {/* Message Input - disabled when messaging locked */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.inputContainer}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <BlurView intensity={90} style={styles.inputBlur}>
+        <View style={styles.inputBar}>
           <View style={[styles.inputContent, !messagingUnlocked && styles.inputContentDisabled]}>
             <TouchableOpacity style={styles.attachButton} disabled={!messagingUnlocked}>
-              <Ionicons name="camera" size={24} color={messagingUnlocked ? COLORS.text.secondary : COLORS.text.disabled} />
+              <Ionicons name="camera" size={22} color={messagingUnlocked ? COLORS.text.secondary : COLORS.text.disabled} />
             </TouchableOpacity>
-            
+
             <TextInput
               style={styles.textInput}
               value={message}
               onChangeText={setMessage}
-              placeholder={messagingUnlocked ? "Type a message..." : "Messaging unlocks after payment"}
+              placeholder={messagingUnlocked ? 'Message…' : 'Unlocks after payment'}
               placeholderTextColor={COLORS.text.disabled}
               multiline
               maxLength={500}
               editable={messagingUnlocked}
             />
-            
+
             <TouchableOpacity
               style={[styles.sendButton, message.trim() && messagingUnlocked && styles.sendButtonActive]}
               onPress={handleSendMessage}
@@ -652,7 +691,7 @@ const IndividualChatScreen: React.FC<IndividualChatProps> = ({ navigation, route
               </LinearGradient>
             </TouchableOpacity>
           </View>
-        </BlurView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -665,133 +704,65 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
   },
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: wp('6%'),
-    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
+    paddingBottom: hp('1%'),
+    minHeight: 48,
   },
   backButton: {
-    width: wp('10%'),
-    height: wp('10%'),
-    borderRadius: wp('5%'),
-    backgroundColor: COLORS.surface,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: wp('4%'),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    marginRight: wp('3%'),
   },
   headerInfo: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    minWidth: 0,
   },
   headerAvatar: {
-    width: wp('10%'),
-    height: wp('10%'),
-    borderRadius: wp('5%'),
-    marginRight: wp('4%'),
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: wp('3%'),
+    backgroundColor: '#E2E8F0',
   },
   headerDetails: {
     flex: 1,
+    minWidth: 0,
   },
   cleanerName: {
-    fontSize: wp('4%'),
-    fontWeight: TYPOGRAPHY.weights.semibold,
+    fontSize: 17,
+    fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: 2,
   },
-  serviceInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: wp('1%'),
-    backgroundColor: COLORS.success,
-    marginRight: wp('1%'),
-  },
-  statusText: {
-    fontSize: wp('3.5%'),
-    color: COLORS.success,
-    marginRight: wp('1%'),
-  },
-  serviceDivider: {
-    fontSize: wp('3.5%'),
-    color: COLORS.text.disabled,
-    marginHorizontal: wp('1%'),
-  },
-  serviceText: {
-    fontSize: wp('3.5%'),
+  headerSubtitle: {
+    fontSize: 13,
     color: COLORS.text.secondary,
+    marginTop: 2,
   },
-  callButton: {
-    width: wp('10%'),
-    height: wp('10%'),
-    borderRadius: wp('5%'),
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  serviceCard: {
-    marginHorizontal: wp('5%'),
-    marginTop: hp('1%'),
-    marginBottom: hp('1.2%'),
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  serviceCardBlur: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  serviceCardContent: {
-    paddingVertical: hp('1.2%'),
+  policyStrip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
     paddingHorizontal: wp('4%'),
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingBottom: hp('1%'),
+    paddingTop: 2,
   },
-  serviceHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  policyStripText: {
     flex: 1,
-  },
-  serviceTitle: {
-    fontSize: wp('4%'),
-    fontWeight: TYPOGRAPHY.weights.medium,
-    color: COLORS.text.primary,
-    marginLeft: wp('2%'),
-    flex: 1,
-  },
-  serviceETA: {
-    fontSize: wp('3.5%'),
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.weights.medium,
-  },
-  trackButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDFA',
-    borderRadius: wp('3%'),
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('1%'),
-  },
-  trackButtonText: {
-    fontSize: wp('3.5%'),
-    color: COLORS.primary,
-    fontWeight: TYPOGRAPHY.weights.medium,
-    marginRight: wp('1%'),
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#64748B',
   },
   messagesContainer: {
     flex: 1,
@@ -864,35 +835,79 @@ const styles = StyleSheet.create({
   cleanerMessageTime: {
     color: COLORS.text.disabled,
   },
-  quickRepliesContainer: {
-    maxHeight: hp('6.8%'),
-    marginBottom: hp('0.6%'),
+  suggestionsPanel: {
+    backgroundColor: '#F8FAFC',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
+    paddingTop: hp('1%'),
+    paddingBottom: hp('0.8%'),
+  },
+  suggestionsTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginHorizontal: wp('4%'),
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+    paddingHorizontal: wp('4%'),
+  },
+  categoryPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  categoryPillActive: {
+    backgroundColor: 'rgba(38, 183, 201, 0.12)',
+    borderColor: '#26B7C9',
+  },
+  categoryPillText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  categoryPillTextActive: {
+    color: '#047B9B',
+    fontWeight: '600',
+  },
+  quickRepliesScroll: {
+    maxHeight: 44,
   },
   quickRepliesContent: {
-    paddingHorizontal: wp('6%'),
+    paddingHorizontal: wp('4%'),
     alignItems: 'center',
+    paddingBottom: 4,
   },
-  quickReplyButton: {
+  quickReplyChip: {
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
-    paddingHorizontal: wp('3.6%'),
-    paddingVertical: hp('0.8%'),
-    marginRight: wp('2%'),
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: '#E2E8F0',
   },
-  quickReplyText: {
-    fontSize: wp('3.35%'),
-    color: COLORS.text.secondary,
-    fontWeight: TYPOGRAPHY.weights.medium,
+  quickReplyChipText: {
+    fontSize: 13,
+    color: '#334155',
+    fontWeight: '500',
   },
   inputContainer: {
     backgroundColor: 'transparent',
   },
-  inputBlur: {
+  inputBar: {
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E2E8F0',
   },
   inputContent: {
     flexDirection: 'row',
@@ -939,39 +954,6 @@ const styles = StyleSheet.create({
     height: wp('10%'),
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // Quick Reply Categories Styles
-  quickReplyCategoriesContainer: {
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('0.5%'),
-    backgroundColor: COLORS.background,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  categoriesScroll: {
-    flexDirection: 'row',
-  },
-  categoryTab: {
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('0.5%'),
-    marginRight: wp('2%'),
-    borderRadius: wp('4%'),
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  activeCategoryTab: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  categoryTabText: {
-    fontSize: wp('3.5%'),
-    fontWeight: '500',
-    color: COLORS.text.secondary,
-  },
-  activeCategoryTabText: {
-    color: COLORS.text.inverse,
-    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

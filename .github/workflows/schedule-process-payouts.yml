@@ -1,0 +1,43 @@
+# Schedule process-payouts Edge Function (hourly)
+#
+# Required GitHub secrets:
+#   SUPABASE_PROJECT_REF  - Project ID from dashboard URL (e.g. kluwipcdwaaeqxjmbcti)
+#   CRON_SECRET          - Set in Supabase Edge Function secrets; use same value here for auth
+#
+# Optional: If CRON_SECRET is not set in Supabase, leave this secret empty and the function will run without auth.
+
+name: Schedule process-payouts
+
+on:
+  schedule:
+    # Run at the start of every hour (UTC)
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allow manual trigger from Actions tab
+
+jobs:
+  invoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke process-payouts
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF secret is not set"
+            exit 1
+          fi
+          URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/process-payouts"
+          HEADERS=(-H "Content-Type: application/json")
+          if [ -n "$CRON_SECRET" ]; then
+            HEADERS+=(-H "Authorization: Bearer $CRON_SECRET")
+          fi
+          echo "Calling process-payouts..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" "${HEADERS[@]}" -X POST "$URL" -d '{}')
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "Response ($HTTP_CODE): $BODY"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::error::process-payouts returned $HTTP_CODE"
+            exit 1
+          fi

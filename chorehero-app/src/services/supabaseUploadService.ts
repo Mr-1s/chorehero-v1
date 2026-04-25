@@ -4,7 +4,8 @@ import { UploadProgress, UploadResponse, UploadConfig } from './uploadService';
 
 class SupabaseUploadService {
   private defaultConfig: UploadConfig = {
-    maxFileSize: 100 * 1024 * 1024, // 100MB
+    // Keep below payload limits for direct upload endpoint.
+    maxFileSize: 35 * 1024 * 1024,
     allowedTypes: ['video/mp4', 'video/mov', 'video/avi', 'image/jpeg', 'image/png', 'image/jpg'],
     compressionQuality: 0.8,
     maxRetries: 3,
@@ -79,9 +80,21 @@ class SupabaseUploadService {
 
       if (error) {
         console.error('❌ Supabase storage upload error:', error);
+        const statusCode = String((error as any)?.statusCode || '');
+        const message = String((error as any)?.message || '');
+        const isPayloadTooLarge =
+          statusCode === '413' ||
+          /payload too large|max(?:imum)? allowed size|exceeded the maximum allowed size/i.test(message);
+        if (isPayloadTooLarge) {
+          return {
+            success: false,
+            error: 'File is too large to upload from mobile. Trim/compress and try again (target under 35MB).',
+            errorCode: 'PAYLOAD_TOO_LARGE'
+          };
+        }
         return {
           success: false,
-          error: error.message,
+          error: message,
           errorCode: 'UPLOAD_FAILED'
         };
       }

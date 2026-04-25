@@ -29,7 +29,6 @@ import { useCleanerStore, selectTotalUnreadMessages } from '../../store/cleanerS
 
 // Components
 import { PressableScale } from '../../components/cleaner';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { SkeletonList } from '../../components/Skeleton';
 
 // Theme
@@ -230,13 +229,6 @@ const MessagesScreenNew: React.FC<MessagesScreenProps> = ({ navigation }) => {
           }
         />
       )}
-
-      {/* Bottom Navigation */}
-      <CleanerFloatingNavigation
-        navigation={navigation as any}
-        currentScreen="Messages"
-        unreadCount={totalUnread}
-      />
     </SafeAreaView>
   );
 };

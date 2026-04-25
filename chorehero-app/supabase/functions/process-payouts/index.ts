@@ -15,6 +15,7 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2023-10-16",
 });
 
+const TEST_MODE = Deno.env.get("TEST_MODE") === "true";
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -125,22 +126,75 @@ serve(async (req) => {
       }
 
       try {
-        const transfer = await stripe.transfers.create({
-          amount: payout.amount_cents,
-          currency: "usd",
-          destination: profile.stripe_account_id,
-          transfer_group: payout.booking_id,
-          metadata: { booking_id: payout.booking_id },
-        });
+        let stripeTransferId: string | null = null;
+
+        if (TEST_MODE) {
+          // Skip Stripe transfer; mark completed immediately
+          stripeTransferId = `tr_test_${payout.id}`;
+        } else {
+          const transfer = await stripe.transfers.create({
+            amount: payout.amount_cents,
+            currency: "usd",
+            destination: profile.stripe_account_id,
+            transfer_group: payout.booking_id,
+            metadata: { booking_id: payout.booking_id },
+          });
+          stripeTransferId = transfer.id;
+        }
 
         await supabase
           .from("payout_queue")
           .update({
             status: "completed",
-            stripe_transfer_id: transfer.id,
+            stripe_transfer_id: stripeTransferId,
             processed_at: new Date().toISOString(),
           })
           .eq("id", payout.id);
+
+        // Write to transactions table for payout tracking
+        await supabase.from("transactions").insert({
+          booking_id: payout.booking_id,
+          pro_id: payout.cleaner_id,
+          amount_cents: payout.amount_cents,
+          stripe_transfer_id: stripeTransferId,
+          status: "completed",
+        });
+
+        const amountUsd = (payout.amount_cents / 100).toFixed(2);
+        await supabase.from("notifications").insert({
+          user_id: payout.cleaner_id,
+          type: "payout_completed",
+          title: "You got paid",
+          message: `We sent $${amountUsd} to your connected bank account (Stripe).`,
+          data: {
+            booking_id: payout.booking_id,
+            payout_queue_id: payout.id,
+            amount_cents: payout.amount_cents,
+          },
+          is_read: false,
+        });
+
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              userId: payout.cleaner_id,
+              title: "You got paid",
+              body: `$${amountUsd} is on the way to your bank.`,
+              data: {
+                type: "payout_completed",
+                booking_id: payout.booking_id,
+                amount_cents: payout.amount_cents,
+              },
+            }),
+          });
+        } catch (pushErr) {
+          console.warn("send-push after payout failed:", pushErr);
+        }
 
         processed++;
         results.push({ id: payout.id, status: "completed" });

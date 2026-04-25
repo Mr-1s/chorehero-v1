@@ -259,7 +259,15 @@ export const EnhancedMessageProvider: React.FC<EnhancedMessageProviderProps> = (
 
       setConversations(formattedConversations);
     } catch (error) {
-      console.error('Error loading conversations:', error);
+      const msg = (error as any)?.message ?? '';
+      const is502OrHtml = typeof msg === 'string' && (
+        msg.includes('<!DOCTYPE') || msg.includes('502') || msg.includes('Bad gateway')
+      );
+      if (is502OrHtml) {
+        console.warn('Error loading conversations: Supabase temporarily unavailable (502)');
+      } else {
+        console.error('Error loading conversations:', error);
+      }
     }
   };
 

@@ -20,7 +20,9 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { useRoute, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { jobQuoteService, Job } from '../../services/jobQuoteService';
+import { useCustomerStore } from '../../store/customerStore';
 import { wp, hp } from '../../utils/responsive';
+import { COLORS } from '../../utils/constants';
 
 type StackParamList = {
   MyJobs: { justPosted?: boolean; newJobId?: string; newJobHeadline?: string; newJobCategory?: string } | undefined;
@@ -32,10 +34,24 @@ type MyJobsNavigationProp = StackNavigationProp<StackParamList, 'MyJobs'>;
 const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigation }) => {
   const route = useRoute<any>();
   const { user } = useAuth();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Pull jobs from the customer store so navigating away/back re-uses cached
+  // data and only the focus-effect refresh hits the network.
+  const storeJobs = useCustomerStore((s) => s.jobs);
+  const storeJobsArchived = useCustomerStore((s) => s.jobsArchived);
+  const isLoadingJobs = useCustomerStore((s) => s.isLoadingJobs);
+  const lastJobsFetchAt = useCustomerStore((s) => s.lastJobsFetchAt);
+  const fetchJobs = useCustomerStore((s) => s.fetchJobs);
+  const fetchArchivedJobs = useCustomerStore((s) => s.fetchArchivedJobs);
+  const removeJobFromStore = useCustomerStore((s) => s.removeJob);
   const [refreshing, setRefreshing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  // Local snapshot so the existing render code stays unchanged. Sourced from
+  // either the live or archived slice based on the current toggle.
+  const jobs: Job[] = showArchived ? storeJobsArchived : storeJobs;
+  // First-render loading: only true if the store has never fetched and a fetch
+  // is in flight. Subsequent visits show cached data instantly.
+  const loading = isLoadingJobs && !lastJobsFetchAt;
+  const [activeTab, setActiveTab] = useState<'open' | 'booked' | 'history'>('open');
   const [menuJob, setMenuJob] = useState<Job | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successJobPreview, setSuccessJobPreview] = useState<{ headline: string; category: string } | null>(null);
@@ -65,15 +81,13 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
 
   const loadJobs = useCallback(async () => {
     if (!user?.id) return;
-    const res = showArchived
-      ? await jobQuoteService.getCustomerJobsArchived(user.id)
-      : await jobQuoteService.getCustomerJobs(user.id);
-    if (res.success && res.data) {
-      setJobs(res.data);
+    if (showArchived) {
+      await fetchArchivedJobs(user.id);
+    } else {
+      await fetchJobs(user.id);
     }
-    setLoading(false);
     setRefreshing(false);
-  }, [user?.id, showArchived]);
+  }, [user?.id, showArchived, fetchJobs, fetchArchivedJobs]);
 
   useEffect(() => {
     loadJobs();
@@ -83,6 +97,12 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
     setRefreshing(true);
     loadJobs();
   };
+
+  const filteredJobs = jobs.filter((job) => {
+    if (activeTab === 'open') return job.status === 'open';
+    if (activeTab === 'booked') return job.status === 'booked';
+    return ['expired', 'cancelled'].includes(job.status);
+  });
 
   const handlePermanentDelete = (job: Job) => {
     setMenuJob(null);
@@ -102,7 +122,7 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
           onPress: async () => {
             const res = await jobQuoteService.permanentlyDeleteJob(job.id);
             if (res.success) {
-              setJobs((prev) => prev.filter((j) => j.id !== job.id));
+              removeJobFromStore(job.id);
             } else {
               Alert.alert('Error', res.error || 'Failed to delete job');
             }
@@ -148,9 +168,9 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
+            <Ionicons name="ellipsis-vertical" size={20} color={COLORS.text.secondary} />
           </TouchableOpacity>
-          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" style={styles.chevron} />
+          <Ionicons name="chevron-forward" size={20} color={COLORS.text.muted} style={styles.chevron} />
         </TouchableOpacity>
       </View>
     );
@@ -159,7 +179,7 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#26B7C9" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading your jobs...</Text>
       </View>
     );
@@ -167,28 +187,61 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.surface} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>My Jobs</Text>
       </View>
 
       <FlatList
-        data={jobs}
+        data={filteredJobs}
         keyExtractor={(item) => item.id}
         renderItem={renderJobCard}
+        ListHeaderComponent={
+          <View style={styles.tabScroll}>
+            <View style={styles.tabContainer}>
+              {[
+                { key: 'open', label: 'Open' },
+                { key: 'booked', label: 'Booked' },
+                { key: 'history', label: 'History' },
+              ].map((tab) => {
+                const isActive = activeTab === tab.key;
+                const count = jobs.filter((j) =>
+                  tab.key === 'open'
+                    ? j.status === 'open'
+                    : tab.key === 'booked'
+                      ? j.status === 'booked'
+                      : ['expired', 'cancelled'].includes(j.status)
+                ).length;
+                return (
+                  <TouchableOpacity
+                    key={tab.key}
+                    style={[styles.tab, isActive && styles.activeTab]}
+                    onPress={() => setActiveTab(tab.key as 'open' | 'booked' | 'history')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.tabText, isActive && styles.activeTabText]}>{tab.label}</Text>
+                    {count > 0 && (
+                      <View style={styles.tabBadge}>
+                        <Text style={styles.tabBadgeText}>{count > 9 ? '9+' : count}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        }
         contentContainerStyle={styles.listContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#26B7C9" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="briefcase-outline" size={64} color="#D1D5DB" />
-            <Text style={styles.emptyTitle}>
-              {showArchived ? 'No archived jobs' : 'No jobs yet'}
-            </Text>
+            <Ionicons name="briefcase-outline" size={64} color={COLORS.borderHard} />
+            <Text style={styles.emptyTitle}>{showArchived ? 'No archived jobs' : `No ${activeTab} jobs`}</Text>
             <Text style={styles.emptySubtitle}>
               {showArchived ? 'Archived jobs will appear here' : 'Post a job to get video quotes from pros'}
             </Text>
@@ -225,7 +278,7 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
         <View style={styles.modalOverlay}>
           <View style={styles.successModalCard}>
             <View style={styles.successCheckCircle}>
-              <Ionicons name="checkmark" size={48} color="#fff" />
+              <Ionicons name="checkmark" size={48} color={COLORS.text.inverse} />
             </View>
             <Text style={styles.successTitle}>Job Posted Successfully!</Text>
             <Text style={styles.successSubtext}>
@@ -269,7 +322,7 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
                     style={[styles.menuItem, styles.menuItemDanger]}
                     onPress={() => handlePermanentDelete(menuJob)}
                   >
-                    <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                    <Ionicons name="trash-outline" size={20} color={COLORS.error} />
                     <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>
                       Delete permanently
                     </Text>
@@ -284,7 +337,7 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
                       navigation.navigate('PostJob' as any, { editJob: toEdit });
                     }}
                   >
-                    <Ionicons name="create-outline" size={20} color="#0F172A" />
+                    <Ionicons name="create-outline" size={20} color={COLORS.text.primary} />
                     <Text style={styles.menuItemText}>Edit job</Text>
                   </TouchableOpacity>
                 )}
@@ -304,47 +357,93 @@ const MyJobsScreen: React.FC<{ navigation: MyJobsNavigationProp }> = ({ navigati
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: hp('1%'), fontSize: wp('4%'), color: '#6B7280' },
+  loadingText: { marginTop: hp('1%'), fontSize: wp('4%'), color: COLORS.text.secondary },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: wp('4%'),
     paddingVertical: hp('1.5%'),
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: COLORS.border,
   },
   backBtn: { padding: 8, marginRight: 8 },
-  headerTitle: { fontSize: wp('5%'), fontWeight: '700', color: '#1F2937' },
+  headerTitle: { fontSize: wp('5%'), fontWeight: '700', color: COLORS.text.primary },
   listContent: { padding: wp('4%'), paddingBottom: hp('15%') },
+  tabScroll: {
+    marginBottom: hp('1.2%'),
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: COLORS.borderSoft,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: hp('1.1%'),
+    borderRadius: 10,
+    gap: 6,
+  },
+  activeTab: {
+    backgroundColor: COLORS.primarySoft,
+  },
+  tabText: {
+    fontSize: wp('3.4%'),
+    fontWeight: '600',
+    color: COLORS.text.secondary,
+  },
+  activeTabText: {
+    color: COLORS.accent,
+    fontWeight: '700',
+  },
+  tabBadge: {
+    backgroundColor: COLORS.accent,
+    borderRadius: 999,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeText: {
+    color: COLORS.text.inverse,
+    fontSize: 10,
+    fontWeight: '700',
+  },
   cardWrapper: { marginBottom: hp('2%') },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
     borderRadius: wp('4%'),
     padding: wp('4%'),
     marginBottom: hp('2%'),
     flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: COLORS.text.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 4,
   },
-  headline: { flex: 1, fontSize: wp('4%'), fontWeight: '700', color: '#1F2937' },
+  headline: { flex: 1, fontSize: wp('4%'), fontWeight: '700', color: COLORS.text.primary },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: wp('2%'), marginTop: 4 },
-  category: { fontSize: wp('3%'), color: '#6B7280' },
+  category: { fontSize: wp('3%'), color: COLORS.text.secondary },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
-    backgroundColor: '#26B7C9',
+    backgroundColor: COLORS.primary,
   },
-  statusExpired: { backgroundColor: '#9CA3AF' },
-  statusText: { fontSize: wp('2.5%'), fontWeight: '600', color: '#fff' },
-  quoteHint: { fontSize: wp('3%'), color: '#26B7C9', marginTop: 4 },
+  statusExpired: { backgroundColor: COLORS.text.muted },
+  statusText: { fontSize: wp('2.5%'), fontWeight: '600', color: COLORS.text.inverse },
+  quoteHint: { fontSize: wp('3%'), color: COLORS.primary, marginTop: 4 },
   menuBtn: { padding: 4, marginLeft: wp('1%') },
   chevron: { marginLeft: wp('1%') },
   showArchivedBtn: {
@@ -352,7 +451,7 @@ const styles = StyleSheet.create({
     paddingVertical: hp('1.5%'),
     alignItems: 'center',
   },
-  showArchivedText: { fontSize: wp('4%'), color: '#26B7C9', fontWeight: '600' },
+  showArchivedText: { fontSize: wp('4%'), color: COLORS.primary, fontWeight: '600' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -360,7 +459,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   menuCard: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
     borderRadius: wp('4%'),
     padding: wp('2%'),
     minWidth: wp('60%'),
@@ -373,24 +472,24 @@ const styles = StyleSheet.create({
     gap: wp('3%'),
   },
   menuItemDanger: {},
-  menuItemText: { fontSize: wp('4%'), color: '#1F2937' },
-  menuItemTextDanger: { color: '#DC2626' },
+  menuItemText: { fontSize: wp('4%'), color: COLORS.text.primary },
+  menuItemTextDanger: { color: COLORS.error },
   empty: {
     alignItems: 'center',
     paddingVertical: hp('15%'),
   },
-  emptyTitle: { fontSize: wp('5%'), fontWeight: '700', color: '#6B7280', marginTop: hp('2%') },
-  emptySubtitle: { fontSize: wp('4%'), color: '#9CA3AF', marginTop: 4 },
+  emptyTitle: { fontSize: wp('5%'), fontWeight: '700', color: COLORS.text.secondary, marginTop: hp('2%') },
+  emptySubtitle: { fontSize: wp('4%'), color: COLORS.text.muted, marginTop: 4 },
   emptyCta: {
     marginTop: hp('4%'),
     paddingHorizontal: wp('6%'),
     paddingVertical: hp('1.5%'),
-    backgroundColor: '#26B7C9',
+    backgroundColor: COLORS.primary,
     borderRadius: wp('3%'),
   },
-  emptyCtaText: { fontSize: wp('4%'), fontWeight: '700', color: '#fff' },
+  emptyCtaText: { fontSize: wp('4%'), fontWeight: '700', color: COLORS.text.inverse },
   successModalCard: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.surface,
     borderRadius: wp('5%'),
     padding: wp('6%'),
     alignItems: 'center',
@@ -401,29 +500,29 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#10B981',
+    backgroundColor: COLORS.success,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: hp('2%'),
   },
-  successTitle: { fontSize: wp('5%'), fontWeight: '800', color: '#1F2937', marginBottom: hp('1%') },
-  successSubtext: { fontSize: wp('4%'), color: '#6B7280', textAlign: 'center', marginBottom: hp('3%') },
+  successTitle: { fontSize: wp('5%'), fontWeight: '800', color: COLORS.text.primary, marginBottom: hp('1%') },
+  successSubtext: { fontSize: wp('4%'), color: COLORS.text.secondary, textAlign: 'center', marginBottom: hp('3%') },
   successJobPreview: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.surfaceAlt,
     borderRadius: wp('3%'),
     padding: wp('4%'),
     alignSelf: 'stretch',
     marginBottom: hp('3%'),
   },
-  successJobHeadline: { fontSize: wp('4%'), fontWeight: '700', color: '#1F2937' },
-  successJobCategory: { fontSize: wp('3%'), color: '#6B7280', marginTop: 4 },
+  successJobHeadline: { fontSize: wp('4%'), fontWeight: '700', color: COLORS.text.primary },
+  successJobCategory: { fontSize: wp('3%'), color: COLORS.text.secondary, marginTop: 4 },
   successCta: {
-    backgroundColor: '#26B7C9',
+    backgroundColor: COLORS.primary,
     paddingVertical: hp('1.7%'),
     paddingHorizontal: wp('8%'),
     borderRadius: wp('3%'),
   },
-  successCtaText: { fontSize: wp('4%'), fontWeight: '700', color: '#fff' },
+  successCtaText: { fontSize: wp('4%'), fontWeight: '700', color: COLORS.text.inverse },
 });
 
 export default MyJobsScreen;

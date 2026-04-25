@@ -39,11 +39,17 @@ class PresenceService {
   private async setPresence(online: boolean) {
     if (!this.currentUserId) return;
     const now = new Date().toISOString();
-    await supabase.from('user_presence').upsert({
-      user_id: this.currentUserId,
-      online,
-      last_seen_at: now,
-    } satisfies PresenceRecord, { onConflict: 'user_id' as any });
+    const { error } = await supabase.from('user_presence').upsert(
+      {
+        user_id: this.currentUserId,
+        online,
+        last_seen_at: now,
+      } satisfies PresenceRecord,
+      { onConflict: 'user_id' as any }
+    );
+    if (error) {
+      console.warn('presence upsert failed:', error.message);
+    }
   }
 
   async getPresence(userId: string): Promise<PresenceRecord | null> {

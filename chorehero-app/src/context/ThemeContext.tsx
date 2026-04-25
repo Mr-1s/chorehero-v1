@@ -27,7 +27,9 @@ export const CUSTOMER_THEME: AppTheme = {
   name: 'customer',
   colors: {
     ...COLORS,
-    primary: '#00BFA6',
+    primary: '#26B7C9',   // teal
+    secondary: '#047B9B', // tealDeep (reserve for pro emphasis)
+    accent: '#E6B200',    // yellow
   },
 };
 
@@ -35,7 +37,9 @@ export const HERO_THEME: AppTheme = {
   name: 'hero',
   colors: {
     ...COLORS,
-    primary: '#F59E0B',
+    primary: '#FFA52F',   // pro / cleaner brand orange
+    secondary: '#E8941A',
+    accent: '#E6B200',    // yellow
   },
 };
 

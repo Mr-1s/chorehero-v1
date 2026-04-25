@@ -10,6 +10,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   OnboardingComplete: undefined;
@@ -98,70 +99,70 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingHorizontal: wp('6%'),
+    paddingTop: hp('7%'),
     alignItems: 'center',
   },
   emojiContainer: {
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   emoji: {
-    fontSize: 80,
+    fontSize: wp('20%'),
   },
   title: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '800',
     color: '#1F2937',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   badgeContainer: {
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
     backgroundColor: 'rgba(255,255,255,0.9)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('6%'),
   },
   badgeText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#374151',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
+    lineHeight: hp('3%'),
+    marginBottom: hp('3%'),
   },
   hint: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#4B5563',
     textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 40,
-    paddingHorizontal: 16,
+    lineHeight: hp('2.5%'),
+    marginBottom: hp('5%'),
+    paddingHorizontal: wp('4%'),
   },
   button: {
     width: '100%',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   buttonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 8,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
+    gap: wp('2%'),
   },
   buttonText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#fff',
   },

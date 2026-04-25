@@ -76,22 +76,21 @@ export function stabilizedPosition(
 }
 
 // Video feed specific stabilization
+const CTA_BAR_HEIGHT = 60;
+const NAV_HEIGHT = 90;
+
 export function getVideoFeedLayout(device: DeviceInfo) {
   const creatorPillTop = device.safeAreaTop + (device.isSmall ? 8 : 12);
 
-  // Normalize bottom overlays relative to screen height and safe area
-  const safeBottom = device.safeAreaBottom > 0 ? Math.min(device.safeAreaBottom, 12) : 0;
-  const bookingHeight = device.isSmall ? 50 : 60;
-  const bookingBottom = 152 + safeBottom;
+  // Bottom stack: CTA bar (80px) above nav (90 + safe area)
+  const safeBottom = Math.max(device.safeAreaBottom, 26);
+  const navHeight = NAV_HEIGHT + safeBottom;
+  const ctaBarBottom = navHeight; // CTA sits directly above nav
+  const totalBottomOffset = ctaBarBottom + CTA_BAR_HEIGHT; // Space for CTA + nav
 
-  // Place action rail just above the booking section with consistent spacing
-  const actionRailBottom = 220 + safeBottom;
+  // Place action rail above the CTA bar
+  const actionRailBottom = totalBottomOffset + 40;
 
-  // Horizontal padding scales slightly with width and bumps on tablets
-  const horizontalPadding = device.isTablet
-    ? 24
-    : Math.max(16, Math.round(device.width * 0.05));
-  
   return {
     creatorPill: {
       top: creatorPillTop,
@@ -103,9 +102,13 @@ export function getVideoFeedLayout(device: DeviceInfo) {
       right: 16,
       buttonSize: device.isSmall ? 36 : 40,
     },
+    ctaBar: {
+      height: CTA_BAR_HEIGHT,
+      bottom: navHeight,
+    },
     bookingSection: {
-      bottom: bookingBottom,
-      height: bookingHeight, // Smaller height on small devices
+      bottom: totalBottomOffset,
+      height: CTA_BAR_HEIGHT,
       marginHorizontal: device.isTablet ? 20 : device.isSmall ? 1 : 2,
     },
   };

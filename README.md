@@ -1,296 +1,101 @@
-# Context Engineering Template
+# ChoreHero v2
 
-A comprehensive template for getting started with Context Engineering - the discipline of engineering context for AI coding assistants so they have the information necessary to get the job done end to end.
+A two-sided marketplace connecting customers with trusted local pros for cleaning, handyman, organizing, and other home services. Built around video-first discovery and quote-driven booking.
 
-> **Context Engineering is 10x better than prompt engineering and 100x better than vibe coding.**
+## Stack
 
-## 🚀 Quick Start
+- **Mobile app**: React Native + Expo (managed workflow)
+- **Backend**: Supabase (Postgres, Auth, Storage, Edge Functions, Realtime)
+- **Payments**: Stripe (Payment Sheet for customers, Stripe Connect for cleaner payouts)
+- **State**: Zustand (cleaner side) + React state + Context (auth, messages)
+- **Navigation**: React Navigation (stack + bottom tabs)
 
-```bash
-# 1. Clone this template
-git clone https://github.com/coleam00/Context-Engineering-Intro.git
-cd Context-Engineering-Intro
-
-# 2. Set up your project rules (optional - template provided)
-# Edit CLAUDE.md to add your project-specific guidelines
-
-# 3. Add examples (highly recommended)
-# Place relevant code examples in the examples/ folder
-
-# 4. Create your initial feature request
-# Edit INITIAL.md with your feature requirements
-
-# 5. Generate a comprehensive PRP (Product Requirements Prompt)
-# In Claude Code, run:
-/generate-prp INITIAL.md
-
-# 6. Execute the PRP to implement your feature
-# In Claude Code, run:
-/execute-prp PRPs/your-feature-name.md
-```
-
-## 📚 Table of Contents
-
-- [What is Context Engineering?](#what-is-context-engineering)
-- [Template Structure](#template-structure)
-- [Step-by-Step Guide](#step-by-step-guide)
-- [Writing Effective INITIAL.md Files](#writing-effective-initialmd-files)
-- [The PRP Workflow](#the-prp-workflow)
-- [Using Examples Effectively](#using-examples-effectively)
-- [Best Practices](#best-practices)
-
-## What is Context Engineering?
-
-Context Engineering represents a paradigm shift from traditional prompt engineering:
-
-### Prompt Engineering vs Context Engineering
-
-**Prompt Engineering:**
-- Focuses on clever wording and specific phrasing
-- Limited to how you phrase a task
-- Like giving someone a sticky note
-
-**Context Engineering:**
-- A complete system for providing comprehensive context
-- Includes documentation, examples, rules, patterns, and validation
-- Like writing a full screenplay with all the details
-
-### Why Context Engineering Matters
-
-1. **Reduces AI Failures**: Most agent failures aren't model failures - they're context failures
-2. **Ensures Consistency**: AI follows your project patterns and conventions
-3. **Enables Complex Features**: AI can handle multi-step implementations with proper context
-4. **Self-Correcting**: Validation loops allow AI to fix its own mistakes
-
-## Template Structure
-
-```
-context-engineering-intro/
-├── .claude/
-│   ├── commands/
-│   │   ├── generate-prp.md    # Generates comprehensive PRPs
-│   │   └── execute-prp.md     # Executes PRPs to implement features
-│   └── settings.local.json    # Claude Code permissions
-├── PRPs/
-│   ├── templates/
-│   │   └── prp_base.md       # Base template for PRPs
-│   └── EXAMPLE_multi_agent_prp.md  # Example of a complete PRP
-├── examples/                  # Your code examples (critical!)
-├── CLAUDE.md                 # Global rules for AI assistant
-├── INITIAL.md               # Template for feature requests
-├── INITIAL_EXAMPLE.md       # Example feature request
-└── README.md                # This file
-```
-
-This template doesn't focus on RAG and tools with context engineering because I have a LOT more in store for that soon. ;)
-
-## Step-by-Step Guide
-
-### 1. Set Up Global Rules (CLAUDE.md)
-
-The `CLAUDE.md` file contains project-wide rules that the AI assistant will follow in every conversation. The template includes:
-
-- **Project awareness**: Reading planning docs, checking tasks
-- **Code structure**: File size limits, module organization
-- **Testing requirements**: Unit test patterns, coverage expectations
-- **Style conventions**: Language preferences, formatting rules
-- **Documentation standards**: Docstring formats, commenting practices
-
-**You can use the provided template as-is or customize it for your project.**
-
-### 2. Create Your Initial Feature Request
-
-Edit `INITIAL.md` to describe what you want to build:
-
-```markdown
-## FEATURE:
-[Describe what you want to build - be specific about functionality and requirements]
-
-## EXAMPLES:
-[List any example files in the examples/ folder and explain how they should be used]
-
-## DOCUMENTATION:
-[Include links to relevant documentation, APIs, or MCP server resources]
-
-## OTHER CONSIDERATIONS:
-[Mention any gotchas, specific requirements, or things AI assistants commonly miss]
-```
-
-**See `INITIAL_EXAMPLE.md` for a complete example.**
-
-### 3. Generate the PRP
-
-PRPs (Product Requirements Prompts) are comprehensive implementation blueprints that include:
-
-- Complete context and documentation
-- Implementation steps with validation
-- Error handling patterns
-- Test requirements
-
-They are similar to PRDs (Product Requirements Documents) but are crafted more specifically to instruct an AI coding assistant.
-
-Run in Claude Code:
-```bash
-/generate-prp INITIAL.md
-```
-
-**Note:** The slash commands are custom commands defined in `.claude/commands/`. You can view their implementation:
-- `.claude/commands/generate-prp.md` - See how it researches and creates PRPs
-- `.claude/commands/execute-prp.md` - See how it implements features from PRPs
-
-The `$ARGUMENTS` variable in these commands receives whatever you pass after the command name (e.g., `INITIAL.md` or `PRPs/your-feature.md`).
-
-This command will:
-1. Read your feature request
-2. Research the codebase for patterns
-3. Search for relevant documentation
-4. Create a comprehensive PRP in `PRPs/your-feature-name.md`
-
-### 4. Execute the PRP
-
-Once generated, execute the PRP to implement your feature:
+## Quick start
 
 ```bash
-/execute-prp PRPs/your-feature-name.md
+# 1. Install dependencies
+cd chorehero-app
+npm install
+
+# 2. Configure environment
+cp .env.example .env
+# Fill in EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY,
+# EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY, etc.
+
+# 3. Start the dev server
+npx expo start
 ```
 
-The AI coding assistant will:
-1. Read all context from the PRP
-2. Create a detailed implementation plan
-3. Execute each step with validation
-4. Run tests and fix any issues
-5. Ensure all success criteria are met
+The app boots through `chorehero-app/src/App.tsx`, which runs `validateEnv()` at startup. In dev, missing env vars throw immediately. In TestFlight/prod builds they log to the console and the affected feature degrades gracefully (e.g. PaymentScreen guards Stripe).
 
-## Writing Effective INITIAL.md Files
-
-### Key Sections Explained
-
-**FEATURE**: Be specific and comprehensive
-- ❌ "Build a web scraper"
-- ✅ "Build an async web scraper using BeautifulSoup that extracts product data from e-commerce sites, handles rate limiting, and stores results in PostgreSQL"
-
-**EXAMPLES**: Leverage the examples/ folder
-- Place relevant code patterns in `examples/`
-- Reference specific files and patterns to follow
-- Explain what aspects should be mimicked
-
-**DOCUMENTATION**: Include all relevant resources
-- API documentation URLs
-- Library guides
-- MCP server documentation
-- Database schemas
-
-**OTHER CONSIDERATIONS**: Capture important details
-- Authentication requirements
-- Rate limits or quotas
-- Common pitfalls
-- Performance requirements
-
-## The PRP Workflow
-
-### How /generate-prp Works
-
-The command follows this process:
-
-1. **Research Phase**
-   - Analyzes your codebase for patterns
-   - Searches for similar implementations
-   - Identifies conventions to follow
-
-2. **Documentation Gathering**
-   - Fetches relevant API docs
-   - Includes library documentation
-   - Adds gotchas and quirks
-
-3. **Blueprint Creation**
-   - Creates step-by-step implementation plan
-   - Includes validation gates
-   - Adds test requirements
-
-4. **Quality Check**
-   - Scores confidence level (1-10)
-   - Ensures all context is included
-
-### How /execute-prp Works
-
-1. **Load Context**: Reads the entire PRP
-2. **Plan**: Creates detailed task list using TodoWrite
-3. **Execute**: Implements each component
-4. **Validate**: Runs tests and linting
-5. **Iterate**: Fixes any issues found
-6. **Complete**: Ensures all requirements met
-
-See `PRPs/EXAMPLE_multi_agent_prp.md` for a complete example of what gets generated.
-
-## Using Examples Effectively
-
-The `examples/` folder is **critical** for success. AI coding assistants perform much better when they can see patterns to follow.
-
-### What to Include in Examples
-
-1. **Code Structure Patterns**
-   - How you organize modules
-   - Import conventions
-   - Class/function patterns
-
-2. **Testing Patterns**
-   - Test file structure
-   - Mocking approaches
-   - Assertion styles
-
-3. **Integration Patterns**
-   - API client implementations
-   - Database connections
-   - Authentication flows
-
-4. **CLI Patterns**
-   - Argument parsing
-   - Output formatting
-   - Error handling
-
-### Example Structure
+## Repository layout
 
 ```
-examples/
-├── README.md           # Explains what each example demonstrates
-├── cli.py             # CLI implementation pattern
-├── agent/             # Agent architecture patterns
-│   ├── agent.py      # Agent creation pattern
-│   ├── tools.py      # Tool implementation pattern
-│   └── providers.py  # Multi-provider pattern
-└── tests/            # Testing patterns
-    ├── test_agent.py # Unit test patterns
-    └── conftest.py   # Pytest configuration
+chorehero-app/                  Expo project root
+├── src/
+│   ├── screens/                Customer, cleaner, shared, onboarding
+│   ├── components/             Shared UI primitives
+│   ├── services/               Supabase / Stripe service clients
+│   ├── store/                  Zustand stores (cleanerStore today)
+│   ├── hooks/                  useAuth and friends
+│   ├── navigation/             Stack + tab navigators
+│   ├── utils/                  validateEnv, theme, responsive, etc.
+│   └── types/                  Shared TypeScript types
+├── supabase/
+│   ├── migrations/             SQL migrations (numbered)
+│   ├── functions/              Edge Functions (create-setup-intent, etc.)
+│   └── audit/                  Optional ops scripts (e.g. RLS audit)
+└── __tests__/                  Jest service tests
 ```
 
-## Best Practices
+## Supabase
 
-### 1. Be Explicit in INITIAL.md
-- Don't assume the AI knows your preferences
-- Include specific requirements and constraints
-- Reference examples liberally
+The schema lives in `chorehero-app/supabase/migrations`. Apply migrations against your project before running the app — the DB has many `cleaner_profiles`, `customer_profiles`, `bookings`, `jobs`, `quotes`, `content_posts`, `payment_methods`, and `notifications` tables that the client expects. Several Edge Functions (e.g. `create-setup-intent`, `finalize-setup-intent`, `process-refund`, `notify-founder-sms`, `send-push`) need to be deployed and have their secrets set (`STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).
 
-### 2. Provide Comprehensive Examples
-- More examples = better implementations
-- Show both what to do AND what not to do
-- Include error handling patterns
+For local Stripe webhook testing:
 
-### 3. Use Validation Gates
-- PRPs include test commands that must pass
-- AI will iterate until all validations succeed
-- This ensures working code on first try
+```bash
+stripe listen --forward-to localhost:54321/functions/v1/stripe-webhook
+```
 
-### 4. Leverage Documentation
-- Include official API docs
-- Add MCP server resources
-- Reference specific documentation sections
+## Tests
 
-### 5. Customize CLAUDE.md
-- Add your conventions
-- Include project-specific rules
-- Define coding standards
+```bash
+cd chorehero-app
+npm test
+```
 
-## Resources
+Service-level integration tests live in `chorehero-app/__tests__/services/`. The smoke checklist for critical flows lives in `chorehero-app/docs/SMOKE_CHECKLIST.md` — run it manually against TestFlight before any release.
 
-- [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code)
-- [Context Engineering Best Practices](https://www.philschmid.de/context-engineering)
+## Conventions
+
+- See `CLAUDE.md` for the project's coding conventions, code-structure rules, and AI assistant guidelines.
+- Theme split: customer surfaces use teal (`#26B7C9`), cleaner surfaces use orange (`#FFA52F`). Don't mix them in the same UI.
+- Service methods that mutate (createBooking, createJob, acceptBooking, etc.) carry an in-flight lock to prevent double-tap double-submits — keep that pattern when adding new mutations.
+
+## Production checklist
+
+Before pushing a TestFlight build:
+
+1. `validateEnv()` passes locally (no missing keys)
+2. RLS audit (`chorehero-app/supabase/audit/rls_audit.sql`) shows every `public.*` table protected
+3. Smoke checklist in `chorehero-app/docs/SMOKE_CHECKLIST.md` is green
+4. Edge Function secrets (`STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) deployed to the Supabase project
+5. EAS env vars (`EXPO_PUBLIC_*`) set on the build profile
+6. Google Places API key restriction is set to **iOS app — bundle id `com.chorehero.app`**, NOT HTTP referrer (HTTP referrer restrictions are rejected by mobile clients with the error "API keys with referer restrictions cannot be used with this API")
+7. Google Cloud project has both **Places API** and **Places API (New)** enabled, plus **Geocoding API**
+8. All required Edge Functions are deployed (`create-setup-intent`, `finalize-setup-intent`, `create-stripe-connect-link`, `get-stripe-connect-status`, `process-payouts`, `process-refund`, `send-push`, `notify-founder-sms`, etc.)
+
+### Edge Function secrets
+
+| Secret | Required by | Notes |
+|---|---|---|
+| `STRIPE_SECRET_KEY` | All Stripe functions | Use restricted key in production |
+| `SUPABASE_URL` | All functions | Auto-set by Supabase |
+| `SUPABASE_ANON_KEY` | All functions | Auto-set by Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | Functions that bypass RLS | Required for `create-setup-intent`, `finalize-setup-intent`, `create-stripe-connect-link`, `get-stripe-connect-status`, `process-payouts`, `delete-account` |
+| `STRIPE_WEBHOOK_SECRET` | `stripe-webhook` | Required for signature verification |
+
+## License
+
+Proprietary — ChoreHero, all rights reserved.

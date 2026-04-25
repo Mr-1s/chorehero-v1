@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,19 +11,20 @@ import {
   FlatList,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import FloatingNavigation from '../../components/FloatingNavigation';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
+import { useFocusEffect } from '@react-navigation/native';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 
 import { useMessages, type Conversation } from '../../context/MessageContext';
-import { useRoleFeatures } from '../../components/RoleBasedUI';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
 import { getConversationId } from '../../utils/conversationId';
 import { wp, hp } from '../../utils/responsive';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getMainTabBarChromeHeight } from '../../navigation/mainTabsChromeLayout';
 
 // Navigation types
 type StackParamList = {
@@ -39,17 +40,15 @@ type MessagesScreenProps = {
 // Conversation interface now imported from context
 
 const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+  const findCleanersButtonBottom = getMainTabBarChromeHeight(insets.bottom) + 12;
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const { conversations, setConversations, setUnreadCount } = useMessages();
-  const { isCleaner } = useRoleFeatures();
   const { user } = useAuth();
 
-  useEffect(() => {
-    loadConversations();
-  }, []);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     setIsLoading(true);
     try {
       // Check if user is authenticated and not a demo user
@@ -202,8 +201,25 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
       setUnreadCount(0);
     } finally {
       setIsLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [user, setConversations, setUnreadCount]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadConversations();
+    }, [loadConversations])
+  );
+
+  useEffect(() => {
+    if (!user?.id || String(user.id).startsWith('demo_')) return;
+    loadConversations();
+  }, [user?.id, loadConversations]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void loadConversations();
+  }, [loadConversations]);
 
   const filteredConversations = conversations.filter(c =>
     c.participant.name.toLowerCase().includes(search.toLowerCase())
@@ -288,12 +304,15 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#26B7C9" />
+          }
         />
       )}
       
       {/* Fixed Find Cleaners Button - Only show when empty */}
       {filteredConversations.length === 0 && !isLoading && (
-        <View style={styles.fixedBottomButton}>
+        <View style={[styles.fixedBottomButton, { bottom: findCleanersButtonBottom }]}>
           <TouchableOpacity 
             style={styles.findCleanersButton}
             onPress={() => {
@@ -313,15 +332,6 @@ const MessagesScreen: React.FC<MessagesScreenProps> = ({ navigation }) => {
             <Text style={styles.findCleanersButtonText}>Find Cleaners</Text>
           </TouchableOpacity>
         </View>
-      )}
-      
-      {isCleaner ? (
-        <CleanerFloatingNavigation 
-          navigation={navigation as any} 
-          currentScreen="Messages"
-        />
-      ) : (
-      <FloatingNavigation navigation={navigation} currentScreen="Messages" />
       )}
     </SafeAreaView>
   );
@@ -490,7 +500,6 @@ const styles = StyleSheet.create({
   },
   fixedBottomButton: {
     position: 'absolute',
-    bottom: 108,
     left: 20,
     right: 20,
   },

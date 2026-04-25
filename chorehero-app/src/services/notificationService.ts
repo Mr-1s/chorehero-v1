@@ -3,7 +3,7 @@ import { supabase } from './supabase';
 
 export interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'booking' | 'message' | 'system';
+  type: 'like' | 'comment' | 'booking' | 'message' | 'system' | 'payment';
   title: string;
   message: string;
   fromUserId: string;
@@ -13,6 +13,21 @@ export interface Notification {
   relatedId?: string; // videoId, bookingId, etc.
   timestamp: Date;
   read: boolean;
+  /** Supabase public.notifications id (id is `db:<uuid>`) */
+  serverId?: string;
+}
+
+function mapServerNotificationType(
+  t: string
+): 'like' | 'comment' | 'booking' | 'message' | 'system' | 'payment' {
+  if (t === 'payout_completed' || t.includes('payout') || t.includes('paid')) return 'payment';
+  if (t === 'video_like' || t.includes('video')) return 'like';
+  if (t.includes('quote') || t === 'new_quote' || t === 'quote_viewed' || t === 'quote_declined') return 'system';
+  if (t.includes('booking') || t === 'new_booking_request' || t === 'status_update') return 'booking';
+  if (t === 'message' || t.includes('message')) return 'message';
+  if (t === 'like' || t.includes('like')) return 'like';
+  if (t === 'comment' || t.includes('comment')) return 'comment';
+  return 'system';
 }
 
 class NotificationService {
@@ -209,14 +224,50 @@ class NotificationService {
     });
   }
 
-  // Get notifications for a user
+  // Get notifications for a user (local + Supabase in-app)
   async getNotificationsForUser(userId: string): Promise<Notification[]> {
     try {
       const stored = await AsyncStorage.getItem('notifications');
       if (stored) {
         this.notifications = JSON.parse(stored);
       }
-      return this.notifications.filter(n => n.toUserId === userId);
+      const local = this.notifications.filter(n => n.toUserId === userId);
+
+      let server: Notification[] = [];
+      const { data: rows, error } = await supabase
+        .from('notifications')
+        .select('id, type, title, message, is_read, created_at, data')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (!error && rows?.length) {
+        server = rows.map((r) => {
+          const data = (r.data || {}) as { booking_id?: string; package_id?: string; quote_id?: string };
+          const rel =
+            data.booking_id || data.package_id || data.quote_id;
+          return {
+            id: `db:${r.id}`,
+            serverId: r.id,
+            type: mapServerNotificationType(r.type || ''),
+            title: r.title,
+            message: r.message,
+            fromUserId: '',
+            fromUserName: 'ChoreHero',
+            toUserId: userId,
+            relatedId: rel,
+            timestamp: new Date(r.created_at),
+            read: Boolean(r.is_read),
+          } as Notification;
+        });
+      } else if (error) {
+        console.warn('Server notifications load:', error.message);
+      }
+
+      const merged = [...server, ...local].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      return merged;
     } catch (error) {
       console.error('Error loading notifications:', error);
       return [];
@@ -229,30 +280,69 @@ class NotificationService {
     return userNotifications.filter(n => !n.read).length;
   }
 
-  // Mark notification as read
-  async markAsRead(notificationId: string) {
-    this.notifications = this.notifications.map(n => 
+  // Mark notification as read. Returns true only when the persistence succeeded
+  // so callers can roll back optimistic UI on failure.
+  async markAsRead(notificationId: string): Promise<boolean> {
+    if (notificationId.startsWith('db:')) {
+      const sid = notificationId.slice(3);
+      try {
+        const { error } = await supabase
+          .from('notifications')
+          .update({ is_read: true, read_at: new Date().toISOString() })
+          .eq('id', sid);
+        if (error) {
+          console.warn('markAsRead server failed:', error.message);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        console.warn('markAsRead server threw:', e);
+        return false;
+      }
+    }
+    this.notifications = this.notifications.map(n =>
       n.id === notificationId ? { ...n, read: true } : n
     );
-    
+
     try {
       await AsyncStorage.setItem('notifications', JSON.stringify(this.notifications));
+      return true;
     } catch (error) {
       console.error('Error updating notification:', error);
+      return false;
     }
   }
 
-  // Mark all notifications as read for a user
-  async markAllAsRead(userId: string) {
-    this.notifications = this.notifications.map(n => 
+  // Mark all notifications as read for a user. Returns true only when both
+  // server and local writes succeed so the badge UI can stay honest.
+  async markAllAsRead(userId: string): Promise<boolean> {
+    let serverOk = true;
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq('user_id', userId)
+        .eq('is_read', false);
+      if (error) {
+        console.warn('markAllAsRead server failed:', error.message);
+        serverOk = false;
+      }
+    } catch (e) {
+      console.warn('markAllAsRead server threw:', e);
+      serverOk = false;
+    }
+
+    this.notifications = this.notifications.map(n =>
       n.toUserId === userId ? { ...n, read: true } : n
     );
-    
+
     try {
       await AsyncStorage.setItem('notifications', JSON.stringify(this.notifications));
     } catch (error) {
       console.error('Error updating notifications:', error);
+      return false;
     }
+    return serverOk;
   }
 
   // Clear all notifications for a user (for logout)

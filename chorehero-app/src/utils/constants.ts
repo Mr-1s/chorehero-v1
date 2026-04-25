@@ -14,26 +14,69 @@ export const APP_CONFIG = {
   booking_timeout: 60000, // 60 seconds for booking flow
 };
 
-// Design System
+// Design System v2 — logo-derived tokens (see CHOREHERO_STYLE_GUIDE.md)
 export const COLORS = {
-  primary: '#F59E0B',
-  secondary: '#1A2B4C',
-  accent: '#FF6B6B',
+  // Brand
+  primary: '#26B7C9',      // teal — customer primary
+  primaryDark: '#047B9B',  // tealDeep — pro/Hero emphasis
+  primarySoft: '#E6F9FB',  // tealSoft — tinted surfaces
+  secondary: '#047B9B',    // tealDeep
+  accent: '#E6B200',       // yellow — "Chore" accent, conversion moments
+  accentSoft: '#FFF6D6',
+  // Semantic
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
-  background: '#FAFAFA',
+  info: '#3B82F6',
+  // Surfaces
+  background: '#FAFBFC',
   surface: '#FFFFFF',
+  surfaceAlt: '#F4F6F8',
   border: '#E5E7EB',
+  borderSoft: '#F1F5F9',
+  borderHard: '#D1D5DB',
+  overlay: 'rgba(15, 23, 42, 0.55)',
+  // Text
   text: {
-    primary: '#1F2937',
-    secondary: '#6B7280',
-    disabled: '#9CA3AF',
+    primary: '#0F172A',
+    secondary: '#475569',
+    disabled: '#94A3B8',
     inverse: '#FFFFFF',
-    muted: '#9CA3AF',
+    muted: '#94A3B8',
   },
-  textSecondary: '#6B7280', // Add backward compatibility
-  overlay: 'rgba(0, 0, 0, 0.5)',
+  textSecondary: '#475569',
+};
+
+// Elevation / shadow tokens (apply via spread)
+export const SHADOWS = {
+  e1: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  e2: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  e3: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  e4: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 12,
+  },
 };
 
 export const TYPOGRAPHY = {
@@ -373,7 +416,7 @@ export const TIKTOK_UI = {
   videoPlayer: {
     backgroundColor: '#000000',
     controlsColor: '#FFFFFF',
-    progressBarColor: '#FF6B6B',
+    progressBarColor: '#E6B200',
     overlayOpacity: 0.8,
   },
   feedSettings: {

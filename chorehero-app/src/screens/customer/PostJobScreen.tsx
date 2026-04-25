@@ -1,6 +1,6 @@
 /**
  * Post a Job - Customer flow for video quote system.
- * "What do you need done?" with media, description, category, urgency, location, budget.
+ * Media → description → category & timing (pickers) → budget card → location → submit.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -23,18 +23,17 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../hooks/useAuth';
 import { authService } from '../../services/auth';
 import { supabase } from '../../services/supabase';
 import { jobQuoteService, JobCategory, JobUrgency, Job } from '../../services/jobQuoteService';
 import { uploadService } from '../../services/uploadService';
 import { wp, hp } from '../../utils/responsive';
-import { AddressAutocomplete } from '../../components/AddressAutocomplete';
+import { AddressAutocomplete, type AddressResult } from '../../components/AddressAutocomplete';
+import FormSelectField from '../../components/FormSelectField';
 import { useRoute } from '@react-navigation/native';
 const DEV_MODE = process.env.EXPO_PUBLIC_DEV_MODE === 'true';
-const placesApiKey =
-  process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 import { useToast } from '../../components/Toast';
 
 type StackParamList = {
@@ -49,6 +48,24 @@ type PostJobNavigationProp = StackNavigationProp<StackParamList, 'PostJob'>;
 
 const MAX_PHOTOS = 5;
 const MAX_VIDEO_SEC = 30;
+const POST_JOB_DRAFT_VERSION = 1;
+
+type PostJobDraft = {
+  v: number;
+  description: string;
+  category: JobCategory;
+  urgency: JobUrgency;
+  budgetMin: string;
+  budgetMax: string;
+  street: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  latitude?: number;
+  longitude?: number;
+  addressSelected: boolean;
+  media: { uri: string; type: 'photo' | 'video' }[];
+};
 
 const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ navigation }) => {
   const route = useRoute<any>();
@@ -56,6 +73,8 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
   const isEditMode = !!editJob?.id;
   const { user } = useAuth();
   const { showToast } = useToast();
+  const draftKey = user?.id ? `post_job_draft:${user.id}` : null;
+  const [hasLoadedDraft, setHasLoadedDraft] = useState(false);
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<JobCategory>('cleaning');
   const [urgency, setUrgency] = useState<JobUrgency>('this_week');
@@ -70,6 +89,20 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
   const [longitude, setLongitude] = useState<number | undefined>();
   const [media, setMedia] = useState<{ uri: string; type: 'photo' | 'video' }[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const hasMeaningfulDraftContent = () =>
+    !!(
+      description.trim() ||
+      budgetMin.trim() ||
+      budgetMax.trim() ||
+      street.trim() ||
+      city.trim() ||
+      state.trim() ||
+      zipCode.trim() ||
+      media.length > 0 ||
+      category !== 'cleaning' ||
+      urgency !== 'this_week'
+    );
 
   useEffect(() => {
     if (!isEditMode || !editJob) return;
@@ -96,7 +129,47 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
   }, [isEditMode, editJob]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    let cancelled = false;
+    const loadDraft = async () => {
+      if (isEditMode || !draftKey) {
+        setHasLoadedDraft(true);
+        return;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(draftKey);
+        if (!raw) return;
+        const draft = JSON.parse(raw) as PostJobDraft;
+        if (draft?.v !== POST_JOB_DRAFT_VERSION) return;
+        if (cancelled) return;
+        setDescription(draft.description || '');
+        setCategory(draft.category || 'cleaning');
+        setUrgency(draft.urgency || 'this_week');
+        setBudgetMin(draft.budgetMin || '');
+        setBudgetMax(draft.budgetMax || '');
+        setStreet(draft.street || '');
+        setCity(draft.city || '');
+        setState(draft.state || '');
+        setZipCode(draft.zipCode || '');
+        setLatitude(draft.latitude);
+        setLongitude(draft.longitude);
+        setAddressSelected(!!draft.addressSelected);
+        setMedia(Array.isArray(draft.media) ? draft.media.slice(0, MAX_PHOTOS) : []);
+      } catch {
+        // no-op
+      } finally {
+        if (!cancelled) setHasLoadedDraft(true);
+      }
+    };
+    loadDraft();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, draftKey]);
+
+  useEffect(() => {
+    if (!user?.id || isEditMode || !hasLoadedDraft) return;
+    if (hasMeaningfulDraftContent()) return;
+    let cancelled = false;
     const timeoutMs = 8000;
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Load timeout')), timeoutMs)
@@ -109,6 +182,10 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
       .maybeSingle();
     Promise.race([fetchAddr.then((r) => r.data), timeoutPromise])
       .then((data: any) => {
+        // Bail if the user started editing while we were waiting — otherwise
+        // a slow address response would clobber their typed address.
+        if (cancelled) return;
+        if (hasMeaningfulDraftContent()) return;
         if (data && (data.street != null || data.city != null || data.zip_code != null)) {
           setStreet(data.street || '');
           setCity(data.city || '');
@@ -120,7 +197,51 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
         }
       })
       .catch(() => {});
-  }, [user?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isEditMode, hasLoadedDraft]);
+
+  useEffect(() => {
+    if (isEditMode || !draftKey || !hasLoadedDraft) return;
+    const timer = setTimeout(() => {
+      const draft: PostJobDraft = {
+        v: POST_JOB_DRAFT_VERSION,
+        description,
+        category,
+        urgency,
+        budgetMin,
+        budgetMax,
+        street,
+        city,
+        state,
+        zipCode,
+        latitude,
+        longitude,
+        addressSelected,
+        media: media.slice(0, MAX_PHOTOS),
+      };
+      AsyncStorage.setItem(draftKey, JSON.stringify(draft)).catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    isEditMode,
+    draftKey,
+    hasLoadedDraft,
+    description,
+    category,
+    urgency,
+    budgetMin,
+    budgetMax,
+    street,
+    city,
+    state,
+    zipCode,
+    latitude,
+    longitude,
+    addressSelected,
+    media,
+  ]);
 
   /** Geocode address to lat/lng for distance matching. Uses stored coords or geocodes from address parts. */
   const geocodeForJob = async (): Promise<{ latitude?: number; longitude?: number }> => {
@@ -192,82 +313,125 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
       return;
     }
     setIsSubmitting(true);
-    const SUBMIT_TIMEOUT_MS = 45000;
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timed out. Please try again.')), SUBMIT_TIMEOUT_MS)
-    );
     try {
-      const runSubmit = async () => {
-        const ensureRes = await authService.ensureUserExists(user.id, {
-          email: user.email ?? undefined,
-          name: user.name ?? undefined,
-          phone: (user as any).phone ?? undefined,
-          role: 'customer',
-        });
-        if (!ensureRes.success) {
-          throw new Error(ensureRes.error || 'Please complete your profile first.');
+      const ensureRes = await authService.ensureUserExists(user.id, {
+        email: user.email ?? undefined,
+        name: user.name ?? undefined,
+        phone: (user as any).phone ?? undefined,
+        role: 'customer',
+      });
+      if (!ensureRes.success) {
+        throw new Error(ensureRes.error || 'Please complete your profile first.');
+      }
+
+      const mediaUrls: { url: string; type: 'photo' | 'video' }[] = [];
+      const uploadFailures: string[] = [];
+      for (const m of media) {
+        if (m.uri.startsWith('http')) {
+          mediaUrls.push({ url: m.uri, type: m.type });
+          continue;
         }
-
-        const mediaUrls: { url: string; type: 'photo' | 'video' }[] = [];
-        for (const m of media) {
-          if (m.uri.startsWith('http')) {
-            mediaUrls.push({ url: m.uri, type: m.type });
-          } else {
-            const upload = await uploadService.uploadFile(m.uri, m.type === 'video' ? 'video' : 'image');
-            if (upload.success && upload.url) mediaUrls.push({ url: upload.url, type: m.type });
-          }
+        const upload = await uploadService.uploadFile(m.uri, m.type === 'video' ? 'video' : 'image');
+        if (upload.success && upload.url) {
+          mediaUrls.push({ url: upload.url, type: m.type });
+        } else {
+          uploadFailures.push(upload.error || `${m.type} upload failed`);
         }
+      }
+      // If the user attached media but every single upload failed, treat it as
+      // a hard failure rather than silently posting a job with no attachments.
+      if (media.length > 0 && mediaUrls.length === 0) {
+        throw new Error(
+          uploadFailures[0] ||
+            'Could not upload any of your photos or videos. Check your connection and try again.'
+        );
+      }
 
-        const coords = await geocodeForJob();
+      const coords = await geocodeForJob();
 
-        const headline = desc.length > 80 ? desc.slice(0, 80) : desc;
-        const minBudget = budgetMin ? parseInt(budgetMin, 10) * 100 : undefined;
-        const maxBudget = budgetMax ? parseInt(budgetMax, 10) * 100 : undefined;
-        const basePayload = {
-          headline,
-          description: desc || undefined,
-          urgency,
-          budget_min_cents: minBudget,
-          budget_max_cents: maxBudget,
-          media_urls: mediaUrls,
-        };
-
-        const res = isEditMode && editJob?.id
-          ? await jobQuoteService.updateJob(editJob.id, basePayload)
-          : await jobQuoteService.createJob(user.id, {
-              ...basePayload,
-              category,
-              street: street || undefined,
-              city: city || undefined,
-              state: state || undefined,
-              zip_code: zipCode || undefined,
-              latitude: coords.latitude,
-              longitude: coords.longitude,
-            });
-
-        if (!res.success || !res.data) {
-          throw new Error(res.error || `Failed to ${isEditMode ? 'update' : 'post'} job`);
-        }
-        return res;
+      const headline = desc.length > 80 ? desc.slice(0, 80) : desc;
+      const minBudget = budgetMin ? parseInt(budgetMin, 10) * 100 : undefined;
+      const maxBudget = budgetMax ? parseInt(budgetMax, 10) * 100 : undefined;
+      const basePayload = {
+        headline,
+        description: desc || undefined,
+        urgency,
+        budget_min_cents: minBudget,
+        budget_max_cents: maxBudget,
+        media_urls: mediaUrls,
       };
 
-      const res = await Promise.race([runSubmit(), timeoutPromise]);
+      const res = isEditMode && editJob?.id
+        ? await jobQuoteService.updateJob(editJob.id, basePayload)
+        : await jobQuoteService.createJob(user.id, {
+            ...basePayload,
+            category,
+            street: street || undefined,
+            city: city || undefined,
+            state: state || undefined,
+            zip_code: zipCode || undefined,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          });
+
+      if (!res.success || !res.data) {
+        throw new Error(res.error || `Failed to ${isEditMode ? 'update' : 'post'} job`);
+      }
 
       if (!DEV_MODE) {
         supabase.functions.invoke('notify-founder-sms', {
           body: { type: 'new_job', job_id: res.data.id },
         }).catch(() => {});
       }
+      // jobQuoteService.createJob can return success with a non-fatal error
+      // when the job row was created but child rows (e.g. job_media) failed.
+      // Surface that to the user without rolling back the post.
+      const partialError = res.success && res.data ? res.error : undefined;
+      const partialUploadNote =
+        uploadFailures.length > 0 && mediaUrls.length > 0
+          ? `${uploadFailures.length} of ${media.length} attachments could not be uploaded.`
+          : undefined;
+      const successCopy = isEditMode
+        ? 'Job updated successfully.'
+        : 'Job posted! Pros will send video quotes soon.';
+      const messageParts = [successCopy, partialError, partialUploadNote].filter(Boolean) as string[];
       showToast({
-        type: 'success',
-        message: isEditMode ? 'Job updated successfully.' : 'Job posted! Pros will send video quotes soon.',
+        type: partialError || partialUploadNote ? 'warning' : 'success',
+        message: messageParts.join(' '),
       });
+      if (!isEditMode && draftKey) {
+        await AsyncStorage.removeItem(draftKey);
+      }
       navigation.navigate('Bookings' as any, { activeTab: 'my-jobs' });
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : `Failed to ${isEditMode ? 'update' : 'post'} job`);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleBack = () => {
+    if (!isEditMode && hasMeaningfulDraftContent()) {
+      Alert.alert(
+        'Discard draft?',
+        'You have an in-progress job post. Keep it as a draft or discard it?',
+        [
+          { text: 'Keep draft', style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              if (draftKey) await AsyncStorage.removeItem(draftKey);
+              if (navigation.canGoBack()) navigation.goBack();
+              else navigation.navigate('Bookings' as any, { activeTab: 'my-jobs' });
+            },
+          },
+        ]
+      );
+      return;
+    }
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate('Bookings' as any, { activeTab: 'my-jobs' });
   };
 
   const categories = jobQuoteService.getCategories();
@@ -277,7 +441,7 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{isEditMode ? 'Edit Job' : 'Post a Job'}</Text>
@@ -287,6 +451,7 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.title}>{isEditMode ? 'Update your job details' : 'What do you need done?'}</Text>
@@ -345,55 +510,94 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
             multiline
           />
 
-          <Text style={styles.label}>Category</Text>
-          <View style={styles.chipRow}>
-            {categories.map((c) => (
-              <TouchableOpacity
-                key={c.value}
-                style={[styles.chip, category === c.value && styles.chipActive]}
-                onPress={() => setCategory(c.value)}
-              >
-                <Text style={[styles.chipText, category === c.value && styles.chipTextActive]}>{c.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <FormSelectField
+            label="When do you need this done?"
+            description="Tap the row below to open choices — this helps pros prioritize your request."
+            value={urgency}
+            options={urgencies.map((u) => ({ value: u.value, label: u.label }))}
+            onValueChange={(v) => setUrgency(v as JobUrgency)}
+            placeholder="Select timing"
+          />
 
-          <Text style={styles.label}>When do you need this?</Text>
-          <View style={styles.chipRow}>
-            {urgencies.map((u) => (
-              <TouchableOpacity
-                key={u.value}
-                style={[styles.chip, urgency === u.value && styles.chipActive]}
-                onPress={() => setUrgency(u.value)}
-              >
-                <Text style={[styles.chipText, urgency === u.value && styles.chipTextActive]}>{u.label}</Text>
-              </TouchableOpacity>
-            ))}
+          <FormSelectField
+            label="Category"
+            value={category}
+            options={categories.map((c) => ({ value: c.value, label: c.label }))}
+            onValueChange={(v) => setCategory(v as JobCategory)}
+            placeholder="Choose a category"
+          />
+
+          <View style={styles.budgetCard}>
+            <View style={styles.budgetCardAccent} />
+            <View style={styles.budgetCardInner}>
+              <View style={styles.budgetCardTitleRow}>
+                <View style={styles.budgetIconWrap}>
+                  <Ionicons name="cash-outline" size={22} color="#0D9488" />
+                </View>
+                <View style={styles.budgetTitleTexts}>
+                  <Text style={styles.budgetCardTitle}>Your budget range</Text>
+                  <Text style={styles.budgetCardSubtitle}>
+                    Optional — a min and max helps pros send fairer video quotes faster.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.budgetInputsRow}>
+                <View style={styles.budgetField}>
+                  <Text style={styles.budgetFieldLabel}>Minimum</Text>
+                  <View style={styles.budgetInputShell}>
+                    <Text style={styles.budgetDollar}>$</Text>
+                    <TextInput
+                      style={styles.budgetInputInner}
+                      placeholder="0"
+                      placeholderTextColor="#94A3B8"
+                      value={budgetMin}
+                      onChangeText={(t) => setBudgetMin(t.replace(/\D/g, ''))}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+                </View>
+                <View style={styles.budgetField}>
+                  <Text style={styles.budgetFieldLabel}>Maximum</Text>
+                  <View style={styles.budgetInputShell}>
+                    <Text style={styles.budgetDollar}>$</Text>
+                    <TextInput
+                      style={styles.budgetInputInner}
+                      placeholder="0"
+                      placeholderTextColor="#94A3B8"
+                      value={budgetMax}
+                      onChangeText={(t) => setBudgetMax(t.replace(/\D/g, ''))}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+                </View>
+              </View>
+            </View>
           </View>
 
           <Text style={styles.label}>Location</Text>
+          <Text style={styles.locationHelper}>
+            Start typing your street address — suggestions appear as you type. Pick one to auto-fill the fields below.
+          </Text>
           <AddressAutocomplete
             value={street}
             onChangeText={(t) => {
               setStreet(t);
               setAddressSelected(false);
             }}
-            onPlaceSelected={(result) => {
-              const fullAddr = result.street
-                ? [result.street, result.city, result.state, result.zip].filter(Boolean).join(', ')
-                : [result.city, result.state, result.zip].filter(Boolean).join(', ');
-              setStreet(fullAddr || result.street || '');
-              setCity(result.city);
-              setState(result.state);
-              setZipCode(result.zip);
+            onPlaceSelected={(result: AddressResult) => {
+              const line1 = result.street?.trim() ?? '';
+              setStreet(line1);
+              setCity(result.city?.trim() ?? '');
+              setState(result.state?.trim() ?? '');
+              setZipCode(result.zip?.trim() ?? '');
               setLatitude(result.latitude);
               setLongitude(result.longitude);
               setAddressSelected(true);
             }}
-            placeholder="Start typing your address..."
+            placeholder="Search address…"
             style={styles.input}
           />
-          <Text style={styles.addressHint}>Or enter manually below</Text>
+          <Text style={styles.addressHint}>Or edit city, state, and ZIP manually</Text>
           <View style={styles.row}>
             <TextInput
               style={[styles.input, styles.half]}
@@ -418,25 +622,6 @@ const PostJobScreen: React.FC<{ navigation: PostJobNavigationProp }> = ({ naviga
                 setZipCode(t.replace(/\D/g, '').slice(0, 5));
                 if (t.trim().length >= 5 && street.trim()) setAddressSelected(true);
               }}
-              keyboardType="number-pad"
-            />
-          </View>
-
-          <Text style={styles.label}>Budget (optional)</Text>
-          <View style={styles.budgetRow}>
-            <TextInput
-              style={[styles.input, styles.budgetInput]}
-              placeholder="$ min"
-              value={budgetMin}
-              onChangeText={setBudgetMin}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.budgetDash}>–</Text>
-            <TextInput
-              style={[styles.input, styles.budgetInput]}
-              placeholder="$ max"
-              value={budgetMax}
-              onChangeText={setBudgetMax}
               keyboardType="number-pad"
             />
           </View>
@@ -536,6 +721,13 @@ const styles = StyleSheet.create({
   mediaThumbImg: { width: '100%', height: '100%' },
   mediaRemove: { position: 'absolute', top: 4, right: 4 },
   label: { fontSize: wp('3.55%'), fontWeight: '700', color: '#334155', marginTop: hp('1.45%'), marginBottom: hp('0.5%') },
+  locationHelper: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: hp('1%'),
+    marginTop: -4,
+  },
   addressHint: { fontSize: wp('3%'), color: '#9CA3AF', marginBottom: hp('0.5%') },
   input: {
     borderWidth: 1,
@@ -551,21 +743,64 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: wp('2%') },
   half: { flex: 1 },
   third: { width: wp('22%') },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: wp('2%'), marginBottom: hp('1%') },
-  chip: {
-    paddingHorizontal: wp('4%'),
-    paddingVertical: hp('0.95%'),
-    borderRadius: 999,
+  budgetCard: {
+    marginTop: hp('0.5%'),
+    marginBottom: hp('2%'),
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+      },
+      android: { elevation: 3 },
+    }),
   },
-  chipActive: { backgroundColor: '#26B7C9', borderColor: '#26B7C9' },
-  chipText: { fontSize: wp('3.5%'), fontWeight: '600', color: '#6B7280' },
-  chipTextActive: { color: '#fff' },
-  budgetRow: { flexDirection: 'row', alignItems: 'center', gap: wp('2%'), marginBottom: hp('2%') },
-  budgetInput: { flex: 1 },
-  budgetDash: { fontSize: wp('4%'), color: '#9CA3AF' },
+  budgetCardAccent: {
+    height: 4,
+    backgroundColor: '#26B7C9',
+    opacity: 0.9,
+  },
+  budgetCardInner: { padding: 16 },
+  budgetCardTitleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  budgetIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E6FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetTitleTexts: { flex: 1 },
+  budgetCardTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A', letterSpacing: -0.3 },
+  budgetCardSubtitle: { fontSize: 13, color: '#64748B', marginTop: 4, lineHeight: 18 },
+  budgetInputsRow: { flexDirection: 'row', gap: 12 },
+  budgetField: { flex: 1 },
+  budgetFieldLabel: { fontSize: 12, fontWeight: '700', color: '#64748B', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  budgetInputShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    paddingLeft: 12,
+    minHeight: 52,
+  },
+  budgetDollar: { fontSize: 18, fontWeight: '700', color: '#0F766E', marginRight: 4 },
+  budgetInputInner: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    paddingRight: 12,
+  },
   cta: {
     marginTop: hp('2.5%'),
     borderRadius: 14,

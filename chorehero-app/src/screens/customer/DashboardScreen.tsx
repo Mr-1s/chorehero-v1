@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -18,9 +18,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 
+import { useFocusEffect } from '@react-navigation/native';
 import { EmptyState, EmptyStateConfigs } from '../../components/EmptyState';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { wp, hp } from '../../utils/responsive';
 
 const { width } = Dimensions.get('window');
 
@@ -107,6 +109,13 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
     loadDashboardData();
   }, [user?.id]);
 
+  // Reload when screen comes into focus (e.g. after completing a booking)
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) loadDashboardData();
+    }, [user?.id])
+  );
+
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
@@ -126,7 +135,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
 
       console.log('📊 Loading dashboard for user:', user.id);
 
-      // Fetch upcoming bookings (pending, confirmed)
+      // Fetch upcoming bookings (only paid - payment_status succeeded)
       const { data: upcomingData, error: upcomingError } = await supabase
         .from('bookings')
         .select(`
@@ -136,8 +145,8 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           scheduled_time,
           estimated_duration,
           total_amount,
-          address,
-          special_requests,
+          address:addresses!address_id(street, city, state, zip_code),
+          special_instructions,
           cleaner_id,
           cleaner:users!bookings_cleaner_id_fkey(
             id,
@@ -146,6 +155,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           )
         `)
         .eq('customer_id', user.id)
+        .eq('payment_status', 'succeeded')
         .in('status', ['pending', 'confirmed', 'cleaner_en_route', 'cleaner_arrived', 'in_progress'])
         .order('scheduled_time', { ascending: true })
         .limit(5);
@@ -185,7 +195,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           },
           service: {
             type: booking.service_type || 'standard',
-            title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
+            title: booking.special_instructions?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
             duration: booking.estimated_duration || 120,
           },
           schedule: {
@@ -193,7 +203,9 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
             time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
           location: {
-            address: booking.address || 'Address pending',
+            address: booking.address
+              ? [booking.address.street, booking.address.city, booking.address.state, booking.address.zip_code].filter(Boolean).join(', ')
+              : 'Address pending',
           },
           payment: {
             total: booking.total_amount || 0,
@@ -203,7 +215,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
 
       setUpcomingBookings(transformedUpcoming);
 
-      // Fetch recent completed bookings
+      // Fetch recent completed bookings (only paid)
       const { data: recentData } = await supabase
         .from('bookings')
         .select(`
@@ -212,8 +224,8 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           scheduled_time,
           estimated_duration,
           total_amount,
-          address,
-          special_requests,
+          address:addresses!address_id(street, city, state, zip_code),
+          special_instructions,
           cleaner_id,
           cleaner:users!bookings_cleaner_id_fkey(
             id,
@@ -222,6 +234,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           )
         `)
         .eq('customer_id', user.id)
+        .eq('payment_status', 'succeeded')
         .eq('status', 'completed')
         .order('scheduled_time', { ascending: false })
         .limit(3);
@@ -248,7 +261,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
           },
           service: {
             type: booking.service_type || 'standard',
-            title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
+            title: booking.special_instructions?.split('.')[0]?.replace('Service: ', '') || 'Cleaning Service',
             duration: booking.estimated_duration || 120,
           },
           schedule: {
@@ -256,7 +269,9 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
             time: scheduledDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
           location: {
-            address: booking.address || '',
+            address: booking.address
+              ? [booking.address.street, booking.address.city, booking.address.state, booking.address.zip_code].filter(Boolean).join(', ')
+              : '',
           },
           payment: {
             total: booking.total_amount || 0,
@@ -304,11 +319,19 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
 
   const quickActions: QuickAction[] = [
     {
+      id: 'post-job',
+      title: 'Post a Job',
+      subtitle: 'Get video quotes from pros',
+      icon: 'videocam',
+      color: ['#26B7C9', '#047B9B'],
+      onPress: () => navigation.navigate('PostJob'),
+    },
+    {
       id: 'book',
       title: 'Book Now',
       subtitle: 'Quick 60s booking',
       icon: 'add-circle',
-      color: ['#3ad3db', '#3ad3db'],
+      color: ['#26B7C9', '#26B7C9'],
       onPress: () => navigation.navigate('BookingFlow', {}),
     },
     {
@@ -317,7 +340,15 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       subtitle: 'View profiles & videos',
       icon: 'people',
       color: ['#3B82F6', '#2563EB'],
-      onPress: () => navigation.navigate('VideoFeedScreen'),
+      onPress: () => navigation.navigate('Content' as never),
+    },
+    {
+      id: 'my-jobs',
+      title: 'My Jobs',
+      subtitle: 'View your quote requests',
+      icon: 'document-text',
+      color: ['#8B5CF6', '#7C3AED'],
+      onPress: () => navigation.navigate('MyJobs'),
     },
     {
       id: 'saved',
@@ -325,7 +356,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       subtitle: 'Your favorites',
       icon: 'heart',
       color: ['#EC4899', '#DB2777'],
-              onPress: () => navigation.navigate('SavedServices'),
+      onPress: () => navigation.navigate('SavedServices'),
     },
     {
       id: 'emergency',
@@ -340,7 +371,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'upcoming': return '#3B82F6';
-      case 'in_progress': return '#3ad3db';
+      case 'in_progress': return '#26B7C9';
       case 'completed': return '#059669';
       case 'cancelled': return '#DC2626';
       default: return '#6B7280';
@@ -463,7 +494,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
               style={styles.actionButtonSecondary}
               onPress={() => Alert.alert('Reschedule', 'Reschedule functionality not yet implemented')}
             >
-              <Ionicons name="calendar" size={14} color="#3ad3db" />
+              <Ionicons name="calendar" size={14} color="#26B7C9" />
               <Text style={styles.actionButtonSecondaryText}>Reschedule</Text>
             </TouchableOpacity>
             <TouchableOpacity 
@@ -480,7 +511,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
             style={styles.actionButtonSecondary}
             onPress={() => navigation.navigate('BookingFlow', { cleanerId: booking.cleaner.id })}
           >
-            <Ionicons name="repeat" size={14} color="#3ad3db" />
+            <Ionicons name="repeat" size={14} color="#26B7C9" />
             <Text style={styles.actionButtonSecondaryText}>Book Again</Text>
           </TouchableOpacity>
         )}
@@ -548,7 +579,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
               <View style={styles.savedServiceFooter}>
                 <Text style={styles.savedServicePrice}>${service.price.toFixed(2)}</Text>
                 <TouchableOpacity style={styles.bookAgainButton}>
-                  <Ionicons name="repeat" size={12} color="#3ad3db" />
+                  <Ionicons name="repeat" size={12} color="#26B7C9" />
                   <Text style={styles.bookAgainText}>Book</Text>
                 </TouchableOpacity>
               </View>
@@ -618,7 +649,7 @@ const CustomerDashboardScreen: React.FC<CustomerDashboardProps> = ({ navigation 
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading your dashboard...</Text>
         </View>
       </SafeAreaView>
@@ -660,8 +691,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   scrollView: {
@@ -672,8 +703,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2.5%'),
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
@@ -686,13 +717,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   greetingText: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   greetingSubtext: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   profileButton: {
@@ -701,48 +732,48 @@ const styles = StyleSheet.create({
   profileAvatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: '#3ad3db',
+    borderRadius: wp('5.5%'),
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   profileAvatarText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
   section: {
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('3%'),
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   sectionLink: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   quickActionsContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('3%'),
   },
   quickActionsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: wp('3%'),
   },
   quickActionCard: {
     width: (width - 56) / 2,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -757,10 +788,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   quickActionTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
-    marginTop: 8,
+    marginTop: hp('1%'),
     marginBottom: 2,
     textAlign: 'center',
   },
@@ -771,9 +802,9 @@ const styles = StyleSheet.create({
   },
   bookingCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -784,7 +815,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   bookingHeaderLeft: {
     flexDirection: 'row',
@@ -801,23 +832,23 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cleanerName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   serviceInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   serviceTypeBadge: {
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
   },
   serviceTypeText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -826,31 +857,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#F59E0B',
     marginLeft: 2,
   },
   statusBadge: {
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
   },
   statusText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
     textTransform: 'capitalize',
   },
   bookingDetails: {
-    gap: 8,
-    marginBottom: 16,
+    gap: wp('2%'),
+    marginBottom: hp('2%'),
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   detailText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginLeft: 8,
   },
@@ -860,25 +891,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bookingPrice: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   bookingActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: wp('2%'),
   },
   actionButtonPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#3ad3db',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 4,
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
+    gap: wp('1%'),
   },
   actionButtonPrimaryText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -886,22 +917,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0FDFA',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 4,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1%'),
+    gap: wp('1%'),
   },
   actionButtonSecondaryText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   savedServicesScroll: {
-    paddingRight: 20,
+    paddingRight: wp('5%'),
   },
   savedServiceCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 16,
     marginRight: 12,
     width: 180,
@@ -915,10 +946,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   savedServiceTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
@@ -926,8 +957,8 @@ const styles = StyleSheet.create({
   },
   frequencyBadge: {
     backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    paddingHorizontal: 6,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('1.5%'),
     paddingVertical: 2,
   },
   frequencyText: {
@@ -936,14 +967,14 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   savedServiceCleaner: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   savedServiceMeta: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     color: '#9CA3AF',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   savedServiceFooter: {
     flexDirection: 'row',
@@ -951,7 +982,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   savedServicePrice: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -959,40 +990,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0FDFA',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    gap: wp('1%'),
   },
   bookAgainText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: hp('5%'),
   },
   emptyStateText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 12,
-    marginBottom: 4,
+    marginTop: hp('1.5%'),
+    marginBottom: hp('0.5%'),
   },
   emptyStateSubtext: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   emptyStateButton: {
-    backgroundColor: '#3ad3db',
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    backgroundColor: '#26B7C9',
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.2%'),
   },
   emptyStateButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
@@ -1004,8 +1035,8 @@ const styles = StyleSheet.create({
   floatingButton: {
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: '#3ad3db',
+    borderRadius: wp('7%'),
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -1020,14 +1051,14 @@ const styles = StyleSheet.create({
     top: -2,
     right: -2,
     backgroundColor: '#EF4444',
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     width: 20,
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   notificationText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },

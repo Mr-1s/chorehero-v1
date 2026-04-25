@@ -1,13 +1,17 @@
 import React from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCleanerStore, selectTotalUnreadMessages } from '../store/cleanerStore';
+import { cleanerTheme } from '../utils/theme';
+import { getRoleStackTopRouteName } from '../navigation/mainTabsRouteUtils';
 
 const { width } = Dimensions.get('window');
-const BRAND_TEAL = '#26B7C9';
+const BRAND_ORANGE = cleanerTheme.colors.primary;
+const { shadows: cleanerNavShadows } = cleanerTheme;
 const shouldHideLabels = width < 360;
 
 type CleanerTabParamList = {
@@ -30,18 +34,18 @@ type CleanerFloatingNavigationProps = {
   unreadCount?: number;
 };
 
-const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({ 
-  navigation, 
+const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
+  navigation,
   currentScreen,
-  unreadCount = 0 
+  unreadCount = 0,
 }) => {
   const insets = useSafeAreaInsets();
-  const availableBookings = useCleanerStore(state => state.availableBookings);
+  const availableBookings = useCleanerStore((state) => state.availableBookings);
   const totalUnread = useCleanerStore(selectTotalUnreadMessages);
   const messagesUnread = unreadCount || totalUnread;
   const jobsUnread = availableBookings.length;
-  const isDarkSurface = false;
-  const safeBottomPadding = Math.max(insets.bottom, 18);
+  const safeBottomPadding = Math.max(insets.bottom, 26);
+
   const resolveNavigatorFor = (name: string) => {
     let current: any = navigation;
     while (current) {
@@ -54,25 +58,18 @@ const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
     return navigation as any;
   };
   const safeNavigate = (name: keyof CleanerTabParamList) => {
-    const targetNav = resolveNavigatorFor(name as string);
-    targetNav.navigate(name as any);
-  };
-  const getButtonColor = (screen: keyof CleanerTabParamList) => {
-    if (currentScreen === screen) {
-      return BRAND_TEAL;
+    const targetNav = resolveNavigatorFor(name as string) as {
+      getState?: () => unknown;
+      navigate: (n: string) => void;
+    } | null;
+    if (!targetNav?.navigate) return;
+    if (targetNav.getState) {
+      const current = getRoleStackTopRouteName(targetNav.getState() as any, true);
+      if (current && String(current) === String(name)) {
+        return;
+      }
     }
-    return isDarkSurface ? 'rgba(255, 255, 255, 0.7)' : 'rgba(68, 68, 68, 0.8)';
-  };
-
-  const getTextStyle = (screen: keyof CleanerTabParamList) => {
-    if (currentScreen === screen) {
-      return styles.activeButtonText;
-    }
-    return isDarkSurface ? styles.navButtonTextDark : styles.navButtonText;
-  };
-
-  const getButtonStyle = (screen: keyof CleanerTabParamList) => {
-    return currentScreen === screen ? styles.activeNavButton : styles.navButton;
+    targetNav.navigate(name as string);
   };
 
   const getIconName = (screen: keyof CleanerTabParamList, focused: boolean): keyof typeof Ionicons.glyphMap => {
@@ -92,129 +89,88 @@ const CleanerFloatingNavigation: React.FC<CleanerFloatingNavigationProps> = ({
     }
   };
 
+  const renderTab = (
+    screen: keyof CleanerTabParamList,
+    label: string,
+    options?: { badgeCount?: number; showDot?: boolean }
+  ) => {
+    const isActive = currentScreen === screen;
+    const color = isActive ? BRAND_ORANGE : '#64748B';
+    const labelColor = isActive ? BRAND_ORANGE : '#64748B';
+    return (
+      <TouchableOpacity
+        key={String(screen)}
+        style={styles.tabItem}
+        activeOpacity={1}
+        onPress={() => safeNavigate(screen)}
+      >
+        <View
+          style={[
+            styles.iconPill,
+            isActive && styles.iconPillActive,
+            isActive && cleanerNavShadows.card,
+          ]}
+        >
+          {isActive ? (
+            <LinearGradient
+              colors={['rgba(255, 165, 47, 0.22)', 'rgba(255, 120, 40, 0.08)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+          ) : null}
+          <Ionicons
+            name={getIconName(screen, isActive)}
+            size={26}
+            color={color}
+            style={styles.iconPillIcon}
+          />
+          {options?.badgeCount != null && options.badgeCount > 0 ? (
+            <View style={[styles.badge, styles.pillIconOverlay]}>
+              <Text style={styles.badgeText}>{options.badgeCount > 9 ? '9+' : options.badgeCount}</Text>
+            </View>
+          ) : options?.showDot ? (
+            <View style={[styles.dotBadge, styles.pillIconOverlay]} />
+          ) : null}
+        </View>
+        {!shouldHideLabels && (
+          <Text
+            style={[styles.tabLabel, { color: labelColor, fontWeight: isActive ? '700' : '500' }]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.1}
+          >
+            {label}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <View
-      style={[styles.navigationWrapper, { height: 86 + safeBottomPadding }]}
-      pointerEvents="box-none"
-    >
+    <View style={[styles.navigationWrapper, { height: 58 + safeBottomPadding }]} pointerEvents="box-none">
       <View style={styles.navigationContainer} pointerEvents="auto">
         <BlurView
-          intensity={isDarkSurface ? 22 : 12}
-          tint={isDarkSurface ? 'dark' : 'light'}
+          intensity={0}
+          tint="light"
           style={[
             styles.blurContainer,
-            styles.blurBackground,
+            styles.blurGlass,
             {
               paddingBottom: safeBottomPadding,
-              backgroundColor: isDarkSurface ? 'rgba(0, 0, 0, 0.78)' : 'rgba(255, 255, 255, 0.92)',
+              backgroundColor: '#FFFFFF',
               borderTopWidth: 1,
-              borderTopColor: isDarkSurface ? 'rgba(255, 255, 255, 0.1)' : '#E5E7EB',
+              borderTopColor: '#F1F5F9',
             },
           ]}
         >
           <View style={styles.navigationContent}>
-          <TouchableOpacity 
-            style={getButtonStyle('Dashboard')} 
-            onPress={() => safeNavigate('Dashboard')}
-          >
-            <View style={styles.iconWrapper}>
-              {currentScreen === 'Dashboard' && <View style={styles.activeIconGlow} />}
-              <Ionicons 
-                name={getIconName('Dashboard', currentScreen === 'Dashboard')} 
-                size={28} 
-                color={getButtonColor('Dashboard')} 
-              />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Dashboard')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Dashboard
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Content')} 
-            onPress={() => safeNavigate('Content')}
-          >
-            <View style={styles.iconWrapper}>
-              {currentScreen === 'Content' && <View style={styles.activeIconGlow} />}
-              <Ionicons 
-                name={getIconName('Content', currentScreen === 'Content')} 
-                size={28} 
-                color={getButtonColor('Content')} 
-              />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Content')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Content
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Jobs')} 
-            onPress={() => safeNavigate('Jobs')}
-          >
-            <View style={styles.iconWrapper}>
-              {currentScreen === 'Jobs' && <View style={styles.activeIconGlow} />}
-              <Ionicons 
-                name={getIconName('Jobs', currentScreen === 'Jobs')} 
-                size={26} 
-                color={getButtonColor('Jobs')} 
-              />
-              {jobsUnread > 0 && (
-                <View style={styles.jobsBadge}>
-                  <Text style={styles.jobsBadgeText}>
-                    {jobsUnread > 9 ? '9+' : jobsUnread}
-                  </Text>
-                </View>
-              )}
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Jobs')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Jobs
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Messages')} 
-            onPress={() => safeNavigate('Messages')}
-          >
-            <View style={styles.iconWrapper}>
-              {currentScreen === 'Messages' && <View style={styles.activeIconGlow} />}
-              <Ionicons 
-                name={getIconName('Messages', currentScreen === 'Messages')} 
-                size={28} 
-                color={getButtonColor('Messages')} 
-              />
-              {messagesUnread > 0 && <View style={styles.notificationDot} />}
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Messages')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Messages
-              </Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={getButtonStyle('Profile')} 
-            onPress={() => safeNavigate('Profile')}
-          >
-            <View style={styles.iconWrapper}>
-              {currentScreen === 'Profile' && <View style={styles.activeIconGlow} />}
-              <Ionicons 
-                name={getIconName('Profile', currentScreen === 'Profile')} 
-                size={28} 
-                color={getButtonColor('Profile')} 
-              />
-            </View>
-            {!shouldHideLabels && (
-              <Text style={getTextStyle('Profile')} numberOfLines={1} maxFontSizeMultiplier={1.1}>
-                Profile
-              </Text>
-            )}
-          </TouchableOpacity>
+            {renderTab('Dashboard', 'Dashboard')}
+            {renderTab('Content', 'Content')}
+            {renderTab('Jobs', 'Jobs', { badgeCount: jobsUnread })}
+            {renderTab('Messages', 'Messages', {
+              badgeCount: messagesUnread > 0 ? messagesUnread : undefined,
+            })}
+            {renderTab('Profile', 'Profile')}
           </View>
         </BlurView>
       </View>
@@ -233,123 +189,92 @@ const styles = StyleSheet.create({
   },
   navigationContainer: {
     flex: 1,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 10,
     overflow: 'hidden',
   },
   blurContainer: {
     flex: 1,
   },
-  blurBackground: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  blurGlass: {
+    backgroundColor: '#FFFFFF',
   },
   navigationContent: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 10,
-    backgroundColor: 'transparent',
-  },
-  navButton: {
-    alignItems: 'center',
-    flex: 1,
-    paddingVertical: 10,
     paddingHorizontal: 4,
-    borderRadius: 18,
-    backgroundColor: 'transparent',
-    marginHorizontal: 2,
+    paddingTop: 2,
   },
-  activeNavButton: {
-    alignItems: 'center',
+  tabItem: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 18,
-    backgroundColor: 'transparent',
-    marginHorizontal: 2,
-  },
-  activeButtonText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: BRAND_TEAL,
-    marginTop: 4,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  navButtonText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(68, 68, 68, 0.8)',
-    marginTop: 4,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  navButtonTextDark: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginTop: 4,
-    textAlign: 'center',
-    includeFontPadding: false,
-  },
-  iconWrapper: {
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 2,
+    minHeight: 48,
   },
-  activeIconGlow: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(38, 183, 201, 0.12)',
+  iconPill: {
+    width: 60,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    position: 'relative',
+    overflow: 'hidden',
   },
-  notificationDot: {
+  iconPillActive: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 140, 40, 0.35)',
+  },
+  iconPillIcon: {
+    zIndex: 1,
+  },
+  pillIconOverlay: {
+    zIndex: 2,
+  },
+  tabLabel: {
+    fontSize: 12,
+    marginTop: 3,
+    letterSpacing: -0.1,
+    includeFontPadding: false,
+  },
+  dotBadge: {
     position: 'absolute',
-    right: -3,
-    top: -2,
-    backgroundColor: '#EF4444',
-    borderRadius: 6,
-    width: 10,
-    height: 10,
+    right: 10,
+    top: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: BRAND_ORANGE,
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
   },
-  jobsBadge: {
+  badge: {
     position: 'absolute',
-    right: -8,
-    top: -6,
-    backgroundColor: '#26B7C9',
+    right: 4,
+    top: -2,
+    backgroundColor: BRAND_ORANGE,
     borderRadius: 10,
     minWidth: 18,
     height: 18,
     paddingHorizontal: 4,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 1.5,
     borderColor: '#FFFFFF',
-    shadowColor: '#26B7C9',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 3,
-    elevation: 4,
   },
-  jobsBadgeText: {
+  badgeText: {
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '700',
   },
 });
 
-export default CleanerFloatingNavigation; 
+export default CleanerFloatingNavigation;

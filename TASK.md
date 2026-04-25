@@ -1,5 +1,6 @@
 ## Active Tasks
 - 2026-01-24: Push build to TestFlight, update Expo, push git.
+- 2026-04-23: Unify cleaner/customer jobs UI styling, fix earnings source-of-truth, and stabilize video upload visibility/progress UX.
 
 ## Completed Tasks
 - 2026-04-20: Customer jobs UX pass: refreshed Post Job styling, removed forced PostJob -> MyJobs redirect to Bookings tab, added edit-job action from My Jobs menu, shortened Bookings tab labels (Jobs/Scheduled), and polished individual chat spacing/bubbles/input.

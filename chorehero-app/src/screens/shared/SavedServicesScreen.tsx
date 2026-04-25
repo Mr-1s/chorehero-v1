@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   Home: undefined;
@@ -73,7 +74,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
           service_type,
           total_amount,
           estimated_duration,
-          special_requests,
+          special_instructions,
           scheduled_time,
           cleaner_id,
           cleaner:users!bookings_cleaner_id_fkey(
@@ -120,7 +121,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
 
         return {
           id: booking.id,
-          title: booking.special_requests?.split('.')[0]?.replace('Service: ', '') || 
+          title: booking.special_instructions?.split('.')[0]?.replace('Service: ', '') || 
                  formatServiceType(booking.service_type),
           type: booking.service_type || 'standard',
           price: booking.total_amount || 0,
@@ -133,7 +134,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
             rating: cleanerProfile?.rating_average || 0,
           },
           lastBooked,
-          notes: booking.special_requests || '',
+          notes: booking.special_instructions || '',
         };
       });
 
@@ -261,7 +262,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
           onPress={() => handleBookAgain(service)}
         >
           <LinearGradient
-            colors={['#3ad3db', '#2DD4BF']}
+            colors={['#26B7C9', '#2DD4BF']}
             style={styles.bookButtonGradient}
           >
             <Ionicons name="calendar" size={18} color="#FFFFFF" />
@@ -277,7 +278,7 @@ const SavedServicesScreen: React.FC<SavedServicesScreenProps> = ({ navigation })
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#F9F9F9" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3ad3db" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading saved services...</Text>
         </View>
       </SafeAreaView>
@@ -341,8 +342,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -352,7 +353,7 @@ const styles = StyleSheet.create({
     marginLeft: -8,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
@@ -360,7 +361,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   serviceCount: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   loadingContainer: {
@@ -369,8 +370,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   scrollView: {
@@ -381,8 +382,8 @@ const styles = StyleSheet.create({
   },
   serviceCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    marginBottom: 16,
+    borderRadius: wp('4%'),
+    marginBottom: hp('2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -402,10 +403,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   serviceTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
@@ -415,7 +416,7 @@ const styles = StyleSheet.create({
     marginRight: -8,
   },
   cleanerInfo: {
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   cleanerProfile: {
     flexDirection: 'row',
@@ -424,11 +425,11 @@ const styles = StyleSheet.create({
   cleanerAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     marginRight: 12,
   },
   cleanerName: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
     marginBottom: 2,
@@ -438,47 +439,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   ratingText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginLeft: 4,
   },
   serviceDetails: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     flexWrap: 'wrap',
   },
   detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 16,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   detailText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginLeft: 4,
   },
   serviceNotes: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     fontStyle: 'italic',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   bookButton: {
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   bookButtonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('5%'),
   },
   bookButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     marginLeft: 8,
   },
@@ -486,32 +487,32 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingVertical: 80,
+    paddingHorizontal: wp('10%'),
+    paddingVertical: hp('10%'),
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
   },
   emptyDescription: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 24,
-    marginBottom: 32,
+    marginBottom: hp('4%'),
   },
   exploreButton: {
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
   },
   exploreButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
   },
 });

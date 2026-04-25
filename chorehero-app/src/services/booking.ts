@@ -9,6 +9,12 @@ import { SERVICE_TYPES, ADD_ONS, PLATFORM_CONFIG } from '../utils/constants';
 import { displayInTz, DEFAULT_TZ } from '../utils/timezone';
 
 class BookingService {
+  /**
+   * In-flight booking creates per customer. Prevents double-charge when a
+   * customer double-taps the "Book" button before the first request resolves.
+   */
+  private inFlightBookings = new Set<string>();
+
   // Get available time slots for a cleaner
   async getAvailableTimeSlots(
     cleanerId: string,
@@ -195,6 +201,17 @@ class BookingService {
 
   // Create a new booking
   async createBooking(request: BookingRequest): Promise<ApiResponse<BookingResponse>> {
+    // Reject duplicate in-flight requests from the same customer (double-tap guard).
+    if (request.customer_id && this.inFlightBookings.has(request.customer_id)) {
+      return {
+        success: false,
+        data: null as any,
+        error: 'A booking is already being created. Please wait a moment.',
+      };
+    }
+    if (request.customer_id) {
+      this.inFlightBookings.add(request.customer_id);
+    }
     try {
       // Prevent self-booking (customer cannot book themselves as cleaner)
       if (request.cleaner_id && request.customer_id === request.cleaner_id) {
@@ -267,11 +284,17 @@ class BookingService {
           tip: request.tip_amount || 0,
           total_amount: pricing.total_amount + (request.tip_amount || 0),
           cleaner_earnings: pricing.cleaner_earnings + (request.tip_amount || 0),
-          status: 'pending',
-          payment_status: 'pending',
+          status: request.pricing_type === 'quote' ? 'pending_quote' : 'pending',
+          payment_status: request.pricing_type === 'quote' ? 'uncollected' : 'pending',
         };
       if (request.package_id) {
         insertPayload.package_id = request.package_id;
+      }
+      if (request.service_id) {
+        insertPayload.service_id = request.service_id;
+      }
+      if (request.pro_service_id) {
+        insertPayload.pro_service_id = request.pro_service_id;
       }
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')
@@ -304,6 +327,22 @@ class BookingService {
         if (addOnsError) {
           console.error('❌ Booking add-ons insert failed:', addOnsError);
           throw new Error(`${addOnsError.code || 'BOOKING_ADDONS'}: ${addOnsError.message}`);
+        }
+      }
+
+      if (request.answers && request.answers.length > 0) {
+        const answerRows = request.answers.map((item) => ({
+          booking_id: booking.id,
+          question_id: item.question_id,
+          question_label: item.question_label,
+          answer: item.answer as any,
+        }));
+        const { error: answersError } = await supabase
+          .from('booking_answers')
+          .insert(answerRows);
+        if (answersError) {
+          console.error('❌ Booking answers insert failed:', answersError);
+          throw new Error(`${answersError.code || 'BOOKING_ANSWERS'}: ${answersError.message}`);
         }
       }
 
@@ -358,6 +397,10 @@ class BookingService {
         data: null as any,
         error: error instanceof Error ? error.message : 'Failed to create booking',
       };
+    } finally {
+      if (request.customer_id) {
+        this.inFlightBookings.delete(request.customer_id);
+      }
     }
   }
 
@@ -541,7 +584,25 @@ class BookingService {
         });
       }
 
-      await supabase.from('notifications').insert(notifications);
+      const { error: notifErr } = await supabase.from('notifications').insert(notifications);
+      if (notifErr) {
+        console.warn('booking notification insert failed:', notifErr.message);
+      }
+
+      for (const n of notifications) {
+        try {
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: n.user_id,
+              title: n.title,
+              body: n.message,
+              data: { ...(n.data as object), type: n.type },
+            },
+          });
+        } catch {
+          // Non-blocking: no token / Expo Go
+        }
+      }
     } catch (error) {
       console.error('Failed to send booking notification:', error);
     }
@@ -798,6 +859,46 @@ class BookingService {
   }
 
   /**
+   * Get expected refund amount for cancellation (without cancelling).
+   */
+  async getRefundPreview(
+    bookingId: string,
+    cancelledBy: 'customer' | 'cleaner' | 'system' = 'customer'
+  ): Promise<ApiResponse<{ refundAmount: number; refundPct: number }>> {
+    try {
+      const { data: result, error } = await supabase.rpc('get_cancel_refund_preview', {
+        p_booking_id: bookingId,
+        p_cancelled_by: cancelledBy,
+      });
+
+      if (error) throw error;
+
+      const rpcResult = result as { success: boolean; error?: string; refund_pct: number; refund_amount: number };
+      if (!rpcResult?.success) {
+        return {
+          success: false,
+          data: { refundAmount: 0, refundPct: 0 },
+          error: rpcResult?.error || 'Failed to get refund preview',
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          refundAmount: rpcResult.refund_amount ?? 0,
+          refundPct: rpcResult.refund_pct ?? 0,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: { refundAmount: 0, refundPct: 0 },
+        error: error instanceof Error ? error.message : 'Failed to get refund preview',
+      };
+    }
+  }
+
+  /**
    * Cancel a booking with automatic time-based refund policy.
    *
    * Refund policy:
@@ -858,19 +959,41 @@ class BookingService {
         }
       }
 
-      // Notify both parties via notification system
-      try {
-        await supabase.from('notifications').insert([
-          {
-            user_id:  null, // populated below per-party
-            type:    'booking_cancelled',
-            title:   'Booking Cancelled',
-            message: `Your booking has been cancelled. ${rpcResult.refund_amount > 0 ? `Refund of $${rpcResult.refund_amount.toFixed(2)} will be processed.` : 'No refund applies per cancellation policy.'}`,
-            data:    { booking_id: bookingId, cancelled_by: cancelledBy },
-          },
-        ]);
-      } catch {
-        // non-critical
+      // Notify pro when customer cancels (so job disappears from their view)
+      if (cancelledBy === 'customer') {
+        try {
+          const { data: booking } = await supabase
+            .from('bookings')
+            .select('cleaner_id, scheduled_time')
+            .eq('id', bookingId)
+            .single();
+
+          if (booking?.cleaner_id) {
+            const scheduledDate = booking.scheduled_time
+              ? new Date(booking.scheduled_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+              : 'your scheduled job';
+            const { error: cancelNotifErr } = await supabase.from('notifications').insert({
+              user_id: booking.cleaner_id,
+              type: 'booking_cancelled',
+              title: 'Customer cancelled booking',
+              message: `The customer cancelled their booking for ${scheduledDate}.`,
+              data: { booking_id: bookingId, cancelled_by: 'customer' },
+            });
+            if (cancelNotifErr) {
+              console.warn('cancel notification insert failed:', cancelNotifErr.message);
+            }
+            await supabase.functions.invoke('send-push', {
+              body: {
+                userId: booking.cleaner_id,
+                title: 'Booking cancelled',
+                body: `Customer cancelled their booking for ${scheduledDate}.`,
+                data: { booking_id: bookingId, type: 'booking_cancelled' },
+              },
+            });
+          }
+        } catch {
+          // non-critical
+        }
       }
 
       return {
@@ -886,6 +1009,75 @@ class BookingService {
         success: false,
         data: { refundAmount: 0, refundPct: 0 },
         error: error instanceof Error ? error.message : 'Failed to cancel booking',
+      };
+    }
+  }
+
+  /**
+   * Pro emergency cancel: cleaner cancels accepted job.
+   * Customer gets full refund + $25 credit. Pro incurs $25 fee.
+   * Requires reason.
+   */
+  async proEmergencyCancel(
+    bookingId: string,
+    cleanerId: string,
+    reason: string
+  ): Promise<ApiResponse<{ refundAmount: number; customerCreditCents: number }>> {
+    try {
+      const { data: result, error } = await supabase.rpc('pro_emergency_cancel_booking', {
+        p_booking_id: bookingId,
+        p_reason: reason.trim(),
+        p_cleaner_id: cleanerId,
+      });
+
+      if (error) throw error;
+
+      const rpcResult = result as {
+        success: boolean;
+        error?: string;
+        refund_amount: number;
+        customer_credit_cents: number;
+        payment_intent: string | null;
+      };
+
+      if (!rpcResult?.success) {
+        return {
+          success: false,
+          data: { refundAmount: 0, customerCreditCents: 0 },
+          error: rpcResult?.error || 'Emergency cancel failed',
+        };
+      }
+
+      if (
+        rpcResult.refund_amount > 0 &&
+        rpcResult.payment_intent &&
+        rpcResult.payment_intent !== ''
+      ) {
+        try {
+          await supabase.functions.invoke('process-refund', {
+            body: {
+              payment_intent_id: rpcResult.payment_intent,
+              amount_cents: Math.round(rpcResult.refund_amount * 100),
+              booking_id: bookingId,
+            },
+          });
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          refundAmount: rpcResult.refund_amount ?? 0,
+          customerCreditCents: rpcResult.customer_credit_cents ?? 2500,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: { refundAmount: 0, customerCreditCents: 0 },
+        error: error instanceof Error ? error.message : 'Failed to emergency cancel',
       };
     }
   }

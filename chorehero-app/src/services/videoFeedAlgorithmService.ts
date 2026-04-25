@@ -71,9 +71,10 @@ class VideoFeedAlgorithmService {
       sort_preference?: 'balanced' | 'proximity' | 'engagement' | 'price';
       service_filter?: string[];
       budget_range?: { min: number; max: number };
+      radius_km?: number;
     } = {}
   ): Promise<EnhancedVideoItem[]> {
-    const { limit = 20, sort_preference = 'balanced' } = options;
+    const { limit = 20, sort_preference = 'balanced', radius_km = 50 } = options;
 
     try {
       // Try server-side RPC first when we have location (better for scale)
@@ -82,7 +83,8 @@ class VideoFeedAlgorithmService {
           userLocation.latitude,
           userLocation.longitude,
           limit,
-          false
+          false,
+          radius_km
         );
         // Cold start: if no verified cleaners, broaden to include unverified (launch day)
         if (rpcItems.length === 0) {
@@ -90,7 +92,8 @@ class VideoFeedAlgorithmService {
             userLocation.latitude,
             userLocation.longitude,
             limit,
-            true
+            true,
+            radius_km
           );
         }
         if (rpcItems.length > 0) return rpcItems;
@@ -121,13 +124,14 @@ class VideoFeedAlgorithmService {
     lat: number,
     lng: number,
     limit: number,
-    includeUnverified = false
+    includeUnverified = false,
+    radiusKm = 50
   ): Promise<EnhancedVideoItem[]> {
     try {
       const { data: rows, error } = await supabase.rpc('get_ranked_cleaner_feed', {
         p_lat: lat,
         p_lng: lng,
-        p_radius_km: 50,
+        p_radius_km: radiusKm,
         p_limit: limit,
         p_include_unverified: includeUnverified,
       });

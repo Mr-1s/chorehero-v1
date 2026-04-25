@@ -15,6 +15,7 @@ import { cleanerBookingService } from '../services/cleanerBookingService';
 import { trackingWorkflowService } from '../services/trackingWorkflowService';
 import { supabase } from '../services/supabase';
 import { notificationService } from '../services/notificationService';
+import { computeProfileCompletionRatio } from '../utils/cleanerProfileCompletion';
 
 // ============================================================================
 // MOCK DATA - REMOVED (All screens now use real database data)
@@ -49,8 +50,10 @@ interface CleanerState {
   markInProgress: (id: string) => Promise<void>;
   markCompleted: (id: string) => Promise<void>;
   markConversationRead: (id: string) => void;
-  toggleOnlineStatus: () => void;
+  toggleOnlineStatus: () => Promise<boolean>;
   refreshData: () => Promise<void>;
+  removeCancelledBooking: (bookingId: string) => void;
+  resetStore: () => void;
 }
 
 // ============================================================================
@@ -69,19 +72,31 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
   isLoading: true,
   isRefreshing: false,
 
+  // Reset store (call on sign out to clear stale data when switching accounts)
+  resetStore: () => {
+    set({
+      currentCleaner: null,
+      availableBookings: [],
+      activeBookings: [],
+      pastBookings: [],
+      videoStats: null,
+      videoTips: [],
+      conversations: [],
+      isLoading: false,
+      isRefreshing: false,
+    });
+  },
+
   // Fetch all dashboard data
   fetchDashboard: async () => {
     set({ isLoading: true });
-    
+
     try {
-      // Check if user is authenticated
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id;
-      
+
       if (userId && !userId.startsWith('demo_')) {
-        // Fetch real data from database
         console.log('📊 Fetching real cleaner dashboard data...');
-        
         const [available, active, past] = await Promise.all([
           cleanerBookingService.getAvailableBookings(userId),
           cleanerBookingService.getActiveBookings(userId),
@@ -89,11 +104,15 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
         ]);
 
         // Fetch cleaner profile
-        const { data: cleanerProfile } = await supabase
+        const { data: cleanerProfileRow } = await supabase
           .from('cleaner_profiles')
           .select('*, user:users(*)')
           .eq('user_id', userId)
-          .single();
+          .maybeSingle();
+
+        const cleanerProfile = cleanerProfileRow;
+        const joinedUser = cleanerProfile?.user;
+        const userForCompletion = Array.isArray(joinedUser) ? joinedUser[0] : joinedUser;
 
         // Calculate today's earnings from completed bookings today
         const today = new Date();
@@ -102,10 +121,10 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
         
         const { data: todayBookings } = await supabase
           .from('bookings')
-          .select('cleaner_earnings, total_amount')
+          .select('cleaner_earnings, total_amount, completed_at, updated_at')
           .eq('cleaner_id', userId)
           .eq('status', 'completed')
-          .gte('updated_at', todayISO);
+          .gte('completed_at', todayISO);
         
         const todayEarningsCalc = (todayBookings || []).reduce((sum, b) => {
           return sum + (b.cleaner_earnings || (b.total_amount * 0.85) || 0);
@@ -119,43 +138,24 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
         
         const { data: weekBookings } = await supabase
           .from('bookings')
-          .select('cleaner_earnings, total_amount')
+          .select('cleaner_earnings, total_amount, completed_at, updated_at')
           .eq('cleaner_id', userId)
           .eq('status', 'completed')
-          .gte('updated_at', weekAgoISO);
+          .gte('completed_at', weekAgoISO);
         
         const weeklyEarningsCalc = (weekBookings || []).reduce((sum, b) => {
           return sum + (b.cleaner_earnings || (b.total_amount * 0.85) || 0);
         }, 0);
 
-        // Calculate profile completion based on actual data
-        const calculateProfileCompletion = (profile: any, user: any): number => {
-          const fields = [
-            { filled: !!user?.avatar_url, weight: 1 },           // Profile photo
-            { filled: !!profile?.bio && profile.bio.length > 10, weight: 1 }, // Bio
-            { filled: !!profile?.video_profile_url, weight: 1 }, // Intro video
-            { filled: profile?.verification_status === 'verified', weight: 1 }, // ID verified
-            { filled: !!profile?.background_check_date, weight: 1 }, // Background check
-            { filled: !!profile?.hourly_rate, weight: 1 },       // Hourly rate set
-            { filled: (profile?.specialties?.length || 0) > 0, weight: 1 }, // Specialties
-            { filled: !!profile?.years_experience, weight: 1 },  // Experience
-          ];
-          
-          const totalWeight = fields.reduce((sum, f) => sum + f.weight, 0);
-          const filledWeight = fields.reduce((sum, f) => sum + (f.filled ? f.weight : 0), 0);
-          
-          return filledWeight / totalWeight;
-        };
-
-        const profileCompletion = cleanerProfile 
-          ? calculateProfileCompletion(cleanerProfile, cleanerProfile.user)
+        const profileCompletion = cleanerProfile
+          ? computeProfileCompletionRatio(cleanerProfile, userForCompletion)
           : 0;
 
         // Build cleaner from profile or create basic profile from session
         const realCleaner: Cleaner = {
           id: userId,
-          name: cleanerProfile?.user?.name || session?.user?.email?.split('@')[0] || 'Cleaner',
-          avatarUrl: cleanerProfile?.user?.avatar_url,
+          name: userForCompletion?.name || session?.user?.email?.split('@')[0] || 'Cleaner',
+          avatarUrl: userForCompletion?.avatar_url,
           rating: cleanerProfile?.rating_average || 0,
           totalJobs: cleanerProfile?.total_jobs || past.length,
           hourlyRate: cleanerProfile?.hourly_rate || 25,
@@ -165,7 +165,7 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
           weeklyEarnings: weeklyEarningsCalc,
           todayEarnings: todayEarningsCalc,
           verificationStatus: cleanerProfile?.verification_status,
-          onboardingState: cleanerProfile?.user?.cleaner_onboarding_state ?? null,
+          onboardingState: (userForCompletion as { cleaner_onboarding_state?: string } | null)?.cleaner_onboarding_state ?? null,
           backgroundCheckStatus: (cleanerProfile as any)?.background_check_status ?? null,
           videoProfileUrl: cleanerProfile?.video_profile_url ?? null,
         };
@@ -183,9 +183,7 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
         
         console.log(`✅ Loaded ${available.length} available, ${active.length} active, ${past.length} past bookings`);
       } else {
-        // No authenticated user - show empty state
         console.log('📊 No authenticated cleaner - showing empty state...');
-        
         set({
           currentCleaner: null,
           availableBookings: [],
@@ -307,12 +305,23 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
     }
   },
 
-  // Update booking status to in_progress
+  // Update booking status to in_progress (must persist to DB before Mark Complete will work)
   markInProgress: async (id: string) => {
-    const { activeBookings } = get();
-    
+    const { activeBookings, currentCleaner } = get();
+    const booking = activeBookings.find(b => b.id === id);
+    if (!booking) return;
+
+    const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    if (isValidUUID && currentCleaner?.id) {
+      const success = await cleanerBookingService.updateBookingStatus(id, 'in_progress');
+      if (!success) {
+        console.error('❌ Error updating booking to in_progress');
+        throw new Error('Failed to start job');
+      }
+    }
+
     set({
-      activeBookings: activeBookings.map(b => 
+      activeBookings: activeBookings.map(b =>
         b.id === id ? { ...b, status: 'in_progress' as BookingStatus } : b
       ),
     });
@@ -331,10 +340,10 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
       
       if (isValidUUID && currentCleaner?.id) {
         // Use RPC for atomic complete (verifies cleaner owns booking, status is in_progress)
-        const success = await cleanerBookingService.markJobComplete(id, currentCleaner.id);
+        const { success, error } = await cleanerBookingService.markJobComplete(id, currentCleaner.id);
         if (!success) {
-          console.error('❌ Error completing booking');
-          return;
+          console.error('❌ Error completing booking:', error);
+          throw new Error(error || 'Failed to complete booking');
         }
 
         // Get cleaner's total completed jobs to check if this is their first
@@ -381,6 +390,20 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
             fromUserId: currentCleaner?.id,
             fromUserName: currentCleaner?.name,
           });
+
+          // Push notification to customer
+          try {
+            await supabase.functions.invoke('send-push', {
+              body: {
+                userId: bookingData.customer_id,
+                title: 'Job Complete!',
+                body: `${currentCleaner?.name || 'Your cleaner'} marked your job as complete. How did it go?`,
+                data: { type: 'job_complete', booking_id: id },
+              },
+            });
+          } catch {
+            /* non-blocking */
+          }
         }
 
         console.log('✅ Booking completed and notifications sent');
@@ -403,6 +426,18 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
     });
   },
 
+  // Remove booking from active when customer cancels (called from realtime subscription)
+  removeCancelledBooking: (bookingId: string) => {
+    const { activeBookings, pastBookings } = get();
+    const booking = activeBookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    const cancelledBooking: Booking = { ...booking, status: 'cancelled' };
+    set({
+      activeBookings: activeBookings.filter(b => b.id !== bookingId),
+      pastBookings: [cancelledBooking, ...pastBookings],
+    });
+  },
+
   // Mark conversation as read
   markConversationRead: (id: string) => {
     const { conversations } = get();
@@ -414,17 +449,42 @@ export const useCleanerStore = create<CleanerState>((set, get) => ({
     });
   },
 
-  // Toggle online/offline status
-  toggleOnlineStatus: () => {
+  // Toggle online/offline status and persist to cleaner_profiles.is_available
+  toggleOnlineStatus: async () => {
     const { currentCleaner } = get();
-    if (!currentCleaner) return;
-    
+    if (!currentCleaner) return false;
+    const nextOnline = !currentCleaner.isOnline;
+
+    // Optimistic update for snappy switch feedback
     set({
       currentCleaner: {
         ...currentCleaner,
-        isOnline: !currentCleaner.isOnline,
+        isOnline: nextOnline,
       },
     });
+
+    try {
+      const { error } = await supabase
+        .from('cleaner_profiles')
+        .update({
+          is_available: nextOnline,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', currentCleaner.id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to persist online status:', error);
+      // Roll back optimistic update when save fails
+      set({
+        currentCleaner: {
+          ...currentCleaner,
+          isOnline: currentCleaner.isOnline,
+        },
+      });
+      return false;
+    }
   },
 
   // Refresh all data (pull-to-refresh)

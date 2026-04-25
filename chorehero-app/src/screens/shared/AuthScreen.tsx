@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,11 +23,14 @@ import { userService } from '../../services/user';
 
 import { supabase } from '../../services/supabase';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { consumePostAuthRoute } from '../../utils/authPendingAction';
+import { getResetToMainTabsChoresAction } from '../../navigation/mainTabsContentNavigation';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   AuthScreen: undefined;
-  AccountTypeSelection: undefined;
+  ProfileType: undefined;
   MainTabs: undefined;
 };
 
@@ -52,14 +55,21 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 
   const handlePostAuthRedirect = async () => {
     const route = await consumePostAuthRoute();
-    if (route?.name) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: route.name as any, params: route.params }],
-      });
+    if (!route?.name) return false;
+    const p = route.params as { screen?: string; params?: Record<string, unknown> } | undefined;
+    if (route.name === 'MainTabs' && p?.screen === 'Content') {
+      navigation.dispatch(getResetToMainTabsChoresAction(p.params as any));
       return true;
     }
-    return false;
+    if (route.name === 'VideoFeed') {
+      navigation.dispatch(getResetToMainTabsChoresAction(route.params as any));
+      return true;
+    }
+    navigation.reset({
+      index: 0,
+      routes: [{ name: route.name as any, params: route.params }],
+    });
+    return true;
   };
 
   useEffect(() => {
@@ -80,6 +90,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   useEffect(() => {
     loadRememberMePreference();
   }, []);
+
+  /** Unstick “Please wait…” if the user left mid-auth (e.g. back from role picker) and returned. */
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoading(false);
+    }, [])
+  );
 
   const loadRememberMePreference = async () => {
     try {
@@ -125,13 +142,26 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
     setIsLoading(true);
     try {
       if (isLogin) {
-        // Handle sign in
-        const response = await userService.signIn(email, password);
-        
+        // Handle sign in (bounded waits so the UI never hangs on “Please wait…”)
+        const response = await withTimeout(
+          userService.signIn(email, password),
+          30000,
+          'Sign in'
+        );
+
         if (response.success) {
-          const redirected = await handlePostAuthRedirect();
+          let redirected = false;
+          try {
+            redirected = await withTimeout(handlePostAuthRedirect(), 12000, 'Post-auth redirect');
+          } catch {
+            redirected = false;
+          }
           if (!redirected) {
-            await refreshSession().catch(() => {});
+            try {
+              await withTimeout(refreshSession(), 20000, 'Session refresh');
+            } catch {
+              // Session may still apply via onAuthStateChange; don’t block the button forever
+            }
           }
         } else {
           Alert.alert('Sign In Failed', response.error || 'Invalid credentials');
@@ -141,8 +171,29 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
         const response = await userService.signUp(email, password);
         
         if (response.success) {
-          // New account created successfully
-          navigation.navigate('AccountTypeSelection');
+          // New account created successfully. If a role was pre-stamped on the
+          // way in (Welcome → "Sign in with email" sets `pending_auth_role` to
+          // `customer`; Settings → "Become a ChoreHero" sets it to `cleaner`),
+          // skip the redundant ProfileType picker and trust AppNavigator to
+          // route the user into the right onboarding from `getInitialRoute()`.
+          // Otherwise fall back to ProfileType so the user can pick.
+          let presetRole: string | null = null;
+          try {
+            presetRole = await AsyncStorage.getItem('pending_auth_role');
+          } catch {
+            presetRole = null;
+          }
+          if (presetRole === 'customer' || presetRole === 'cleaner') {
+            // AppNavigator will pick up the pendingRole and route to the
+            // appropriate onboarding screen on the next render.
+            try {
+              await refreshSession();
+            } catch {
+              // session may apply via onAuthStateChange anyway
+            }
+          } else {
+            navigation.navigate('ProfileType');
+          }
         } else if (response.requiresSignIn) {
           // Created, but session not present – prompt sign-in path
           Alert.alert(
@@ -259,29 +310,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
   };
 
   const handleGuestAccess = async () => {
-    // Let the user choose a guest role immediately, then enter the app
+    // Role-locked guest entry defaults to customer browse mode.
     try {
-      Alert.alert(
-        'Continue as Guest',
-        'Choose how you want to explore the app',
-        [
-          {
-            text: 'Customer',
-            onPress: async () => {
-              await AsyncStorage.setItem('guest_user_role', 'customer');
-              navigation.navigate('MainTabs');
-            },
-          },
-          {
-            text: 'Cleaner',
-            onPress: async () => {
-              await AsyncStorage.setItem('guest_user_role', 'cleaner');
-              navigation.navigate('MainTabs');
-            },
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
+      await AsyncStorage.setItem('guest_user_role', 'customer');
+      navigation.navigate('MainTabs');
     } catch (error) {
       navigation.navigate('MainTabs');
     }
@@ -289,47 +321,50 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={PRIMARY_ACTION} />
-      
-      <LinearGradient
-        colors={['#06b6d4', '#0891b2']}
-        style={styles.gradient}
-      >
-        <ScrollView 
+      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+
+      {/*
+        Chrome was a heavy teal LinearGradient + 240px logo + chunky text. The
+        new ProfileType + Welcome screens use a light neutral surface with a
+        compact logo header. Match that here so the auth flow feels like one
+        product instead of three different ones glued together.
+      */}
+      <View style={styles.gradient}>
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets={true}
         >
-          {/* Logo Section */}
+          {/* Compact logo header — matches ProfileType chrome */}
           <View style={styles.logoSection}>
-          <Animated.View
-            style={[
-              styles.logoContainer,
-              {
-                transform: [
-                  {
-                    scale: logoPulse.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.04],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <Image 
-              source={require('../../../assets/app-logo.png')} 
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </Animated.View>
-          <View style={styles.logoTextContainer}>
-            <Text style={styles.choreText}>Chore</Text>
-            <Text style={styles.heroText}>Hero</Text>
+            <Animated.View
+              style={[
+                styles.logoContainer,
+                {
+                  transform: [
+                    {
+                      scale: logoPulse.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.04],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <Image
+                source={require('../../../assets/app-logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </Animated.View>
+            <Text style={styles.brandTitle}>ChoreHero</Text>
+            <Text style={styles.brandSubtitle}>
+              {isLogin ? 'Welcome back' : 'Create your account'}
+            </Text>
           </View>
-        </View>
 
         {/* Auth Form */}
         <View style={styles.formContainer}>
@@ -474,7 +509,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
             </Text>
           </View>
         </ScrollView>
-      </LinearGradient>
+      </View>
     </View>
   );
 };
@@ -482,9 +517,11 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
   },
   gradient: {
     flex: 1,
+    backgroundColor: '#F8FAFC',
   },
   scrollView: {
     flex: 1,
@@ -492,60 +529,50 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'space-between',
-    paddingBottom: 60,
+    paddingTop: hp('4%'),
+    paddingBottom: hp('5%'),
   },
   logoSection: {
     alignItems: 'center',
-    paddingTop: 9,
-    paddingBottom: 0,
+    paddingTop: hp('1%'),
+    paddingBottom: hp('2.5%'),
   },
   logoContainer: {
-    marginBottom: 0,
+    marginBottom: hp('1.2%'),
     alignItems: 'center',
   },
   logoImage: {
-    width: 240,
-    height: 240,
-    marginBottom: -54,
+    width: 64,
+    height: 64,
   },
-  logoTextContainer: {
-    flexDirection: 'row',
-    marginBottom: 19,
-    marginTop: 0,
-  },
-
-  choreText: {
-    fontSize: 45,
+  brandTitle: {
+    fontSize: wp('7%'),
     fontWeight: '800',
-    color: '#e6b200',
-    letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.4)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-    fontFamily: 'System',
+    color: '#0F172A',
+    letterSpacing: -0.4,
   },
-  heroText: {
-    fontSize: 45,
-    fontWeight: '800',
-    color: '#047b9b',
-    letterSpacing: 1,
-    textShadowColor: '#2cedef',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-    fontFamily: 'System',
+  brandSubtitle: {
+    marginTop: 4,
+    fontSize: wp('3.6%'),
+    color: '#475569',
   },
+  // Legacy text styles kept so any inline reference doesn't break — no longer
+  // rendered after the chrome rewrite.
+  logoTextContainer: { display: 'none' },
+  choreText: { display: 'none' },
+  heroText: { display: 'none' },
   taglineText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: 'rgba(255, 255, 255, 0.9)',
   },
   formContainer: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   formCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: wp('5%'),
+    padding: wp('6%'),
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -558,15 +585,15 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 4,
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: hp('1.5%'),
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     backgroundColor: 'transparent',
   },
   activeTab: {
@@ -581,7 +608,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   tabText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: '#6B7280',
   },
@@ -590,17 +617,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   formFields: {
-    gap: 16,
-    marginBottom: 24,
+    gap: hp('2%'),
+    marginBottom: hp('3%'),
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 4,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('0.5%'),
     backgroundColor: '#ffffff',
   },
   inputIcon: {
@@ -608,9 +635,9 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#1F2937',
-    paddingVertical: 12,
+    paddingVertical: hp('1.5%'),
   },
   passwordInput: {
     // Give more height for iOS password suggestion dropdown
@@ -621,19 +648,19 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   authButton: {
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   authButtonDisabled: {
     opacity: 0.7,
   },
   authButtonGradient: {
-    paddingVertical: 16,
+    paddingVertical: hp('2%'),
     alignItems: 'center',
   },
   authButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#ffffff',
   },
@@ -641,33 +668,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   forgotPasswordText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: PRIMARY_ACTION,
     fontWeight: '500',
   },
   guestButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('2%'),
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: hp('2%'),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   guestButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: '#ffffff',
   },
 
   socialContainer: {
-    marginTop: 24,
-    paddingHorizontal: 20,
+    marginTop: hp('3%'),
+    paddingHorizontal: wp('5%'),
   },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   dividerLine: {
     flex: 1,
@@ -675,13 +702,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   dividerText: {
-    paddingHorizontal: 16,
-    fontSize: 14,
+    paddingHorizontal: wp('4%'),
+    fontSize: wp('3.5%'),
     color: 'rgba(255, 255, 255, 0.8)',
   },
   socialButtons: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   socialButton: {
     flex: 1,
@@ -689,22 +716,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ffffff',
-    borderRadius: 12,
-    paddingVertical: 14,
-    gap: 8,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.7%'),
+    gap: wp('2%'),
   },
   socialButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
   },
   termsContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2.5%'),
     alignItems: 'center',
   },
   termsText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
     lineHeight: 18,
@@ -716,13 +743,13 @@ const styles = StyleSheet.create({
   rememberMeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
-    paddingHorizontal: 4,
+    marginBottom: hp('2.5%'),
+    paddingHorizontal: wp('1%'),
   },
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: wp('1.5%'),
     borderWidth: 2,
     borderColor: '#E5E7EB',
     backgroundColor: '#ffffff',
@@ -740,7 +767,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   rememberMeText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#9CA3AF',
     fontWeight: '500',
   },

@@ -23,7 +23,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { contentService } from '../../services/contentService';
 import { COLORS } from '../../utils/constants';
 import { ContentType, ContentUploadProgress } from '../../types/content';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   ContentCreation: undefined;
@@ -65,26 +65,32 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
   const handleMediaPicker = async (type: 'camera' | 'library') => {
     try {
       let result;
-      
+      const isVideo = contentType === 'video';
+      const mediaTypes = isVideo ? ['videos'] : ['images'];
+
       if (type === 'camera') {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
           Alert.alert('Permission needed', 'Camera permission is required to take photos/videos.');
           return;
         }
-
         result = await ImagePicker.launchCameraAsync({
-          mediaTypes: contentType === 'video' ? ImagePicker.MediaTypeOptions.Videos : ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
+          mediaTypes,
+          allowsEditing: !isVideo, // Editing can cause iOS camera to close for video
           quality: 0.8,
-          videoMaxDuration: contentType === 'video' ? 45 : undefined, // 30-45 seconds max
+          videoMaxDuration: isVideo ? 45 : undefined,
         });
       } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Permission needed', 'Photo library permission is required.');
+          return;
+        }
         result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: contentType === 'video' ? ImagePicker.MediaTypeOptions.Videos : ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
+          mediaTypes,
+          allowsEditing: !isVideo,
           quality: 0.8,
-          videoMaxDuration: contentType === 'video' ? 45 : undefined, // 30-45 seconds max
+          videoMaxDuration: isVideo ? 45 : undefined,
         });
       }
 
@@ -107,8 +113,10 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
 
   const handleSecondaryMediaPicker = async () => {
     try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return;
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.8,
       });
@@ -528,11 +536,6 @@ const ContentCreationScreen: React.FC<ContentCreationProps> = ({ navigation }) =
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-      
-      {/* Show cleaner navigation if user is a cleaner */}
-      {user?.role === 'cleaner' && (
-        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Content" />
-      )}
     </SafeAreaView>
   );
 };
@@ -546,21 +549,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: COLORS.text.primary,
   },
   postButton: {
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('5%'),
     minWidth: 60,
     alignItems: 'center',
   },
@@ -569,7 +572,7 @@ const styles = StyleSheet.create({
   },
   postButtonText: {
     color: COLORS.text.inverse,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   content: {
@@ -581,40 +584,40 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: COLORS.text.primary,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   
   // Content Type Selector
   contentTypeSelector: {
     flexDirection: 'row',
-    gap: 8,
+    gap: wp('2%'),
   },
   contentTypeButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
-    gap: 6,
+    gap: wp('1.5%'),
   },
   contentTypeButtonActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
   contentTypeText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.secondary,
   },
@@ -625,7 +628,7 @@ const styles = StyleSheet.create({
   // Media Upload
   mediaUploadContainer: {
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 24,
     alignItems: 'center',
     borderWidth: 2,
@@ -634,12 +637,12 @@ const styles = StyleSheet.create({
   },
   mediaUploadButton: {
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 8,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
+    gap: wp('2%'),
   },
   mediaUploadText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.primary,
   },
@@ -647,14 +650,14 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   mediaUploadDividerText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.secondary,
   },
 
   // Media Preview
   mediaPreview: {
     position: 'relative',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   videoPreview: {
@@ -668,18 +671,18 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   beforeAfterContainer: {
-    marginTop: 12,
-    gap: 8,
+    marginTop: hp('1.5%'),
+    gap: wp('2%'),
   },
   beforeAfterLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: COLORS.text.secondary,
     textAlign: 'center',
   },
   addAfterButton: {
     height: 120,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     overflow: 'hidden',
   },
   afterImage: {
@@ -695,10 +698,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.border,
     borderStyle: 'dashed',
-    gap: 4,
+    gap: wp('1%'),
   },
   addAfterText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
   changeMediaButton: {
@@ -706,30 +709,30 @@ const styles = StyleSheet.create({
     top: 8,
     right: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 8,
   },
 
   // Upload Progress
   uploadProgressContainer: {
-    marginTop: 16,
+    marginTop: hp('2%'),
     padding: 16,
     backgroundColor: COLORS.surface,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
   },
   uploadProgressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   uploadProgressTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: COLORS.text.primary,
   },
   uploadProgressPercent: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: COLORS.primary,
   },
@@ -737,7 +740,7 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: COLORS.border,
     borderRadius: 2,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   uploadProgressFill: {
     height: '100%',
@@ -745,40 +748,40 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   uploadProgressStage: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
 
   // Form Inputs
   titleInput: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: COLORS.text.primary,
     backgroundColor: COLORS.surface,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   descriptionInput: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.primary,
     backgroundColor: COLORS.surface,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     minHeight: 80,
     textAlignVertical: 'top',
   },
   locationInput: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.primary,
     backgroundColor: COLORS.surface,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -787,20 +790,20 @@ const styles = StyleSheet.create({
   currentTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: wp('2%'),
+    marginBottom: hp('1.5%'),
   },
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4%'),
+    gap: wp('1%'),
   },
   tagText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '500',
     color: COLORS.text.inverse,
   },
@@ -808,41 +811,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   tagInput: {
     flex: 1,
     padding: 12,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: COLORS.text.primary,
   },
   addTagButton: {
     padding: 12,
   },
   suggestedTagsTitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '500',
     color: COLORS.text.secondary,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   suggestedTags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: wp('2%'),
   },
   suggestedTag: {
     backgroundColor: COLORS.surface,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('4%'),
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   suggestedTagText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: COLORS.text.secondary,
   },
 });

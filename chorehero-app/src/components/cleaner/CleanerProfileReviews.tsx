@@ -178,7 +178,7 @@ const CleanerProfileReviews: React.FC<CleanerProfileReviewsProps> = ({
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="small" color="#26B7C9" />
+        <ActivityIndicator size="small" color="#FFA52F" />
       </View>
     );
   }
@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#26B7C9',
+    backgroundColor: '#FFA52F',
     alignItems: 'center',
     justifyContent: 'center',
   },

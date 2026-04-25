@@ -20,6 +20,14 @@ export interface SignUpRequest extends AuthRequest {
   email?: string;
 }
 
+/** PostgREST embeds 1:1 relations as a single object, not an array; older code only checked []. */
+export function hasEmbeddedResource(embed: unknown): boolean {
+  if (embed == null) return false;
+  if (Array.isArray(embed)) return embed.length > 0;
+  if (typeof embed === 'object') return Object.keys(embed as object).length > 0;
+  return false;
+}
+
 class AuthService {
   // Phone number validation
   private validatePhoneNumber(phone: string): boolean {
@@ -280,6 +288,19 @@ class AuthService {
         throw profileError;
       }
 
+      // Infer role from profile tables when role is null (fixes rows created without role)
+      const profile = userProfile as Record<string, unknown>;
+      let role = profile.role as string | null | undefined;
+      if (!role) {
+        const hasCleanerProfile = hasEmbeddedResource(profile.cleaner_profiles);
+        const hasCustomerProfile = hasEmbeddedResource(profile.customer_profiles);
+        if (hasCleanerProfile) role = 'cleaner';
+        else if (hasCustomerProfile) role = 'customer';
+      }
+      if (role) {
+        (profile as Record<string, unknown>).role = role;
+      }
+
       return {
         success: true,
         data: {
@@ -368,6 +389,43 @@ class AuthService {
         success: false,
         data: null as any,
         error: error instanceof Error ? error.message : 'Profile update failed',
+      };
+    }
+  }
+
+  /**
+   * Ensure users row exists for auth user. Call before operations that require
+   * jobs.customer_id FK (e.g. createJob). Handles users who signed up but never
+   * completed ProfileType/onboarding.
+   * Omits phone to avoid users_phone_key conflict when phone is already taken.
+   */
+  async ensureUserExists(
+    userId: string,
+    fallback: { email?: string; name?: string; phone?: string; role?: 'customer' | 'cleaner' }
+  ): Promise<ApiResponse<void>> {
+    try {
+      const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .maybeSingle();
+      if (existing) return { success: true };
+
+      const { error } = await supabase.from('users').insert({
+        id: userId,
+        email: fallback.email ?? null,
+        name: fallback.name ?? null,
+        role: fallback.role ?? 'customer',
+        updated_at: new Date().toISOString(),
+        // Omit phone - users_phone_key is unique; avoid conflict if phone taken by another user
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (e) {
+      console.error('ensureUserExists error:', e);
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : 'Failed to ensure user exists',
       };
     }
   }

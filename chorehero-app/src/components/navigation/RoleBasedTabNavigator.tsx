@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { createStackNavigator } from '@react-navigation/stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../../hooks/useAuth';
-import RoleSelectionModal from '../RoleSelectionModal';
+import { useProNotifications } from '../../hooks/useProNotifications';
 
 // Customer Screens
 import CustomerDashboardScreen from '../../screens/customer/DashboardScreen';
@@ -23,6 +23,8 @@ import EarningsBreakdownScreen from '../../screens/cleaner/EarningsBreakdownScre
 import HeroStatsScreen from '../../screens/cleaner/HeroStatsScreen';
 import CalendarSettingsScreen from '../../screens/cleaner/CalendarSettingsScreen';
 import RateManagerScreen from '../../screens/cleaner/RateManagerScreen';
+import ProServicesScreen from '../../screens/cleaner/ProServicesScreen';
+import BookServiceScreen from '../../screens/customer/BookServiceScreen';
 import CameraView from '../../screens/cleaner/CameraView';
 
 // Shared Screens
@@ -40,18 +42,37 @@ import AddressManagementScreen from '../../screens/shared/AddressManagementScree
 import SavedServicesScreen from '../../screens/shared/SavedServicesScreen';
 import JobDetailsScreen from '../../screens/shared/JobDetailsScreen';
 import CleanerProfileEditScreen from '../../screens/cleaner/ProfileEditScreen';
+import BookingConfirmedScreen from '../../screens/customer/BookingConfirmedScreen';
+import LiveTrackingScreen from '../../screens/shared/LiveTrackingScreen';
 
+// Video Quote System
+import PostJobScreen from '../../screens/customer/PostJobScreen';
+import QuoteListScreen from '../../screens/customer/QuoteListScreen';
+import QuoteAcceptScreen from '../../screens/customer/QuoteAcceptScreen';
+import MyJobsScreen from '../../screens/customer/MyJobsScreen';
+import JobDetailScreen from '../../screens/cleaner/JobDetailScreen';
+import RecordQuoteScreen from '../../screens/cleaner/RecordQuoteScreen';
+import QuoteSentScreen from '../../screens/cleaner/QuoteSentScreen';
 
 import { COLORS } from '../../utils/constants';
+import { getMainTabStackOptions } from '../../navigation/mainTabStackOptions';
+import { useMainTabsInterfaceRole } from '../../navigation/mainTabsInterfaceRole';
 // Responsive container wrapper removed per user request
 
 const Stack = createStackNavigator<any>();
 
 // Customer Stack Navigation
 const CustomerDiscoverStack = () => (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Discover" component={DiscoverScreen as any} />
+    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="DiscoverFeed">
+      <Stack.Screen name="DiscoverFeed" component={DiscoverScreen as any} />
+      <Stack.Screen name="BookService" component={BookServiceScreen as any} />
+      <Stack.Screen name="PostJob" component={PostJobScreen as any} />
+      <Stack.Screen name="QuoteList" component={QuoteListScreen as any} />
+      <Stack.Screen name="QuoteAccept" component={QuoteAcceptScreen as any} />
+      <Stack.Screen name="MyJobs" component={MyJobsScreen as any} />
+      <Stack.Screen name="Bookings" component={BookingScreen as any} />
       <Stack.Screen name="BookingFlow" component={NewBookingFlowScreen as any} />
+      <Stack.Screen name="BookingConfirmed" component={BookingConfirmedScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
   </Stack.Navigator>
 );
@@ -68,16 +89,24 @@ const CleanerProfileStack = () => (
     <Stack.Screen name="HeroStats" component={HeroStatsScreen} />
     <Stack.Screen name="CalendarSettings" component={CalendarSettingsScreen} />
     <Stack.Screen name="RateManager" component={RateManagerScreen} />
+    <Stack.Screen name="ProServices" component={ProServicesScreen as any} />
   </Stack.Navigator>
 );
 
 const CustomerNavigator = () => {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName="Content">
+    <Stack.Navigator
+      initialRouteName="Content"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        ...getMainTabStackOptions(route.name),
+      })}
+    >
       <Stack.Screen name="Home" component={CustomerProfileScreen as any} />
       <Stack.Screen name="Content" component={VideoFeedScreen as any} />
       <Stack.Screen name="Discover" component={CustomerDiscoverStack as any} />
       <Stack.Screen name="Tracking" component={TrackingScreen as any} />
+      <Stack.Screen name="LiveTracking" component={LiveTrackingScreen as any} />
       <Stack.Screen name="Messages" component={MessagesScreen as any} />
       <Stack.Screen name="Profile" component={CustomerProfileScreen as any} />
       <Stack.Screen name="Dashboard" component={CustomerDashboardScreen as any} />
@@ -85,28 +114,57 @@ const CustomerNavigator = () => {
       <Stack.Screen name="UserProfile" component={UserProfileScreen as any} />
       <Stack.Screen name="BookingFlow" component={NewBookingFlowScreen as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
+      <Stack.Screen name="Tips" component={TipsScreen as any} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
       <Stack.Screen name="EditProfileScreen" component={EditProfileScreen as any} />
       <Stack.Screen name="AddressManagementScreen" component={AddressManagementScreen as any} />
       <Stack.Screen name="SavedServices" component={SavedServicesScreen as any} />
       <Stack.Screen name="JobDetails" component={JobDetailsScreen as any} />
+      <Stack.Screen name="PostJob" component={PostJobScreen as any} />
+      <Stack.Screen name="QuoteList" component={QuoteListScreen as any} />
+      <Stack.Screen name="QuoteAccept" component={QuoteAcceptScreen as any} />
+      <Stack.Screen name="MyJobs" component={MyJobsScreen as any} />
+      <Stack.Screen name="BookingConfirmed" component={BookingConfirmedScreen} />
 
     </Stack.Navigator>
   );
 };
 
+const ProNotificationsSubscriber = () => {
+  useProNotifications();
+  return null;
+};
+
 const CleanerNavigator = () => {
+  const [initialRoute, setInitialRoute] = React.useState<string>('Dashboard');
+
+  React.useEffect(() => {
+    const checkJustOnboarded = async () => {
+      try {
+        const justOnboarded = await AsyncStorage.getItem('cleaner_just_onboarded');
+        if (justOnboarded === 'true') {
+          await AsyncStorage.removeItem('cleaner_just_onboarded');
+          setInitialRoute('Jobs');
+        }
+      } catch {
+        // keep Dashboard
+      }
+    };
+    void checkJustOnboarded();
+  }, []);
+
   return (
     <Stack.Navigator
-      screenOptions={{
+      initialRouteName={initialRoute}
+      screenOptions={({ route }) => ({
         headerShown: false,
         gestureEnabled: true,
-      }}
-      initialRouteName="Dashboard"
+        ...getMainTabStackOptions(route.name),
+      })}
     >
       <Stack.Screen name="Home" component={CleanerProfileScreen as any} />
-      <Stack.Screen name="Dashboard" component={TipsScreen as any} />
+      <Stack.Screen name="Dashboard" component={CleanerDashboardScreen as any} />
       <Stack.Screen name="Jobs" component={CleanerJobsScreen as any} />
       <Stack.Screen name="Content" component={CleanerContentScreen as any} />
       <Stack.Screen name="Schedule" component={CleanerScheduleScreen} />
@@ -115,11 +173,13 @@ const CleanerNavigator = () => {
       <Stack.Screen name="HeroStats" component={HeroStatsScreen} />
       <Stack.Screen name="CalendarSettings" component={CalendarSettingsScreen} />
       <Stack.Screen name="RateManager" component={RateManagerScreen} />
+      <Stack.Screen name="ProServices" component={ProServicesScreen as any} />
       <Stack.Screen name="Messages" component={CleanerMessagesScreen as any} />
       <Stack.Screen name="Profile" component={CleanerProfileStack as any} />
       <Stack.Screen name="VideoUpload" component={VideoUploadScreen as any} />
       <Stack.Screen name="CameraView" component={CameraView as any} />
       <Stack.Screen name="ContentCreation" component={ContentCreationScreen as any} />
+      <Stack.Screen name="Tips" component={TipsScreen as any} />
       <Stack.Screen name="PaymentScreen" component={PaymentScreen as any} />
       <Stack.Screen name="SettingsScreen" component={SettingsScreen as any} />
       <Stack.Screen name="EditProfileScreen" component={EditProfileScreen as any} />
@@ -127,6 +187,10 @@ const CleanerNavigator = () => {
       <Stack.Screen name="SavedServices" component={SavedServicesScreen as any} />
       <Stack.Screen name="JobDetails" component={JobDetailsScreen as any} />
       <Stack.Screen name="CleanerProfileEdit" component={CleanerProfileEditScreen as any} />
+      <Stack.Screen name="QuoteJobDetail" component={JobDetailScreen as any} />
+      <Stack.Screen name="RecordQuote" component={RecordQuoteScreen as any} />
+      <Stack.Screen name="QuoteSent" component={QuoteSentScreen as any} />
+      <Stack.Screen name="LiveTracking" component={LiveTrackingScreen as any} />
 
     </Stack.Navigator>
   );
@@ -134,103 +198,7 @@ const CleanerNavigator = () => {
 
 const RoleBasedTabNavigator = () => {
   const { isCleaner, isCustomer, isAuthenticated, user } = useAuth();
-  const [isLoadingRole, setIsLoadingRole] = useState(true);
-  const [showRoleSelection, setShowRoleSelection] = useState(false);
-  const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
-  const [interfaceRoleOverride, setInterfaceRoleOverride] = useState<'customer' | 'cleaner' | null>(null);
-
-  // Check for demo role on mount (only for non-authenticated users)
-  useEffect(() => {
-    const checkDemoRole = async () => {
-      try {
-        console.log('🔍 checkDemoRole called - Current state:', {
-          isAuthenticated,
-          isCleaner,
-          isCustomer,
-          userName: user?.name
-        });
-        
-         if (isAuthenticated) {
-          // For real authenticated users, ignore demo role
-          console.log('Real authenticated user detected, ignoring demo role');
-          setGuestRole(null);
-          setShowRoleSelection(false);
-          setIsLoadingRole(false);
-          return;
-        }
-        
-        // For guest users, check if they have a stored role preference
-        const storedGuestRole = await AsyncStorage.getItem('guest_user_role');
-        if (storedGuestRole === 'customer' || storedGuestRole === 'cleaner') {
-          console.log('🎭 Found stored guest role:', storedGuestRole);
-          setGuestRole(storedGuestRole);
-          setShowRoleSelection(false);
-        } else {
-          // No stored role, show selection modal
-          console.log('🎭 No stored guest role, showing selection modal');
-          setGuestRole(null);
-          setShowRoleSelection(true);
-        }
-        
-        setIsLoadingRole(false);
-      } catch (error) {
-        console.error('Error in navigation setup:', error);
-        setShowRoleSelection(true); // Show role selection for guests
-        setIsLoadingRole(false);
-      }
-    };
-
-    checkDemoRole();
-  }, [isCleaner, isCustomer, isAuthenticated, user]);
-
-  // Check for interface override (for authenticated users)
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    const loadOverride = async () => {
-      if (!isAuthenticated) {
-        setInterfaceRoleOverride(null);
-        return;
-      }
-      try {
-        const storedOverride = await AsyncStorage.getItem('interface_role_override');
-        if (storedOverride === 'customer' || storedOverride === 'cleaner') {
-          setInterfaceRoleOverride(storedOverride);
-        } else {
-          setInterfaceRoleOverride(null);
-        }
-      } catch (error) {
-        console.warn('Failed to load interface override:', error);
-      }
-    };
-    loadOverride();
-    if (isAuthenticated) {
-      interval = setInterval(loadOverride, 1200);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isAuthenticated]);
-
-  const handleRoleSelected = async (role: 'customer' | 'cleaner') => {
-    try {
-      console.log('🎯 Setting guest user role:', role);
-      // Store the selected role in AsyncStorage for guest mode
-      await AsyncStorage.setItem('guest_user_role', role);
-      setGuestRole(role);
-      setShowRoleSelection(false);
-    } catch (error) {
-      console.error('❌ Role selection error:', error);
-      setShowRoleSelection(false);
-    }
-  };
-
-  // Determine which interface to show
-  // Priority: Real auth > Guest role selection > Default to customer
-  const inferredRole =
-    user?.role ||
-    (user?.cleaner_onboarding_state || user?.cleaner_onboarding_step ? 'cleaner' : 'customer');
-  const resolvedRole = isAuthenticated ? (interfaceRoleOverride || inferredRole) : guestRole;
-  const effectiveIsCleaner = resolvedRole === 'cleaner';
+  const { interfaceIsCleaner: effectiveIsCleaner, resolvedRole } = useMainTabsInterfaceRole();
   const effectiveIsCustomer = resolvedRole === 'customer' || !resolvedRole;
   
   // Debug logging
@@ -238,7 +206,7 @@ const RoleBasedTabNavigator = () => {
     isAuthenticated,
     isCleaner,
     isCustomer,
-    guestRole,
+    resolvedRole,
     effectiveIsCleaner,
     effectiveIsCustomer,
     userRole: user?.role,
@@ -253,36 +221,21 @@ const RoleBasedTabNavigator = () => {
   console.log('🚦 Interface selection decision:', {
     effectiveIsCleaner,
     effectiveIsCustomer,
-    guestRole,
-    interfaceRoleOverride,
+    resolvedRole,
     userRole: user?.role,
     userName: user?.name,
     willLoadCleanerInterface: effectiveIsCleaner
   });
   
   if (effectiveIsCleaner) {
-    console.log('🧹 Loading CLEANER interface for:', user?.name);
     return (
       <>
+        <ProNotificationsSubscriber />
         <CleanerNavigator />
-        <RoleSelectionModal
-          visible={showRoleSelection}
-          onRoleSelected={handleRoleSelected}
-        />
-      </>
-    );
-  } else {
-    console.log('👤 Loading CUSTOMER interface (else branch) for:', user?.name);
-    return (
-      <>
-        <CustomerNavigator />
-        <RoleSelectionModal
-          visible={showRoleSelection}
-          onRoleSelected={handleRoleSelected}
-        />
       </>
     );
   }
+  return <CustomerNavigator />;
 };
 
 export default RoleBasedTabNavigator; 

@@ -8,10 +8,11 @@ Configure in **Supabase Dashboard** → **Edge Functions** → select function �
 
 | Variable | Used By | Purpose |
 |----------|---------|---------|
-| `STRIPE_SECRET_KEY` | create-payment-intent, stripe-webhook, process-payouts, process-refund | Stripe API authentication |
+| `STRIPE_SECRET_KEY` | create-payment-intent, create-quote-payment-intent, confirm-quote-payment, stripe-webhook, process-payouts, process-refund | Stripe API authentication |
 | `STRIPE_WEBHOOK_SECRET` | stripe-webhook | Verify webhook signatures |
 | `STRIPE_PLATFORM_FEE_BPS` | create-payment-intent | Platform fee (basis points, e.g. 1900 = 19%) |
 | `STRIPE_CUSTOMER_FEE_BPS` | create-payment-intent | Customer fee (basis points, e.g. 900 = 9%) |
+| `TEST_MODE` | create-quote-payment-intent, confirm-quote-payment | Set to `"true"` to skip real Stripe calls (returns mock client secret). Use when Stripe keys are not yet configured. |
 
 ### 2. GitHub Secrets (for CI workflows)
 
@@ -31,9 +32,10 @@ Configure in **Supabase Dashboard** → **Edge Functions** → select function �
 ## How to Verify They're Working
 
 ### Supabase Functions
-1. **Supabase Dashboard** → **Edge Functions** → **create-payment-intent** → **Logs**
-2. Trigger a payment in the app
+1. **Supabase Dashboard** → **Edge Functions** → **create-payment-intent** or **create-quote-payment-intent** → **Logs**
+2. Trigger a payment in the app (e.g. Accept & Pay on a quote in QuoteFeedScreen)
 3. Check logs for errors (missing env = "STRIPE_SECRET_KEY is not defined")
+4. **Quick dev setup:** Set `TEST_MODE=true` on create-quote-payment-intent and confirm-quote-payment to bypass Stripe until keys are configured
 
 ### Stripe Webhook
 1. **Stripe Dashboard** → **Developers** → **Webhooks**

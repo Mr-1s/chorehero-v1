@@ -28,6 +28,7 @@ export type ServiceType = 'express' | 'standard' | 'deep';
 
 export type BookingStatus = 
   | 'pending'
+  | 'pending_quote'
   | 'confirmed'
   | 'cleaner_assigned'
   | 'cleaner_en_route'
@@ -100,6 +101,19 @@ export interface BookingRequest {
   package_id?: string;
   /** Override service base price (cents) when using package-based pricing */
   service_base_price_cents?: number;
+  /** Dynamic service template linkage */
+  service_id?: string;
+  pro_service_id?: string;
+  /** Dynamic booking answers from rendered template */
+  answers?: BookingAnswerInput[];
+  /** Pricing type override (quote-only flows skip payment) */
+  pricing_type?: 'fixed' | 'hourly' | 'quote';
+}
+
+export interface BookingAnswerInput {
+  question_id: string;
+  question_label: string;
+  answer: unknown;
 }
 
 export interface BookingResponse {

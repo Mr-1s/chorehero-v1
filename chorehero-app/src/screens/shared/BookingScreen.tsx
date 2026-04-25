@@ -22,13 +22,13 @@ import { useNavigation, CommonActions, useFocusEffect } from '@react-navigation/
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import FloatingNavigation from '../../components/FloatingNavigation';
 import { Card, Chip, Button } from '../../components/ui';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { notificationService } from '../../services/notificationService';
 import { jobQuoteService, Job, Quote } from '../../services/jobQuoteService';
 import { bookingService } from '../../services/booking';
+import { useCustomerStore } from '../../store/customerStore';
 
 import { routeToMessage } from '../../utils/messageRouting';
 import { wp, hp } from '../../utils/responsive';
@@ -164,6 +164,49 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
   useEffect(() => {
     if (params.activeTab) setActiveTab(params.activeTab as any);
   }, [params.activeTab]);
+
+  // Keep the bell badge honest — refresh on focus so it clears after the user
+  // reads notifications and returns to this screen.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        if (!user?.id) {
+          if (!cancelled) setHasUnreadNotifications(false);
+          return;
+        }
+        try {
+          const count = await notificationService.getUnreadCount(user.id);
+          if (!cancelled) setHasUnreadNotifications(count > 0);
+        } catch {
+          if (!cancelled) setHasUnreadNotifications(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [user?.id])
+  );
+
+  // Prime the customer-store jobs cache on focus so when the user pivots to
+  // MyJobs / Quotes the data is already there. Cheap — only runs when the
+  // bookings tab gains focus, and the store de-dupes inside fetchJobs.
+  const primeCustomerJobs = useCustomerStore((s) => s.fetchJobs);
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        void primeCustomerJobs(user.id);
+      }
+      return undefined;
+    }, [user?.id, primeCustomerJobs])
+  );
+
+  // Deep link from live tracking: land on Upcoming and highlight this booking
+  useEffect(() => {
+    if (targetBookingId) {
+      setActiveTab('upcoming');
+    }
+  }, [targetBookingId]);
 
   // Load real bookings from database
   const loadBookings = useCallback(async () => {
@@ -774,8 +817,19 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
             ? 'success'
             : 'neutral';
 
+    const isHighlighted = targetBookingId && booking.id === targetBookingId;
+
     return (
-    <Card key={booking.id} style={{ marginHorizontal: 16, marginBottom: 12 }}>
+    <Card
+      key={booking.id}
+      style={{
+        marginHorizontal: 16,
+        marginBottom: 12,
+        borderWidth: isHighlighted ? 2 : 0,
+        borderColor: isHighlighted ? '#26B7C9' : 'transparent',
+        backgroundColor: isHighlighted ? 'rgba(38, 183, 201, 0.06)' : undefined,
+      }}
+    >
       {/* Message Icon - Only when messaging_enabled (post-payment) */}
       {booking.messagingEnabled && (
         <TouchableOpacity
@@ -1065,7 +1119,9 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
                     <View style={styles.quoteCardContent}>
                       <Text style={styles.quoteCardPro}>{proName}</Text>
                       <Text style={styles.quoteCardPrice}>${(q.price_cents / 100).toFixed(0)}</Text>
-                      <Text style={styles.quoteCardJob} numberOfLines={1}>{q.job?.headline || 'Job'}</Text>
+                      <Text style={styles.quoteCardJob} numberOfLines={1}>
+                        {jobQuoteService.getJobDisplayTitle(q.job as Job | undefined)}
+                      </Text>
                     </View>
                     <TouchableOpacity
                       style={styles.quoteWatchBtn}
@@ -1236,9 +1292,6 @@ const BookingScreen: React.FC<BookingScreenProps> = ({ navigation: propNavigatio
           </View>
         </TouchableOpacity>
       </Modal>
-
-      {/* Floating Navigation */}
-      <FloatingNavigation navigation={propNavigation} currentScreen="Bookings" />
     </View>
   );
 };

@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: { color: '#111827', fontWeight: '700' },
   linkButton: { marginTop: 14 },
-  linkText: { color: '#0891b2', fontWeight: '700' },
+  linkText: { color: '#047B9B', fontWeight: '700' },
   dismiss: { marginTop: 12 },
   dismissText: { color: '#6B7280' },
 });

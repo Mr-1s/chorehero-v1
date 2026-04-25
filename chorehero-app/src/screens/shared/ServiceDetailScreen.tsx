@@ -18,6 +18,9 @@ import type { RouteProp } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { guestModeService, GuestCleaner } from '../../services/guestModeService';
 import { serviceDiscoveryService } from '../../services/serviceDiscoveryService';
+import { wp, hp } from '../../utils/responsive';
+import { useAuth } from '../../hooks/useAuth';
+import GuestPromptModal from '../../components/GuestPromptModal';
 
 type RootStackParamList = {
   ServiceDetail: {
@@ -26,7 +29,7 @@ type RootStackParamList = {
     category: string;
   };
   CleanerProfile: { cleanerId: string };
-  NewBookingFlow: {
+  UnifiedBooking: {
     cleanerId?: string;
     serviceName?: string;
     serviceType?: string;
@@ -48,6 +51,8 @@ const { width } = Dimensions.get('window');
 
 const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, route }) => {
   const { serviceId, serviceName, category } = route.params;
+  const { isGuestMode } = useAuth();
+  const [guestPromptVisible, setGuestPromptVisible] = useState(false);
   const [cleaners, setCleaners] = useState<GuestCleaner[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState('all');
@@ -257,7 +262,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
           
           {/* Rating badge */}
           <View style={styles.mediaRatingBadge}>
-            <Ionicons name="star" size={12} color="#FFD700" />
+            <Ionicons name="star" size={12} color="#E6B200" />
             <Text style={styles.mediaRatingText}>{cleaner.rating.toFixed(1)}</Text>
           </View>
           
@@ -309,8 +314,19 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
               style={styles.bookNowButton}
               onPress={(e) => {
                 e.stopPropagation();
+                if (isGuestMode) {
+                  try {
+                    if (typeof (global as any).__analytics?.track === 'function') {
+                      (global as any).__analytics.track('guest_booking_attempt');
+                    }
+                  } catch {
+                    // no-op
+                  }
+                  setGuestPromptVisible(true);
+                  return;
+                }
                 console.log('🎯 Booking from service detail:', cleaner.name);
-                navigation.navigate('NewBookingFlow', {
+                navigation.navigate('UnifiedBooking', {
                   cleanerId: cleaner.id,
                   serviceName: serviceName,
                   serviceType: category
@@ -327,7 +343,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#3ad3db" translucent={true} />
+      <StatusBar barStyle="light-content" backgroundColor="#26B7C9" translucent={true} />
       
       {/* Hero Header */}
       <Animated.View style={[
@@ -345,7 +361,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
           style={styles.heroImage}
         />
         <LinearGradient
-          colors={['rgba(58, 211, 219, 0.8)', 'rgba(26, 167, 183, 0.9)']}
+          colors={['rgba(38, 183, 201, 0.8)', 'rgba(4, 123, 155, 0.9)']}
           style={styles.heroOverlay}
         >
           <TouchableOpacity 
@@ -356,30 +372,10 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
           </TouchableOpacity>
           
           <View style={styles.heroContent}>
-            <View style={styles.serviceBadge}>
-              <Ionicons name={getServiceIcon() as any} size={20} color="#3ad3db" />
-              <Text style={styles.serviceBadgeText}>Professional Service</Text>
-            </View>
-            
             <Text style={styles.heroTitle}>{serviceName}</Text>
             <Text style={styles.heroSubtitle}>
-              {filteredCleaners.length} expert{filteredCleaners.length !== 1 ? 's' : ''} ready to help
+              {filteredCleaners.length} pro{filteredCleaners.length !== 1 ? 's' : ''} nearby · from ${Math.round(cleaners.reduce((acc, c) => acc + c.hourly_rate, 0) / cleaners.length || 45)} · 2–3h
             </Text>
-            
-            <View style={styles.heroStats}>
-              <View style={styles.heroStat}>
-                <Text style={styles.heroStatNumber}>4.8★</Text>
-                <Text style={styles.heroStatLabel}>Average Rating</Text>
-              </View>
-              <View style={styles.heroStat}>
-                <Text style={styles.heroStatNumber}>${Math.round(cleaners.reduce((acc, c) => acc + c.hourly_rate, 0) / cleaners.length || 45)}</Text>
-                <Text style={styles.heroStatLabel}>Starting From</Text>
-              </View>
-              <View style={styles.heroStat}>
-                <Text style={styles.heroStatNumber}>2-3h</Text>
-                <Text style={styles.heroStatLabel}>Duration</Text>
-              </View>
-            </View>
           </View>
         </LinearGradient>
       </Animated.View>
@@ -410,7 +406,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
         
         {/* Gradient Overlay */}
         <LinearGradient
-          colors={['rgba(58, 211, 219, 0.95)', 'rgba(26, 167, 183, 0.95)']}
+          colors={['rgba(38, 183, 201, 0.95)', 'rgba(4, 123, 155, 0.95)']}
           style={styles.stickyHeaderOverlay}
         >
           {/* Single Row Layout */}
@@ -461,15 +457,15 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
           
           <View style={styles.featuresList}>
             <View style={styles.featureItem}>
-              <Ionicons name="shield-checkmark" size={16} color="#3ad3db" />
+              <Ionicons name="shield-checkmark" size={16} color="#26B7C9" />
               <Text style={styles.featureText}>Verified Professionals</Text>
             </View>
             <View style={styles.featureItem}>
-              <Ionicons name="time" size={16} color="#3ad3db" />
+              <Ionicons name="time" size={16} color="#26B7C9" />
               <Text style={styles.featureText}>Same Day Booking</Text>
             </View>
             <View style={styles.featureItem}>
-              <Ionicons name="star" size={16} color="#3ad3db" />
+              <Ionicons name="star" size={16} color="#26B7C9" />
               <Text style={styles.featureText}>Satisfaction Guarantee</Text>
             </View>
           </View>
@@ -494,7 +490,7 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
         {/* Cleaners List */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#3ad3db" />
+            <ActivityIndicator size="large" color="#26B7C9" />
             <Text style={styles.loadingText}>Finding the best cleaners for you...</Text>
           </View>
         ) : (
@@ -522,6 +518,15 @@ const ServiceDetailScreen: React.FC<ServiceDetailScreenProps> = ({ navigation, r
         
         <View style={styles.bottomSpacing} />
       </ScrollView>
+      <GuestPromptModal
+        visible={guestPromptVisible}
+        type="booking_attempt"
+        onSignUp={() => {
+          setGuestPromptVisible(false);
+          (navigation as any).navigate('Welcome');
+        }}
+        onDismiss={() => setGuestPromptVisible(false)}
+      />
     </View>
   );
 };
@@ -534,7 +539,7 @@ const styles = StyleSheet.create({
   
   // Hero Section
   heroContainer: {
-    height: 320,
+    height: 240,
     position: 'absolute',
     top: 0,
     left: 0,
@@ -548,8 +553,8 @@ const styles = StyleSheet.create({
   },
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    paddingTop: hp('7.5%'),
+    paddingHorizontal: wp('5%'),
     paddingBottom: 30,
     justifyContent: 'space-between',
     zIndex: 11,
@@ -557,7 +562,7 @@ const styles = StyleSheet.create({
   backButton: {
     alignSelf: 'flex-start',
     padding: 12,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     backdropFilter: 'blur(10px)',
   },
@@ -568,30 +573,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 12,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('5%'),
+    marginBottom: hp('1.5%'),
   },
   serviceBadgeText: {
     marginLeft: 6,
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#1C1C1E',
   },
   heroTitle: {
-    fontSize: 32,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: -0.5,
+    marginBottom: 4,
+    letterSpacing: -0.3,
   },
   heroSubtitle: {
-    fontSize: 16,
+    fontSize: 13,
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
     fontWeight: '500',
   },
   heroStats: {
@@ -603,13 +608,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroStatNumber: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 2,
   },
   heroStatLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: 'rgba(255, 255, 255, 0.8)',
     fontWeight: '500',
   },
@@ -639,15 +644,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     paddingTop: 50,
-    paddingBottom: 12,
+    paddingBottom: hp('1.5%'),
     justifyContent: 'flex-end',
   },
   stickyBackButton: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: wp('4.5%'),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -661,22 +666,22 @@ const styles = StyleSheet.create({
   },
   stickyContent: {
     flex: 1,
-    marginHorizontal: 12,
+    marginHorizontal: wp('3%'),
   },
   stickyServiceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 6,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
+    marginBottom: hp('0.7%'),
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   stickyServiceBadgeText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
     marginLeft: 4,
@@ -695,18 +700,18 @@ const styles = StyleSheet.create({
   stickyHeaderStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   stickyStatItem: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('2%'),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   stickyStatNumber: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -723,9 +728,9 @@ const styles = StyleSheet.create({
   // Service Card
   serviceCard: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 20,
-    marginBottom: 24,
-    borderRadius: 24,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('3%'),
+    borderRadius: wp('6%'),
     padding: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
@@ -736,29 +741,29 @@ const styles = StyleSheet.create({
   serviceCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   serviceCardTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1C1C1E',
     marginLeft: 12,
   },
   serviceCardDescription: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
     lineHeight: 24,
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   featuresList: {
-    gap: 12,
+    gap: wp('3%'),
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   featureText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#4B5563',
     marginLeft: 10,
     fontWeight: '500',
@@ -766,23 +771,23 @@ const styles = StyleSheet.create({
   
   // Filters Section
   filtersSection: {
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: wp('5.5%'),
     fontWeight: '700',
     color: '#1C1C1E',
-    marginHorizontal: 20,
-    marginBottom: 16,
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('2%'),
   },
   filtersContent: {
-    paddingHorizontal: 20,
-    gap: 12,
+    paddingHorizontal: wp('5%'),
+    gap: wp('3%'),
   },
   filterButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 30,
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('6%'),
+    borderRadius: wp('7.5%'),
     backgroundColor: '#FFFFFF',
     borderWidth: 2,
     borderColor: '#E5E7EB',
@@ -793,9 +798,9 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   filterButtonActive: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
+    shadowColor: '#26B7C9',
     shadowOpacity: 0.25,
   },
   filterButtonText: {
@@ -809,30 +814,30 @@ const styles = StyleSheet.create({
   
   // Cleaners Section
   cleanersSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   cleanerCardWrapper: {
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: wp('10%'),
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6D6D70',
     textAlign: 'center',
   },
   cleanersList: {
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
     paddingBottom: 100,
   },
   cleanerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
     elevation: 8,
     shadowColor: '#000',
@@ -881,7 +886,7 @@ const styles = StyleSheet.create({
   pauseButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -896,7 +901,7 @@ const styles = StyleSheet.create({
   progressBar: {
     width: '30%',
     height: '100%',
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 2,
   },
   mediaRatingBadge: {
@@ -906,9 +911,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   mediaRatingText: {
     color: '#FFFFFF',
@@ -920,14 +925,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     right: 12,
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('3%'),
   },
   mediaPriceText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '700',
   },
   
@@ -938,12 +943,12 @@ const styles = StyleSheet.create({
   cleanerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   cleanerCardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   cleanerAvatarContainer: {
     position: 'relative',
@@ -952,7 +957,7 @@ const styles = StyleSheet.create({
   cleanerAvatar: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F2F2F7',
   },
   verificationBadge: {
@@ -961,8 +966,8 @@ const styles = StyleSheet.create({
     right: -1,
     width: 16,
     height: 16,
-    borderRadius: 8,
-    backgroundColor: '#34C759',
+    borderRadius: wp('2%'),
+    backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -975,67 +980,67 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#1C1C1E',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   cleanerRating: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   cleanerRatingText: {
     marginLeft: 4,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1C1C1E',
   },
   cleanerJobsText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#8E8E93',
     fontWeight: '500',
   },
   cleanerSpecialties: {
     fontSize: 13,
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     textTransform: 'capitalize',
   },
   cleanerPrice: {
     alignItems: 'flex-end',
   },
   cleanerPriceText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1C1C1E',
   },
   cleanerBio: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6D6D70',
     lineHeight: 18,
-    marginBottom: 14,
+    marginBottom: hp('1.7%'),
   },
   cleanerActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   viewProfileButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
     borderWidth: 1,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     alignItems: 'center',
   },
   viewProfileButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   bookNowButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#3ad3db',
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
+    backgroundColor: '#26B7C9',
     alignItems: 'center',
   },
   bookNowButtonText: {

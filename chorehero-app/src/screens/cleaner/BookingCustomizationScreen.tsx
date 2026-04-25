@@ -17,11 +17,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { bookingTemplateService, CustomBookingQuestion, BookingTemplate } from '../../services/bookingTemplateService';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../../components/Toast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { wp, hp } from '../../utils/responsive';
 
 type BookingCustomizationNavigationProp = StackNavigationProp<any>;
 
@@ -325,12 +325,6 @@ const BookingCustomizationScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      {/* Floating Navigation */}
-      <CleanerFloatingNavigation 
-        navigation={navigation as any}
-        currentScreen="Profile"
-      />
-
       {/* Add Question Modal */}
       <Modal
         visible={showAddQuestionModal}
@@ -535,24 +529,24 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
@@ -562,10 +556,10 @@ const styles = StyleSheet.create({
   },
   introCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 20,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -575,36 +569,36 @@ const styles = StyleSheet.create({
   introIcon: {
     width: 56,
     height: 56,
-    borderRadius: 28,
+    borderRadius: wp('7%'),
     backgroundColor: '#FEF3C7',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   introTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     textAlign: 'center',
   },
   introText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
   },
@@ -614,27 +608,27 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 32,
     alignItems: 'center',
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '500',
     color: '#374151',
-    marginTop: 12,
-    marginBottom: 4,
+    marginTop: hp('1.5%'),
+    marginBottom: hp('0.5%'),
   },
   emptyText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#9CA3AF',
     textAlign: 'center',
   },
   questionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 14,
-    marginBottom: 10,
+    marginBottom: hp('1.2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -648,7 +642,7 @@ const styles = StyleSheet.create({
   questionNumber: {
     width: 28,
     height: 28,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: '#FEF3C7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -666,21 +660,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: '#1F2937',
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   questionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   questionTypeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 3,
-    borderRadius: 6,
-    gap: 4,
+    borderRadius: wp('1.5%'),
+    gap: wp('1%'),
   },
   questionTypeText: {
     fontSize: 11,
@@ -688,9 +682,9 @@ const styles = StyleSheet.create({
   },
   requiredBadge: {
     backgroundColor: '#FEE2E2',
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: wp('1.5%'),
   },
   requiredText: {
     fontSize: 11,
@@ -701,17 +695,17 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   actionButtons: {
-    gap: 10,
-    marginBottom: 20,
+    gap: wp('2.5%'),
+    marginBottom: hp('2.5%'),
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F59E0B',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
+    paddingVertical: hp('1.7%'),
+    borderRadius: wp('3%'),
+    gap: wp('2%'),
   },
   addButtonText: {
     fontSize: 15,
@@ -723,11 +717,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: hp('1.7%'),
+    borderRadius: wp('3%'),
     borderWidth: 1.5,
     borderColor: '#F59E0B',
-    gap: 8,
+    gap: wp('2%'),
   },
   suggestButtonText: {
     fontSize: 15,
@@ -736,7 +730,7 @@ const styles = StyleSheet.create({
   },
   tipsCard: {
     backgroundColor: '#FFFBEB',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
     borderWidth: 1,
     borderColor: '#FDE68A',
@@ -745,7 +739,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#92400E',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   tipsText: {
     fontSize: 13,
@@ -773,42 +767,42 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   saveButton: {
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('2%'),
   },
   saveButtonDisabled: {
     backgroundColor: '#E5E7EB',
   },
   saveButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#FFFFFF',
   },
   modalBody: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: hp('5%'),
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   textInput: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     padding: 12,
     fontSize: 15,
     color: '#1F2937',
@@ -818,16 +812,16 @@ const styles = StyleSheet.create({
   typeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: wp('2%'),
   },
   typeOption: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('2.5%'),
+    gap: wp('1.5%'),
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -846,27 +840,27 @@ const styles = StyleSheet.create({
   optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: wp('2%'),
+    marginBottom: hp('1%'),
   },
   optionInput: {
     flex: 1,
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     padding: 10,
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#1F2937',
   },
   addOptionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
+    gap: wp('1%'),
+    paddingVertical: hp('1%'),
   },
   addOptionText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#F59E0B',
     fontWeight: '500',
   },
@@ -876,7 +870,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#F9FAFB',
     padding: 14,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
   },
   switchLabel: {
     fontSize: 15,
@@ -884,14 +878,14 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   switchHint: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginTop: 2,
   },
   suggestionHint: {
     fontSize: 13,
     color: '#6B7280',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
     textAlign: 'center',
   },
   suggestionCard: {
@@ -899,8 +893,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
     padding: 14,
-    borderRadius: 10,
-    marginBottom: 8,
+    borderRadius: wp('2.5%'),
+    marginBottom: hp('1%'),
   },
   suggestionCardAdded: {
     backgroundColor: '#F0FDF4',
@@ -909,10 +903,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   suggestionText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   suggestionTextAdded: {
     color: '#6B7280',
@@ -920,10 +914,10 @@ const styles = StyleSheet.create({
   suggestionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   suggestionType: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
   },
 });

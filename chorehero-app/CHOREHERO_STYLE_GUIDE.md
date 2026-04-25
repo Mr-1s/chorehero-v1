@@ -1,453 +1,320 @@
-# 🎨 ChoreHero Style Guide & Design System
+# ChoreHero Design System v2
 
-## 📝 **Overview**
-This guide defines the visual DNA, components, and styling patterns for ChoreHero - ensuring consistency across all screens and features.
+Source of truth for visual design. Derived from the ChoreHero logo (warm yellow "Chore" + deep teal "Hero") and the marketplace model (two roles: Customer and Pro/Hero).
 
 ---
 
-## 🎯 **Visual DNA**
+## 1. Brand Foundation
 
-### **Core Psychology**
+### Essence
 - **Trust + Speed + Transparency**
-- **Emotional Target**: Safe, efficient, professional yet approachable  
-- **User Mindset**: Anxious about strangers → Confident in choice
+- A marketplace where strangers enter homes — design must reduce anxiety fast.
 
-### **Brand Personality**
-- 🏠 **Trustworthy**: Users let strangers into their homes
-- ⚡ **Fast**: 60-second booking flow
-- 🧹 **Clean**: Obvious cleanliness associations
-- 👥 **Human**: Video-first, personal connections
+### Voice & Tone
+- **Short.** Target ≤12 words per CTA, ≤22 per body line.
+- **Action verbs first.** "Book", "Request", "See pros near you".
+- **Never condescending.** No "oops" / "uh oh" / emojis in chrome.
+- **Transparent about state.** Always show price, ETA, and next step.
 
 ---
 
-## 🎨 **Color Palette**
+## 2. Color Palette (logo-derived)
 
-### **Primary Colors**
-```typescript
-// Brand Colors
-primary: '#3ad3db',      // ChoreHero Teal - trust & cleanliness
-primaryDark: '#2ba8b0',  // Darker variant for interactions
-primaryLight: '#5de0e6', // Lighter variant for backgrounds
-
-// Supporting Colors  
-secondary: '#1A2B4C',    // Navy - professionalism & trust
-accent: '#FF6B6B',       // Coral - CTAs and highlights only
+### Primary
+```ts
+teal:       '#26B7C9'  // Primary CTA, active states, links
+tealDeep:   '#047B9B'  // Secondary / Hero role emphasis
+tealSoft:   '#E6F9FB'  // Tinted surfaces (selected chip, row hover)
 ```
 
-### **Semantic Colors**
-```typescript
-success: '#10B981',      // Green - completed actions
-warning: '#F59E0B',      // Amber - caution states  
-error: '#EF4444',        // Red - errors and destructive actions
-info: '#3B82F6',         // Blue - informational content
+### Signal
+```ts
+yellow:     '#E6B200'  // "Chore" accent, highlights, urgency
+yellowSoft: '#FFF6D6'  // Promo chip / toast surfaces
 ```
 
-### **Neutral Colors**
-```typescript
-// Backgrounds
-background: '#FAFAFA',   // App background (light gray)
-surface: '#FFFFFF',      // Card/component backgrounds
-overlay: 'rgba(0, 0, 0, 0.5)', // Modal overlays
-
-// Borders & Dividers
-border: '#E5E7EB',       // Standard borders
-borderLight: '#F3F4F6',  // Subtle dividers
-borderDark: '#D1D5DB',   // Emphasized borders
+### Semantic
+```ts
+success: '#10B981'
+warning: '#F59E0B'
+error:   '#EF4444'
+info:    '#3B82F6'
 ```
 
-### **Text Colors**
-```typescript
+### Neutrals
+```ts
+bg:         '#FAFBFC'  // App background
+surface:    '#FFFFFF'  // Cards, sheets
+surfaceAlt: '#F4F6F8'  // Inset panels
+border:     '#E5E7EB'
+borderSoft: '#F1F5F9'
+borderHard: '#D1D5DB'
+overlay:    'rgba(15,23,42,0.55)'
+```
+
+### Text
+```ts
 text: {
-  primary: '#1F2937',     // Main headings and important text
-  secondary: '#6B7280',   // Body text and descriptions  
-  disabled: '#9CA3AF',    // Disabled states and placeholders
-  inverse: '#FFFFFF',     // Text on dark backgrounds
-  muted: '#9CA3AF',       // Less important text
+  primary:   '#0F172A',
+  secondary: '#475569',
+  muted:     '#94A3B8',
+  inverse:   '#FFFFFF',
 }
 ```
 
-### **Color Usage Guidelines**
-- **Primary (#3ad3db)**: Main CTAs, active states, brand elements
-- **Secondary (#1A2B4C)**: Navigation, secondary CTAs, professional elements
-- **Accent (#FF6B6B)**: Important CTAs only (book now, urgent actions)
-- **Never use more than 3 colors per screen**
-- **Maintain 4.5:1 contrast ratio for accessibility**
+### Dark Mode (phase 2 tokens)
+```ts
+darkBg:      '#0B1220'
+darkSurface: '#111827'
+darkBorder:  '#1F2937'
+darkText:    '#E5E7EB'
+```
+
+### Usage Rules
+- **Max 3 color families per screen.**
+- **Yellow is accent only.** Never as a background block or page BG.
+- **Teal vs TealDeep**: Customer UI uses `teal`. Pro/Hero UI uses `tealDeep`.
+- **Contrast**: All body text ≥4.5:1. Large text ≥3:1.
+
+### Approved AA color pairs
+- `#0F172A` on `#FFFFFF` (primary body)
+- `#FFFFFF` on `#26B7C9` (primary CTA)
+- `#FFFFFF` on `#047B9B` (pro-role CTA)
+- `#0F172A` on `#E6B200` (yellow accent button)
+- `#FFFFFF` on `#EF4444` (destructive)
 
 ---
 
-## 📱 **Typography**
+## 3. Role Theming
 
-### **Font Families**
-```typescript
-// Headers & Emphasis
-headers: 'Inter', 'SF Pro Display', '-apple-system', 'BlinkMacSystemFont'
+Two runtime themes, already wired via `HERO_THEME` + `CUSTOMER_THEME`:
 
-// Body & Interface
-body: '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto'
-```
+| Token | Customer | Pro / Hero |
+|---|---|---|
+| `primary` | `#26B7C9` | `#047B9B` |
+| `primaryMuted` | `#E6F9FB` | `#DCEFF6` |
+| `accent` | `#E6B200` | `#E6B200` |
+| `navSurface` | `#FFFFFF` | `#0F1E33` |
+| `navTextActive` | `#0F172A` | `#FFFFFF` |
 
-### **Font Sizes & Weights**
-```typescript
-sizes: {
-  xs: 12,     // Small labels, captions
-  sm: 14,     // Body text, form inputs
-  base: 16,   // Default body text
-  lg: 18,     // Large body text
-  xl: 20,     // Small headings
-  '2xl': 24,  // Medium headings  
-  '3xl': 32,  // Large headings
-  '4xl': 36,  // Hero headings
-}
-
-weights: {
-  normal: '400',    // Regular body text
-  medium: '500',    // Emphasized text
-  semibold: '600',  // Subheadings
-  bold: '700',      // Headings
-  extrabold: '800', // Hero headings
-}
-```
-
-### **Typography Examples**
-```typescript
-// Hero Heading (Welcome screens)
-{
-  fontSize: 36,
-  fontWeight: '800',
-  color: '#FFFFFF',
-  letterSpacing: 1.2,
-  textShadowColor: 'rgba(0, 0, 0, 0.3)',
-}
-
-// Page Title
-{
-  fontSize: 24,
-  fontWeight: '700', 
-  color: '#1F2937',
-  letterSpacing: 0.5,
-}
-
-// Body Text
-{
-  fontSize: 16,
-  fontWeight: '400',
-  color: '#6B7280',
-  lineHeight: 24,
-}
-
-// Button Text
-{
-  fontSize: 16,
-  fontWeight: '600',
-  letterSpacing: 0.5,
-}
-```
+Switch themes via role, not route. Never mix both primaries on one screen.
 
 ---
 
-## 🧩 **Component Patterns**
+## 4. Typography
 
-### **Cards**
-```typescript
-// Standard Card
-{
-  backgroundColor: '#FFFFFF',
-  borderRadius: 12,
-  padding: 16,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.1,
-  shadowRadius: 8,
-  elevation: 4,
-}
-
-// Elevated Card (interactive)
-{
-  backgroundColor: '#FFFFFF',
-  borderRadius: 16,
-  padding: 20,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.12,
-  shadowRadius: 12,
-  elevation: 8,
-}
+### Stack (single, not mixed)
+```ts
+family: '-apple-system, SF Pro, Inter, Roboto, sans-serif'
 ```
 
-### **Buttons**
-
-#### **Primary Button**
-```typescript
-{
-  backgroundColor: '#3ad3db',
-  borderRadius: 12,
-  paddingVertical: 16,
-  paddingHorizontal: 24,
-  shadowColor: '#3ad3db',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.3,
-  shadowRadius: 8,
-  elevation: 6,
-}
+### Scale
+```ts
+display:  32 / 700 / -0.5   // Hero moments only
+h1:       24 / 700 / -0.3
+h2:       20 / 600 / -0.2
+title:    17 / 600 / -0.1
+body:     15 / 400 /  0
+bodySm:   13 / 400 /  0.1
+caption:  11 / 500 /  0.3
+button:   15 / 600 /  0.2
 ```
+`size / weight / letterSpacing`
 
-#### **Secondary Button**
-```typescript
-{
-  backgroundColor: 'transparent',
-  borderWidth: 2,
-  borderColor: '#3ad3db',
-  borderRadius: 12,
-  paddingVertical: 14,
-  paddingHorizontal: 22,
-}
-```
-
-#### **Destructive Button**
-```typescript
-{
-  backgroundColor: '#EF4444',
-  borderRadius: 12,
-  paddingVertical: 16,
-  paddingHorizontal: 24,
-}
-```
-
-### **Form Elements**
-
-#### **Text Input**
-```typescript
-{
-  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  borderWidth: 2,
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderRadius: 12,
-  paddingVertical: 16,
-  paddingHorizontal: 16,
-  fontSize: 16,
-  color: '#374151',
-}
-
-// Focused State
-{
-  borderColor: '#3ad3db',
-  shadowColor: '#3ad3db',
-  shadowOffset: { width: 0, height: 0 },
-  shadowOpacity: 0.3,
-  shadowRadius: 4,
-}
-```
-
-#### **Checkbox**
-```typescript
-// Unchecked
-{
-  width: 22,
-  height: 22,
-  borderRadius: 6,
-  borderWidth: 2,
-  borderColor: '#9CA3AF',
-  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-}
-
-// Checked
-{
-  backgroundColor: '#3ad3db',
-  borderColor: '#3ad3db',
-  shadowColor: '#3ad3db',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.3,
-  shadowRadius: 4,
-}
-```
+### Rules
+- Never weight below 400 for body.
+- Title case for buttons; sentence case for body.
+- Line height: body 1.4, headings 1.2.
 
 ---
 
-## 📐 **Spacing & Layout**
+## 5. Spacing & Layout
 
-### **Spacing Scale**
-```typescript
-spacing: {
-  xs: 4,      // Tight spacing
-  sm: 8,      // Small spacing  
-  md: 12,     // Medium spacing
-  base: 16,   // Default spacing
-  lg: 20,     // Large spacing
-  xl: 24,     // Extra large spacing
-  '2xl': 32,  // Section spacing
-  '3xl': 48,  // Page spacing
+### 4px grid
+```ts
+spacing: { 0:0, 1:4, 2:8, 3:12, 4:16, 5:20, 6:24, 7:28, 8:32, 10:40, 12:48 }
+```
+
+### Layout
+- Screen horizontal padding: **20**
+- Card padding: **16–20**
+- Section gap: **24–32**
+- List row min height: **56**
+- Touch target min: **44 x 44**
+
+### Radii
+```ts
+radii: { xs:6, sm:8, md:12, lg:16, xl:20, pill:999 }
+```
+- Inputs `md`, cards `md–lg`, sheets `xl`, chips `pill`.
+
+### Elevation
+```ts
+e1: shadowOpacity:0.05, radius:4,  offsetY:1
+e2: shadowOpacity:0.08, radius:8,  offsetY:2
+e3: shadowOpacity:0.12, radius:16, offsetY:6
+e4: shadowOpacity:0.18, radius:24, offsetY:10
+```
+Use `e2` for cards, `e3` for sheets, `e4` for modals.
+
+---
+
+## 6. Core Components
+
+### Button
+- **Primary** — filled `teal`, radius `md`, height 48, text white 600.
+- **Secondary** — outline `teal` 1.5px, transparent bg.
+- **Tertiary** — text-only `teal`, no bg.
+- **Destructive** — filled `error`.
+- **Accent** — filled `yellow`, text `#0F172A`. Reserved for conversion moments.
+- States: default / pressed (scale 0.98, opacity 0.9) / disabled (opacity 0.5) / loading (spinner replaces label).
+
+### Input
+- Height 48, radius `md`, border `border`, focus border `teal` + `e1`.
+- Label above field (13 / 600). Helper text below (12 / 400 / muted). Error text `error`.
+
+### Card
+- `surface`, radius `md`, padding 16, `e2`. Interactive cards add press scale 0.99.
+
+### Chip
+- Pill radius, 12 vertical / 10 horizontal, `bodySm`.
+- Selected: bg `tealSoft`, border `teal`, text `tealDeep`.
+
+### List Row
+- Avatar 40, title `title`, subtitle `bodySm/muted`, min-height 56, chevron right 16.
+
+### Tab Bar
+- Height 64 + safe area, `e3`, icons 22, active color = role primary.
+
+### Sheet / Modal
+- Radius top `xl`, handle bar 4x36, `overlay`, content padding 20, close affordance top-left or drag-down.
+
+### Badge
+- Solid for status (`success/warning/error/info`), soft for tags (surface: `tealSoft`, text: `tealDeep`).
+
+### Skeleton
+- Rounded rect, `#E5E7EB` base, subtle shimmer.
+
+### Toast
+- Bottom, radius `md`, `e3`, auto-dismiss 3s. Success/info/error color on left stripe.
+
+---
+
+## 7. States (must-haves per screen)
+
+Every screen ships 5 states, no exceptions:
+1. **Loading** — skeleton, never spinners on whole screens.
+2. **Empty** — illustration + one-line explanation + one CTA.
+3. **Error** — message + retry.
+4. **Partial** — degraded data (offline / cached).
+5. **Success** — confirmation with clear next step.
+
+Use the same components across the 5 states for visual continuity.
+
+---
+
+## 8. Motion
+
+### Tokens
+```ts
+duration: { fast:150, base:220, slow:320 }
+easing: {
+  standard: 'cubic-bezier(0.2, 0, 0, 1)',
+  emphasized: 'cubic-bezier(0.3, 0, 0, 1)',
+  accel: 'cubic-bezier(0.3, 0, 1, 1)',
 }
 ```
 
-### **Layout Guidelines**
-- **Screen Padding**: 20px horizontal
-- **Card Padding**: 16-20px  
-- **Element Spacing**: 16px between related elements
-- **Section Spacing**: 32px between sections
-- **Button Padding**: 16px vertical, 24px horizontal
+### Rules
+- Transitions ≤320ms. No bounces on CTAs.
+- Haptics: light on selection, medium on confirm, warning on error.
+- Page transitions: slide_from_right stack; sheets use spring.
 
-### **Border Radius Scale**
-```typescript
-radius: {
-  sm: 6,      // Small elements
-  base: 8,    // Default
-  md: 12,     // Cards, buttons
-  lg: 16,     // Large cards
-  xl: 20,     // Hero elements
-  full: 9999, // Circular
-}
+---
+
+## 9. Iconography & Imagery
+
+- **Icons**: Ionicons; 20 default, 22 nav, 16 inline. Stroke style only; never fill + stroke mixed.
+- **Avatars**: real photos > initials > default silhouette (never generic cartoons).
+- **Media**: videos dominate feed; images fill cards at 4:5 or 16:9. Always `resizeMode="cover"`.
+- **Illustrations**: limited palette (teal + yellow + neutrals). No stock clipart.
+
+---
+
+## 10. Data Display Patterns
+
+### Pricing
+- Always cents in DB, dollars in UI. Format `$85` for whole numbers, `$85.50` otherwise.
+- Range: `$80–$120`. Hourly: `$45/hr`.
+
+### Time
+- Relative under 24h (`in 2h`), absolute after (`Fri, Apr 26 · 10:00 AM`).
+- Timezones: always show when cross-zone.
+
+### Trust
+- Show: verification badge, rating (1 decimal), jobs completed, photo.
+- Never show: fake counts, "thousands of reviews" copy.
+
+---
+
+## 11. Accessibility
+
+- Target ≥44x44; space ≥8 between targets.
+- Dynamic type: honor system scaling up to 130%.
+- `accessibilityLabel` on every interactive. `accessibilityRole` set correctly.
+- Never convey meaning with color alone (pair with icon or text).
+- Reduced Motion: halve durations, remove spring overshoot.
+
+---
+
+## 12. Anti-Patterns (do not ship)
+
+- Two primary CTAs on one screen.
+- Color-coded meaning with no label.
+- Empty states saying "No data".
+- Toasts for critical errors (use inline error).
+- Emoji in navigation, buttons, or error messages.
+- Coral / red-orange accents (retired).
+
+---
+
+## 13. Implementation
+
+Source tokens live in `src/utils/constants.ts` and role tokens in `src/context/ThemeContext.tsx`. All screens consume tokens — no hex literals in components.
+
+```ts
+import { COLORS, TYPOGRAPHY, SPACING, RADII, SHADOWS } from '../utils/constants';
 ```
 
----
-
-## 🌟 **Interactive States**
-
-### **Button States**
-```typescript
-// Default → Pressed → Disabled
-default: { opacity: 1, transform: [{ scale: 1 }] }
-pressed: { opacity: 0.8, transform: [{ scale: 0.98 }] }
-disabled: { opacity: 0.6 }
-
-// With color changes
-activeColor: '#2ba8b0'  // Darker primary for active states
-```
-
-### **Touch Feedback**
-- **activeOpacity**: 0.7 for most touchable elements
-- **Scale Animation**: 0.98 for button presses  
-- **Haptic Feedback**: Light impact for interactions
+If a token is missing, add it to constants first, then use it. Never inline.
 
 ---
 
-## 🎭 **Animation Guidelines**
+## 14. Quality Checklist (ship gate)
 
-### **Timing Functions**
-```typescript
-// Ease curves
-easeOut: 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
-easeIn: 'cubic-bezier(0.55, 0.055, 0.675, 0.19)'
-easeInOut: 'cubic-bezier(0.645, 0.045, 0.355, 1)'
+Visual
+- [ ] Uses role theme tokens
+- [ ] No hex literals outside `constants.ts`
+- [ ] Follows spacing grid and radii
+- [ ] Max 3 color families
 
-// Durations
-fast: 200,      // Quick interactions
-normal: 300,    // Standard animations  
-slow: 500,      // Page transitions
-```
+Interaction
+- [ ] Touch targets ≥44
+- [ ] Pressed/disabled/loading states
+- [ ] Haptics on confirm actions
 
-### **Common Animations**
-- **Fade In**: opacity 0 → 1 (300ms)
-- **Slide Up**: translateY 20 → 0 (300ms)
-- **Scale In**: scale 0.9 → 1 (200ms)
-- **Spring**: Use for interactive elements
+States
+- [ ] Loading / Empty / Error / Success implemented
 
----
+Accessibility
+- [ ] 4.5:1 text contrast
+- [ ] Labels + roles on interactives
+- [ ] Dynamic type works
 
-## 🎨 **Screen-Specific Patterns**
-
-### **Splash Screen**
-- **Background**: Dark gradient with brand accent
-- **Logo**: Centered with glow effect
-- **Animation**: Spring scale + fade sequence
-- **Duration**: 2-3 seconds total
-
-### **Authentication Screens**
-- **Background**: Gradient from primary to secondary  
-- **Cards**: White with high elevation
-- **Inputs**: Semi-transparent with focus states
-- **CTAs**: Full-width primary buttons
-
-### **Onboarding Screens**
-- **Progress**: Teal progress bar
-- **Steps**: Card-based with clear hierarchy
-- **Navigation**: Back + Continue buttons
-- **Avatars**: Professional placeholders (no Lego!)
-
-### **Main App Screens**
-- **Navigation**: Bottom tabs with icons
-- **Cards**: Service/cleaner cards with consistent layout
-- **CTAs**: Prominent booking buttons
-- **Trust Elements**: Verification badges, ratings
+Copy
+- [ ] CTAs ≤12 words, action verb first
+- [ ] No emojis in chrome
 
 ---
 
-## 🔧 **Implementation**
-
-### **Constants File Usage**
-Import colors and spacing from:
-```typescript
-import { COLORS, TYPOGRAPHY, SPACING } from '../utils/constants';
-
-// Usage
-color: COLORS.primary
-fontSize: TYPOGRAPHY.sizes.lg
-margin: SPACING.base
-```
-
-### **Reusable Styles**
-Create style objects for common patterns:
-```typescript
-// Card styles
-const cardStyles = {
-  container: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: SPACING.base,
-    ...shadowStyle,
-  }
-}
-
-// Button styles  
-const buttonStyles = {
-  primary: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    paddingVertical: SPACING.base,
-    ...primaryShadow,
-  }
-}
-```
-
----
-
-## ✅ **Quality Checklist**
-
-Before shipping any screen, ensure:
-
-### **Visual Consistency**
-- [ ] Uses brand colors from style guide
-- [ ] Typography follows size/weight guidelines  
-- [ ] Spacing follows 4px grid system
-- [ ] Interactive elements have proper states
-
-### **Accessibility**
-- [ ] 4.5:1 contrast ratio for text
-- [ ] Touch targets minimum 44px
-- [ ] Proper semantic labels
-- [ ] Screen reader friendly
-
-### **Brand Compliance**
-- [ ] No unauthorized color usage
-- [ ] Consistent component patterns
-- [ ] Professional placeholder content
-- [ ] Trust-focused messaging
-
-### **Performance**
-- [ ] Optimized images and assets
-- [ ] Smooth 60fps animations
-- [ ] Fast interaction feedback
-- [ ] Proper loading states
-
----
-
-## 🎯 **Key Principles**
-
-1. **Trust First**: Every design decision should build user confidence
-2. **Speed Matters**: Minimize cognitive load and interaction steps  
-3. **Video Forward**: Leverage video content for human connection
-4. **Mobile Native**: Design for thumbs and one-handed use
-5. **Accessible**: Everyone should be able to use ChoreHero
-
----
-
-**This style guide is a living document. Update it as the design system evolves!** 🚀
+Living document — update tokens here first, then code.

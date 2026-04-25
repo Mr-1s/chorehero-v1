@@ -327,18 +327,14 @@ class StripeService {
         return paymentIntent as any;
       }
       
-      // Create immediate transfer to cleaner (after platform fee)
-      const cleanerTransfer = await this.createCleanerTransfer(
-        cleanerAccountId,
-        breakdown.cleaner_amount,
-        bookingId
-      );
+      // Transfer to cleaner happens automatically via Stripe Connect
+      // (create-payment-intent uses transfer_data.destination)
       
       return {
         success: true,
         data: {
           paymentIntent: paymentIntent.data,
-          cleanerTransfer: cleanerTransfer.data,
+          cleanerTransfer: null, // Automatic via Connect transfer_data
           platformFee: breakdown.platform_fee,
         },
       };

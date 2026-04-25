@@ -87,8 +87,10 @@ const CleanerStatTile: React.FC<CleanerStatTileProps> = ({
       {/* Value */}
       <Text style={styles.value}>{value}</Text>
 
-      {/* Label */}
-      <Text style={styles.label}>{label}</Text>
+      {/* Label — fixed block height so tiles stay aligned when copy wraps */}
+      <Text style={styles.label} numberOfLines={2}>
+        {label}
+      </Text>
     </Animated.View>
   );
 };
@@ -96,10 +98,14 @@ const CleanerStatTile: React.FC<CleanerStatTileProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    width: '100%',
+    minWidth: 0,
     backgroundColor: colors.cardBg,
     borderRadius: radii.card,
-    padding: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
+    justifyContent: 'flex-start',
     borderWidth: 1,
     borderColor: colors.borderSubtle,
     ...shadows.soft,
@@ -123,6 +129,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textSecondary,
     textAlign: 'center',
+    lineHeight: 14,
+    minHeight: 28,
   },
 });
 

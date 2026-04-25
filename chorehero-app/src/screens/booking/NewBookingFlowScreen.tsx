@@ -18,13 +18,18 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
 import { bookingTemplateService, CustomBookingQuestion } from '../../services/bookingTemplateService';
 import { bookingStateManager } from '../../services/bookingStateManager';
-import { notificationService } from '../../services/notificationService';
-import { stripeService } from '../../services/stripe';
+import { bookingService } from '../../services/booking';
+import { jobQuoteService } from '../../services/jobQuoteService';
+import { geocodeFreeformAddress } from '../../services/addressGeocoding';
+import { wp, hp } from '../../utils/responsive';
+import { UnifiedBookingParams } from '../../types/bookingFlow';
+import DynamicBookingForm from '../../components/DynamicBookingForm';
 
 const { width } = Dimensions.get('window');
 
@@ -33,33 +38,24 @@ const { width } = Dimensions.get('window');
 // ===========================================
 
 type StackParamList = {
-  NewBookingFlow: {
-    cleanerId?: string;
-    serviceType?: string;
-    serviceName?: string;
-    basePrice?: number;
-  };
-  BookingConfirmation: {
+  UnifiedBooking: UnifiedBookingParams;
+  BookingConfirmed: {
     bookingId: string;
     service?: any;
     cleaner?: any;
     address?: string;
     scheduledTime?: string;
   };
+  PaymentScreen: undefined;
   MainTabs: undefined;
 };
 
-type NewBookingFlowNavigationProp = StackNavigationProp<StackParamList, 'NewBookingFlow'>;
+type NewBookingFlowNavigationProp = StackNavigationProp<StackParamList, 'UnifiedBooking'>;
 
 interface NewBookingFlowProps {
   navigation: NewBookingFlowNavigationProp;
   route: {
-    params?: {
-      cleanerId?: string;
-      serviceType?: string;
-      serviceName?: string;
-      basePrice?: number;
-    };
+    params?: UnifiedBookingParams;
   };
 }
 
@@ -159,6 +155,15 @@ const TIME_SLOTS = [
 const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route }) => {
   const { user } = useAuth();
   const cleanerId = route.params?.cleanerId || '';
+  const quoteId = route.params?.quoteId;
+  const quoteBasePrice =
+    route.params?.basePrice ??
+    (route.params?.packageBasePriceCents ? route.params.packageBasePriceCents / 100 : undefined) ??
+    route.params?.hourlyRate;
+  const jobId = route.params?.jobId;
+  const isFromQuote = !!(quoteId && quoteBasePrice != null);
+  const dynamicServiceId = route.params?.serviceId;
+  const dynamicProId = route.params?.proId || cleanerId || undefined;
   
   // State
   const [currentStep, setCurrentStep] = useState(1);
@@ -173,6 +178,14 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
   const [couponError, setCouponError] = useState('');
   const [couponApplied, setCouponApplied] = useState(false);
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
+  const [dynamicAnswers, setDynamicAnswers] = useState<Record<string, unknown>>({});
+  const [dynamicAnswersWithLabels, setDynamicAnswersWithLabels] = useState<
+    { question_id: string; question_label: string; answer: unknown }[]
+  >([]);
+  const [dynamicProServiceId, setDynamicProServiceId] = useState<string | undefined>(undefined);
+  const [dynamicPricingType, setDynamicPricingType] = useState<'fixed' | 'hourly' | 'quote' | undefined>(undefined);
+  const isQuoteMode = dynamicPricingType === 'quote';
   
   const [data, setData] = useState<BookingData>({
     selectedService: null,
@@ -210,6 +223,41 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
     loadCleanerTemplate();
     loadSavedProgress();
   }, [cleanerId]);
+
+  useEffect(() => {
+    const loadPaymentMethod = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase
+        .from('payment_methods')
+        .select('id, is_default')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .order('is_default', { ascending: false })
+        .limit(1);
+      if (data?.[0]?.id) {
+        setSelectedPaymentMethodId(data[0].id);
+      }
+    };
+    loadPaymentMethod();
+  }, [user?.id]);
+
+  // Pre-fill from quote when booking from QuoteList
+  useEffect(() => {
+    if (isFromQuote && quoteBasePrice != null && !data.selectedService) {
+      setData((prev) => ({
+        ...prev,
+        selectedService: {
+          id: 'quote',
+          name: 'Quote Service',
+          description: 'Service from your video quote',
+          basePrice: quoteBasePrice,
+          duration: '2 hours',
+          icon: 'videocam',
+        },
+        estimatedCost: quoteBasePrice,
+      }));
+    }
+  }, [isFromQuote, quoteBasePrice]);
   
   useEffect(() => {
     Animated.timing(progressAnim, {
@@ -448,20 +496,27 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         return;
       }
 
-      if (user.role === 'customer' && user.customer_onboarding_state !== 'TRANSACTION_READY') {
-        Alert.alert(
-          'Payment Required',
-          'Please add a payment method before booking.',
-          [{ text: 'Add Payment Method', onPress: () => navigation.navigate('PaymentScreen') }]
-        );
-        return;
+      if (!isQuoteMode) {
+        if (user.role === 'customer' && user.customer_onboarding_state !== 'TRANSACTION_READY') {
+          Alert.alert(
+            'Payment Required',
+            'Please add a payment method before booking.',
+            [{ text: 'Add Payment Method', onPress: () => navigation.navigate('PaymentScreen') }]
+          );
+          return;
+        }
+        if (!selectedPaymentMethodId) {
+          Alert.alert(
+            'Payment Method Required',
+            'Please add a payment method before booking.',
+            [{ text: 'Add Payment Method', onPress: () => navigation.navigate('PaymentScreen') }]
+          );
+          return;
+        }
       }
 
-      // Parse the scheduled date and time properly
-      // selectedDate is ISO format (YYYY-MM-DD) and selectedTime is like "10:00 AM"
       let scheduledDateTime: Date;
       try {
-        // Parse ISO date (YYYY-MM-DD)
         const [year, month, day] = data.selectedDate.split('-').map(Number);
         const timeParts = data.selectedTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
         
@@ -469,28 +524,19 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
           let hours = parseInt(timeParts[1]);
           const minutes = parseInt(timeParts[2]);
           const isPM = timeParts[3]?.toUpperCase() === 'PM';
-          
-          // Convert to 24-hour format
           if (isPM && hours !== 12) hours += 12;
           if (!isPM && hours === 12) hours = 0;
-          
           scheduledDateTime = new Date(year, month - 1, day, hours, minutes);
         } else {
-          // Fallback: use current date + 1 day
           scheduledDateTime = new Date();
           scheduledDateTime.setDate(scheduledDateTime.getDate() + 1);
         }
       } catch {
-        // Fallback
         scheduledDateTime = new Date();
         scheduledDateTime.setDate(scheduledDateTime.getDate() + 1);
       }
 
-      // Calculate pricing
       const servicePrice = data.selectedService?.basePrice || 80;
-      const platformFee = Math.round(servicePrice * 0.15); // 15% platform fee
-      const totalAmount = servicePrice + platformFee;
-
       const jobDetailsParts = [
         data.homeType && `Home: ${data.homeType}`,
         data.bedrooms && `Beds: ${data.bedrooms}`,
@@ -506,80 +552,78 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
       const baseRequest = `Service: ${data.selectedService?.name || 'Cleaning'}`;
       const specialRequests = [baseRequest, ...jobDetailsParts].join(' • ');
 
-      const { data: booking, error: bookingError } = await supabase
-        .from('bookings')
+      let bookingGeo: { latitude: number; longitude: number } | null = null;
+      if (data.address?.trim()) {
+        bookingGeo = await geocodeFreeformAddress(data.address);
+      }
+
+      const { data: addressInsert, error: addressError } = await supabase
+        .from('addresses')
         .insert({
-          customer_id: user.id,
-          cleaner_id: cleanerId,
-          service_type: 'standard',
-          status: 'pending',
-          scheduled_time: scheduledDateTime.toISOString(),
-          estimated_duration: 120, // 2 hours default
-          service_base_price: servicePrice,
-          platform_fee: platformFee,
-          total_amount: totalAmount,
-          address: data.address || '',
-          apartment_unit: data.apartmentUnit || null,
+          user_id: user.id,
+          street: data.address || 'Address on file',
+          city: 'Unknown',
+          state: 'NA',
+          zip_code: '00000',
+          country: 'US',
+          is_default: false,
           access_instructions: data.accessInstructions || null,
-          special_instructions: specialRequests,
-          bedrooms: data.bedrooms || null,
-          bathrooms: data.bathrooms || null,
-          square_feet: data.squareFootage ? Number(data.squareFootage) : null,
-          has_pets: data.hasPets,
-          pet_details: data.hasPets ? data.petDetails || null : null,
+          ...(bookingGeo
+            ? { latitude: bookingGeo.latitude, longitude: bookingGeo.longitude }
+            : {}),
         })
-        .select()
+        .select('id')
         .single();
-
-      if (bookingError) {
-        console.error('Booking creation error:', bookingError);
-        throw new Error('Failed to create booking');
+      if (addressError || !addressInsert?.id) {
+        throw new Error('Failed to save address');
       }
 
-      console.log('✅ Booking created:', booking.id);
+      const bookingResponse = await bookingService.createBooking({
+        customer_id: user.id,
+        cleaner_id: cleanerId,
+        service_type: 'standard',
+        address_id: addressInsert.id,
+        scheduled_time: scheduledDateTime.toISOString(),
+        estimated_duration: 120,
+        add_ons: [],
+        special_instructions: specialRequests,
+        access_instructions: data.accessInstructions || undefined,
+        bedrooms: data.bedrooms ? Number(data.bedrooms) : undefined,
+        bathrooms: data.bathrooms ? Number(data.bathrooms) : undefined,
+        square_feet: data.squareFootage ? Number(data.squareFootage) : undefined,
+        has_pets: data.hasPets,
+        pet_details: data.hasPets ? data.petDetails || null : null,
+        payment_method_id: isQuoteMode ? 'uncollected' : (selectedPaymentMethodId || 'uncollected'),
+        package_id: route.params?.packageId,
+        service_id: dynamicServiceId,
+        pro_service_id: dynamicProServiceId,
+        pricing_type: dynamicPricingType,
+        service_base_price_cents: isQuoteMode ? undefined : Math.round(servicePrice * 100),
+        answers:
+          dynamicAnswersWithLabels.length > 0
+            ? dynamicAnswersWithLabels
+            : Object.entries(dynamicAnswers).map(([questionId, answer]) => ({
+                question_id: questionId,
+                question_label: questionId,
+                answer,
+              })),
+      });
+      if (!bookingResponse.success || !bookingResponse.data) {
+        throw new Error(bookingResponse.error || 'Failed to create booking');
+      }
+      const booking = bookingResponse.data.booking;
 
-      // 2. Update cleaner's stats (increment total_jobs) - non-blocking
-      if (cleanerId) {
-        try {
-          const { error: statsError } = await supabase.rpc('increment_cleaner_bookings', {
-            cleaner_user_id: cleanerId,
-            booking_amount: totalPrice
-          });
-          
-          if (statsError) {
-            console.warn('Could not update cleaner stats:', statsError.message);
-          } else {
-            console.log('📊 Cleaner stats updated');
-          }
-        } catch (rpcError) {
-          console.warn('RPC function may not exist:', rpcError);
-          // Non-blocking - the function might not be created yet
+      if (quoteId) {
+        await jobQuoteService.acceptQuote(quoteId);
+        if (jobId) {
+          await jobQuoteService.setJobBooked(jobId);
         }
       }
 
-      // 3. Send notification to cleaner
-      if (cleanerId) {
-        try {
-          await notificationService.sendBookingNotification(
-            booking.id,
-            cleanerId,
-            user.id,
-            user.name || 'A customer',
-            data.selectedService?.name || 'Cleaning Service',
-            user.avatar_url
-          );
-          console.log('📬 Booking notification sent to cleaner');
-        } catch (notifError) {
-          console.warn('Could not send notification:', notifError);
-        }
-      }
-
-      // 4. Clear saved booking progress
       if (cleanerId) {
         await bookingStateManager.clearBookingProgress(cleanerId);
       }
 
-      // 5. Show success and navigate
       const displayDate = data.selectedDate 
         ? new Date(data.selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
         : 'your selected date';
@@ -590,7 +634,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         [
           {
             text: 'View Booking',
-            onPress: () => navigation.navigate('BookingConfirmation', {
+            onPress: () => navigation.navigate('BookingConfirmed', {
               bookingId: booking.id,
               service: data.selectedService,
               cleaner: { id: cleanerId },
@@ -697,7 +741,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
               <Ionicons 
                 name={service.icon} 
                 size={28} 
-                color={data.selectedService?.id === service.id ? '#fff' : '#3ad3db'} 
+                color={data.selectedService?.id === service.id ? '#fff' : '#26B7C9'} 
               />
             </View>
             
@@ -732,7 +776,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
             
             {data.selectedService?.id === service.id && (
               <View style={styles.selectedCheckmark}>
-                <Ionicons name="checkmark-circle" size={24} color="#3ad3db" />
+                <Ionicons name="checkmark-circle" size={24} color="#26B7C9" />
               </View>
             )}
           </TouchableOpacity>
@@ -844,7 +888,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         <View style={styles.recurringCard}>
           <View style={styles.recurringRow}>
             <View style={styles.recurringInfo}>
-              <Ionicons name="repeat" size={24} color="#3ad3db" />
+              <Ionicons name="repeat" size={24} color="#26B7C9" />
               <View style={styles.recurringTextContainer}>
                 <Text style={styles.recurringTitle}>Make it recurring?</Text>
                 <Text style={styles.recurringSubtitle}>Save 10% on regular cleanings</Text>
@@ -853,7 +897,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
             <Switch
               value={data.isRecurring}
               onValueChange={(value) => updateData('isRecurring', value)}
-              trackColor={{ false: '#E2E8F0', true: '#3ad3db' }}
+              trackColor={{ false: '#E2E8F0', true: '#26B7C9' }}
               thumbColor="#fff"
             />
           </View>
@@ -1162,8 +1206,24 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
       )}
       
       {/* Security Note */}
+      {dynamicServiceId ? (
+        <View style={{ marginTop: 14 }}>
+          <DynamicBookingForm
+            serviceId={dynamicServiceId}
+            proId={dynamicProId}
+            onSubmit={(answers, meta) => {
+              setDynamicAnswers(answers);
+              setDynamicProServiceId(meta?.proServiceId);
+              setDynamicPricingType((meta as any)?.pricingType);
+              if (meta?.answersWithLabels) {
+                setDynamicAnswersWithLabels(meta.answersWithLabels);
+              }
+            }}
+          />
+        </View>
+      ) : null}
       <View style={styles.securityNote}>
-        <Ionicons name="shield-checkmark" size={20} color="#3ad3db" />
+        <Ionicons name="shield-checkmark" size={20} color="#26B7C9" />
         <Text style={styles.securityNoteText}>
           Your information is secure and only shared with your cleaner
         </Text>
@@ -1192,7 +1252,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         {/* Service */}
         <View style={styles.summarySection}>
           <View style={styles.summarySectionHeader}>
-            <Ionicons name="sparkles" size={20} color="#3ad3db" />
+            <Ionicons name="sparkles" size={20} color="#26B7C9" />
             <Text style={styles.summarySectionTitle}>Service</Text>
           </View>
           <View style={styles.summaryRow}>
@@ -1209,7 +1269,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         {/* Date & Time */}
         <View style={styles.summarySection}>
           <View style={styles.summarySectionHeader}>
-            <Ionicons name="calendar" size={20} color="#3ad3db" />
+            <Ionicons name="calendar" size={20} color="#26B7C9" />
             <Text style={styles.summarySectionTitle}>When</Text>
           </View>
           <Text style={styles.summaryText}>
@@ -1230,7 +1290,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
         {/* Location */}
         <View style={styles.summarySection}>
           <View style={styles.summarySectionHeader}>
-            <Ionicons name="location" size={20} color="#3ad3db" />
+            <Ionicons name="location" size={20} color="#26B7C9" />
             <Text style={styles.summarySectionTitle}>Where</Text>
           </View>
           <Text style={styles.summaryText}>
@@ -1280,20 +1340,20 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
       {/* Payment Method */}
       <View style={styles.paymentSection}>
         <View style={styles.summarySectionHeader}>
-          <Ionicons name="card" size={20} color="#3ad3db" />
+          <Ionicons name="card" size={20} color="#26B7C9" />
           <Text style={styles.summarySectionTitle}>Payment Method</Text>
         </View>
         
         {/* Saved Card (Demo) */}
         <TouchableOpacity style={styles.paymentMethodCard}>
           <View style={styles.paymentMethodIcon}>
-            <Ionicons name="card" size={24} color="#3ad3db" />
+            <Ionicons name="card" size={24} color="#26B7C9" />
           </View>
           <View style={styles.paymentMethodInfo}>
-            <Text style={styles.paymentMethodTitle}>Visa •••• 4242</Text>
+            <Text style={styles.paymentMethodTitle}>Card on file</Text>
             <Text style={styles.paymentMethodSubtitle}>Expires 12/28</Text>
           </View>
-          <Ionicons name="checkmark-circle" size={24} color="#3ad3db" />
+          <Ionicons name="checkmark-circle" size={24} color="#26B7C9" />
         </TouchableOpacity>
         
         {/* Add New Card Option */}
@@ -1306,7 +1366,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
       {/* Coupon Code Section */}
       <View style={styles.couponSection}>
         <View style={styles.summarySectionHeader}>
-          <Ionicons name="pricetag" size={20} color="#3ad3db" />
+          <Ionicons name="pricetag" size={20} color="#26B7C9" />
           <Text style={styles.summarySectionTitle}>Promo Code</Text>
         </View>
         
@@ -1439,7 +1499,7 @@ const NewBookingFlowScreen: React.FC<NewBookingFlowProps> = ({ navigation, route
             activeOpacity={0.8}
           >
             <LinearGradient
-              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+              colors={isLoading ? ['#9CA3AF', '#6B7280'] : ['#26B7C9', '#047B9B']}
               style={styles.continueButtonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
@@ -1475,8 +1535,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
@@ -1488,7 +1548,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#0F172A',
     letterSpacing: -0.3,
@@ -1497,9 +1557,9 @@ const styles = StyleSheet.create({
   // Progress
   progressContainer: {
     backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('2%'),
+    paddingBottom: hp('3%'),
   },
   progressBar: {
     height: 5,
@@ -1510,15 +1570,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
     borderRadius: 3,
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 4,
@@ -1534,11 +1594,11 @@ const styles = StyleSheet.create({
   stepDot: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     borderWidth: 2,
     borderColor: '#E2E8F0',
     shadowColor: '#0F172A',
@@ -1548,17 +1608,17 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   stepDotActive: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
+    shadowColor: '#26B7C9',
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
   },
   stepDotCompleted: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
-    shadowColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
+    shadowColor: '#26B7C9',
     shadowOpacity: 0.2,
     shadowRadius: 6,
     elevation: 4,
@@ -1572,13 +1632,13 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   stepLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#9CA3AF',
     letterSpacing: 0.2,
   },
   stepLabelActive: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontWeight: '700',
   },
   
@@ -1591,43 +1651,43 @@ const styles = StyleSheet.create({
   },
   stepContainer: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   stepContentContainer: {
-    paddingTop: 24,
-    paddingBottom: 40,
+    paddingTop: hp('3%'),
+    paddingBottom: hp('5%'),
   },
   stepTitle: {
     fontSize: 26,
     fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
     letterSpacing: -0.5,
   },
   stepSubtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#64748B',
-    marginBottom: 28,
+    marginBottom: hp('3.5%'),
     lineHeight: 24,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 12,
-    marginTop: 24,
+    marginBottom: hp('1.5%'),
+    marginTop: hp('3%'),
   },
   
   // Services Grid
   servicesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: wp('3%'),
   },
   serviceCard: {
     width: (width - 52) / 2,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     padding: 16,
     borderWidth: 1.5,
     borderColor: 'rgba(226, 232, 240, 0.8)',
@@ -1640,10 +1700,10 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   serviceCardSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     borderWidth: 2,
     backgroundColor: '#F0FDFA',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 8,
@@ -1653,9 +1713,9 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
     backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingHorizontal: wp('2.5%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('2.5%'),
     borderWidth: 1,
     borderColor: 'rgba(217, 119, 6, 0.2)',
     shadowColor: '#D97706',
@@ -1665,7 +1725,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   popularBadgeText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '700',
     color: '#D97706',
     letterSpacing: 0.3,
@@ -1673,37 +1733,37 @@ const styles = StyleSheet.create({
   serviceIconContainer: {
     width: 52,
     height: 52,
-    borderRadius: 14,
+    borderRadius: wp('3.5%'),
     backgroundColor: '#F0FDFA',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     borderWidth: 1,
-    borderColor: 'rgba(58, 211, 219, 0.15)',
-    shadowColor: '#3ad3db',
+    borderColor: 'rgba(38, 183, 201, 0.15)',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 2,
   },
   serviceIconContainerSelected: {
-    backgroundColor: '#3ad3db',
-    borderColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
+    borderColor: '#26B7C9',
     shadowOpacity: 0.25,
   },
   serviceName: {
     fontSize: 15,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   serviceNameSelected: {
     color: '#0F172A',
   },
   serviceDescription: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#64748B',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     lineHeight: 16,
   },
   serviceDescriptionSelected: {
@@ -1715,12 +1775,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   servicePrice: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '800',
     color: '#0F172A',
   },
   servicePriceSelected: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   serviceDuration: {
     fontSize: 11,
@@ -1735,8 +1795,8 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    shadowColor: '#3ad3db',
+    borderRadius: wp('3%'),
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -1746,34 +1806,34 @@ const styles = StyleSheet.create({
   // Date Selection
   dateScroll: {
     marginHorizontal: -20,
-    paddingHorizontal: 20,
+    paddingHorizontal: wp('5%'),
   },
   dateScrollContent: {
-    paddingRight: 20,
-    gap: 10,
+    paddingRight: wp('5%'),
+    gap: wp('2.5%'),
   },
   dateCard: {
     width: 70,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: 14,
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('3%'),
+    borderRadius: wp('3.5%'),
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   dateCardSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   dateDayName: {
     fontSize: 11,
     fontWeight: '500',
     color: '#9CA3AF',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   dateDayNumber: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#0F172A',
     marginBottom: 2,
@@ -1784,42 +1844,42 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
   },
   dateTextSelected: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   
   // Time Grid
   timeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: wp('2.5%'),
   },
   timeButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 12,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4.5%'),
+    borderRadius: wp('3%'),
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: '#E2E8F0',
   },
   timeButtonSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   timeText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
   },
   timeTextSelected: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   
   // Recurring
   recurringCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 16,
-    marginTop: 24,
+    marginTop: hp('3%'),
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
@@ -1831,7 +1891,7 @@ const styles = StyleSheet.create({
   recurringInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: wp('3%'),
   },
   recurringTextContainer: {
     flex: 1,
@@ -1842,27 +1902,27 @@ const styles = StyleSheet.create({
     color: '#0F172A',
   },
   recurringSubtitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#64748B',
     marginTop: 2,
   },
   frequencyRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
-    paddingTop: 16,
+    gap: wp('2.5%'),
+    marginTop: hp('2%'),
+    paddingTop: hp('2%'),
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
   },
   frequencyButton: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('2.5%'),
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
   },
   frequencyButtonSelected: {
-    backgroundColor: '#3ad3db',
+    backgroundColor: '#26B7C9',
   },
   frequencyText: {
     fontSize: 13,
@@ -1875,29 +1935,29 @@ const styles = StyleSheet.create({
   
   // Inputs
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   inputRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   halfInput: {
     flex: 1,
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    paddingHorizontal: 14,
+    paddingHorizontal: wp('3.5%'),
   },
   inputIcon: {
     marginRight: 10,
@@ -1906,11 +1966,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: '#0F172A',
-    paddingVertical: 14,
+    paddingVertical: hp('1.7%'),
   },
   textAreaWrapper: {
     alignItems: 'flex-start',
-    paddingTop: 14,
+    paddingTop: hp('1.7%'),
   },
   textArea: {
     height: 80,
@@ -1920,17 +1980,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   toggleLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
   },
   helpText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
-    marginTop: 6,
+    marginTop: hp('0.7%'),
     fontStyle: 'italic',
   },
   
@@ -1939,7 +1999,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginVertical: 24,
-    gap: 12,
+    gap: wp('3%'),
   },
   dividerLine: {
     flex: 1,
@@ -1947,7 +2007,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
   },
   dividerText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#9CA3AF',
     textTransform: 'uppercase',
@@ -1955,19 +2015,19 @@ const styles = StyleSheet.create({
   },
   yesNoRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   yesNoButton: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: hp('1.7%'),
+    borderRadius: wp('3%'),
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: '#E2E8F0',
     alignItems: 'center',
   },
   yesNoButtonSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   yesNoText: {
@@ -1976,43 +2036,43 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   yesNoTextSelected: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   choiceGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: wp('2.5%'),
   },
   choiceButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: hp('1.2%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('2.5%'),
     backgroundColor: '#fff',
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
   },
   choiceButtonSelected: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   choiceText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
   },
   choiceTextSelected: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   
   // Security Note
   securityNote: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: wp('2.5%'),
     padding: 14,
     backgroundColor: '#F0FDFA',
-    borderRadius: 12,
-    marginTop: 24,
+    borderRadius: wp('3%'),
+    marginTop: hp('3%'),
   },
   securityNoteText: {
     fontSize: 13,
@@ -2023,7 +2083,7 @@ const styles = StyleSheet.create({
   // Summary
   summaryCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     padding: 20,
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -2034,13 +2094,13 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   summarySection: {
-    paddingVertical: 4,
+    paddingVertical: hp('0.5%'),
   },
   summarySectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: wp('2%'),
+    marginBottom: hp('1%'),
   },
   summarySectionTitle: {
     fontSize: 13,
@@ -2055,14 +2115,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#0F172A',
   },
   summaryValue: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   summaryText: {
     fontSize: 15,
@@ -2072,7 +2132,7 @@ const styles = StyleSheet.create({
   summarySubtext: {
     fontSize: 13,
     color: '#9CA3AF',
-    marginTop: 4,
+    marginTop: hp('0.5%'),
   },
   summaryDivider: {
     height: 1,
@@ -2082,16 +2142,16 @@ const styles = StyleSheet.create({
   recurringBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
+    gap: wp('1.5%'),
+    marginTop: hp('1%'),
     backgroundColor: '#ECFDF5',
-    paddingHorizontal: 10,
+    paddingHorizontal: wp('2.5%'),
     paddingVertical: 5,
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     alignSelf: 'flex-start',
   },
   recurringBadgeText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
     color: '#059669',
   },
@@ -2101,22 +2161,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   totalLabel: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#0F172A',
   },
   totalValue: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '800',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   totalValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   totalValueOriginal: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#9CA3AF',
     textDecorationLine: 'line-through',
@@ -2124,31 +2184,31 @@ const styles = StyleSheet.create({
   discountRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: wp('1.5%'),
   },
   discountLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#059669',
   },
   discountValue: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#059669',
   },
   discountNote: {
     fontSize: 13,
     color: '#059669',
-    marginTop: 8,
+    marginTop: hp('1%'),
     textAlign: 'center',
   },
   paymentSection: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 16,
-    marginTop: 16,
+    marginTop: hp('2%'),
     borderWidth: 1,
-    borderColor: 'rgba(58, 211, 219, 0.2)',
+    borderColor: 'rgba(38, 183, 201, 0.2)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -2160,15 +2220,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 14,
     backgroundColor: '#F0FDFA',
-    borderRadius: 12,
-    marginTop: 12,
+    borderRadius: wp('3%'),
+    marginTop: hp('1.5%'),
     borderWidth: 2,
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
   },
   paymentMethodIcon: {
     width: 44,
     height: 44,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2178,7 +2238,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   paymentMethodTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
   },
@@ -2191,25 +2251,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    marginTop: 12,
+    gap: wp('2%'),
+    marginTop: hp('1.5%'),
     padding: 12,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: '#D1D5DB',
   },
   addPaymentMethodText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     fontWeight: '500',
   },
   // Coupon Section Styles
   couponSection: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 16,
-    marginTop: 16,
+    marginTop: hp('2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
@@ -2218,15 +2278,15 @@ const styles = StyleSheet.create({
   },
   couponInputContainer: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
+    gap: wp('2.5%'),
+    marginTop: hp('1.5%'),
   },
   couponInput: {
     flex: 1,
     height: 48,
     backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    borderRadius: wp('2.5%'),
+    paddingHorizontal: wp('3.5%'),
     fontSize: 15,
     fontWeight: '600',
     color: '#1F2937',
@@ -2239,9 +2299,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
   },
   applyCouponButton: {
-    backgroundColor: '#3ad3db',
-    paddingHorizontal: 20,
-    borderRadius: 10,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('5%'),
+    borderRadius: wp('2.5%'),
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -2257,17 +2317,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 12,
+    marginTop: hp('1.5%'),
     padding: 12,
     backgroundColor: '#ECFDF5',
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     borderWidth: 1.5,
     borderColor: '#059669',
   },
   couponAppliedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   couponAppliedCode: {
     fontSize: 15,
@@ -2287,8 +2347,8 @@ const styles = StyleSheet.create({
   couponErrorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
+    gap: wp('1.5%'),
+    marginTop: hp('1%'),
   },
   couponErrorText: {
     fontSize: 13,
@@ -2296,51 +2356,51 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   couponHint: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
-    marginTop: 10,
+    marginTop: hp('1.2%'),
     textAlign: 'center',
     fontStyle: 'italic',
   },
   paymentNote: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
     justifyContent: 'center',
-    marginTop: 16,
+    marginTop: hp('2%'),
     padding: 12,
     backgroundColor: '#ECFDF5',
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
   },
   paymentNoteText: {
     fontSize: 13,
     color: '#6B7280',
   },
   termsText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
     textAlign: 'center',
-    marginTop: 16,
+    marginTop: hp('2%'),
     lineHeight: 18,
   },
   termsLink: {
-    color: '#3ad3db',
+    color: '#26B7C9',
     fontWeight: '600',
   },
   
   // Bottom
   bottomContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     paddingBottom: Platform.OS === 'ios' ? 24 : 16,
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
   continueButton: {
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
-    shadowColor: '#3ad3db',
+    shadowColor: '#26B7C9',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
@@ -2353,9 +2413,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    gap: 8,
+    paddingVertical: hp('2.2%'),
+    paddingHorizontal: wp('6%'),
+    gap: wp('2%'),
   },
   continueButtonText: {
     fontSize: 17,

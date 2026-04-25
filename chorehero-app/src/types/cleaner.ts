@@ -32,12 +32,14 @@ export type BookingStatus =
   | 'offered' 
   | 'accepted' 
   | 'on_the_way' 
+  | 'arrived' 
   | 'in_progress' 
   | 'completed' 
   | 'cancelled';
 
 export interface Booking {
   id: string;
+  customerId?: string;
   customerName: string;
   customerAvatarUrl?: string;
   customerRating?: number;
@@ -48,6 +50,9 @@ export interface Booking {
   durationMinutes: number;
   distanceMiles: number;
   addressLine1: string;
+  /** From `addresses.latitude` / `longitude` when set — used for job map on Jobs / Schedule. */
+  jobLatitude?: number | null;
+  jobLongitude?: number | null;
   isInstant: boolean;
   status: BookingStatus;
   payoutToCleaner: number; // cleaner earnings
@@ -60,6 +65,13 @@ export interface Booking {
   hasPets?: boolean | null;
   petDetails?: string | null;
   accessInstructions?: string | null;
+  /** Messaging unlocks after payment; only true when booking is paid */
+  messagingEnabled?: boolean;
+  /**
+   * When this booking was created from the video quote flow, links to `public.jobs.id`.
+   * Used for pro navigation to the same job view as the customer’s Quotes screen.
+   */
+  quoteJobId?: string | null;
 }
 
 // ============================================================================
@@ -96,5 +108,5 @@ export interface Conversation {
 // ============================================================================
 
 export type JobFilter = 'all' | 'today' | 'tomorrow' | 'week';
-export type JobTab = 'available' | 'active' | 'history';
+export type JobTab = 'available' | 'quotes' | 'active' | 'history';
 

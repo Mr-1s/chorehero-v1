@@ -13,6 +13,7 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { contentAnalyticsService, type ContentAnalytics } from '../../services/contentAnalyticsService';
 import { cleanerTheme } from '../../utils/theme';
+import { wp, hp } from '../../utils/responsive';
 
 const { colors, spacing, radii } = cleanerTheme;
 
@@ -75,7 +76,7 @@ const HeroStatsScreen: React.FC<HeroStatsProps> = ({ navigation }) => {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="analytics-outline" size={18} color="#26B7C9" />
+            <Ionicons name="analytics-outline" size={18} color="#FFA52F" />
             <Text style={styles.cardTitle}>Video Conversion</Text>
           </View>
           <Text style={styles.highlightText}>{summary.title}</Text>
@@ -84,7 +85,7 @@ const HeroStatsScreen: React.FC<HeroStatsProps> = ({ navigation }) => {
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="film-outline" size={18} color="#26B7C9" />
+            <Ionicons name="film-outline" size={18} color="#FFA52F" />
             <Text style={styles.cardTitle}>Recent Video Performance</Text>
           </View>
           {loading && <Text style={styles.detailText}>Loading analytics...</Text>}
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -144,11 +145,11 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
     marginBottom: spacing.md,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -156,10 +157,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: colors.textPrimary,
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   detailText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
   row: {
@@ -178,13 +179,13 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   rowSubtitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
   rowAmount: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#26B7C9',
+    color: '#FFA52F',
   },
 });
 

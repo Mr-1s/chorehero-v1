@@ -79,13 +79,16 @@ class TrackingWorkflowService {
         }
 
         // 3. Create notification in database for customer
-        await supabase.from('notifications').insert({
+        const { error: notifErr } = await supabase.from('notifications').insert({
           user_id: customerId,
           type: 'booking_update',
           title: '🚗 Your ChoreHero is on the way!',
           message: `${cleanerName} has started traveling to your location. You can track their progress in real-time.`,
           is_read: false,
         });
+        if (notifErr) {
+          console.warn('en-route notification insert failed:', notifErr.message);
+        }
 
         // 4. Send push notification to customer
         try {
@@ -121,7 +124,11 @@ class TrackingWorkflowService {
         startTime: new Date(),
       };
 
-      console.log('✅ Cleaner tracking workflow started successfully');
+      if (trackingResult.success) {
+        console.log('✅ Cleaner tracking workflow started successfully');
+      } else {
+        console.log('⚠️ Workflow started but GPS tracking unavailable (permissions required)');
+      }
       return { success: true };
 
     } catch (error) {
@@ -147,23 +154,29 @@ class TrackingWorkflowService {
 
       if (isValidUUID) {
         // Update booking status
-        await supabase
+        const { error: arrivedErr } = await supabase
           .from('bookings')
-          .update({ 
+          .update({
             status: 'cleaner_arrived',
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           })
           .eq('id', bookingId);
+        if (arrivedErr) {
+          console.warn('cleaner_arrived status update failed:', arrivedErr.message);
+        }
 
         // Notify customer
         if (this.state.customerId) {
-          await supabase.from('notifications').insert({
+          const { error: notifErr } = await supabase.from('notifications').insert({
             user_id: this.state.customerId,
             type: 'booking_update',
             title: '🏠 Your ChoreHero has arrived!',
             message: 'Your cleaner has arrived at your location.',
             is_read: false,
           });
+          if (notifErr) {
+            console.warn('arrived notification insert failed:', notifErr.message);
+          }
         }
       }
 

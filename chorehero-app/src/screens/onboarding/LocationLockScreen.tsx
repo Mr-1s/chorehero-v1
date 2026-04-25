@@ -21,6 +21,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../services/supabase';
 import { zipLookupService } from '../../services/zipLookupService';
 import { useAuth } from '../../hooks/useAuth';
+import { wp, hp } from '../../utils/responsive';
+import { updateGuestSession } from '../../utils/guestSession';
 
 interface LocationLockProps {
   navigation: any;
@@ -29,7 +31,7 @@ interface LocationLockProps {
 const isValidZip = (zip: string) => /^\d{5}$/.test(zip);
 
 const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
-  const { user } = useAuth();
+  const { user, enterGuestMode } = useAuth();
   const [zip, setZip] = useState('');
   const [cityState, setCityState] = useState<{ city: string; state: string } | null>(null);
   const [manualCity, setManualCity] = useState('');
@@ -115,6 +117,27 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
     }
   };
 
+  const navigateToFeed = async () => {
+    const city = cityState?.city || manualCity.trim() || 'Your City';
+    const state = cityState?.state || manualState.trim() || '';
+    await enterGuestMode();
+    await AsyncStorage.multiSet([
+      ['guest_zip', zip],
+      ['guest_city', city],
+      ['guest_state', state],
+    ]);
+    await updateGuestSession({ location: { zip, city, state } });
+    navigation.reset({
+      index: 0,
+      routes: [
+        {
+          name: 'MainTabs',
+          params: { screen: 'Content', params: { source: 'main' } },
+        },
+      ],
+    });
+  };
+
   const handleContinue = async () => {
     if (!isValidZip(zip)) {
       Alert.alert('Zip Code Required', 'Enter a valid 5-digit ZIP.');
@@ -123,11 +146,18 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
 
     setIsChecking(true);
     try {
-      const { data, error } = await supabase
-        .from('active_locations')
-        .select('zip_code, city, state, is_active')
-        .eq('zip_code', zip)
-        .single();
+      const checkWithTimeout = Promise.race([
+        supabase
+          .from('active_locations')
+          .select('zip_code, city, state, is_active')
+          .eq('zip_code', zip)
+          .single(),
+        new Promise<{ data: null; error: any }>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 5000)
+        ),
+      ]) as Promise<{ data: any; error: any }>;
+
+      const { data, error } = await checkWithTimeout;
 
       const resolvedCity = data?.city || cityState?.city || manualCity.trim();
       const resolvedState = data?.state || cityState?.state || manualState.trim();
@@ -155,6 +185,7 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
         ['guest_state', state],
         ['guest_user_role', 'customer'],
       ]);
+      await updateGuestSession({ location: { zip, city, state } });
 
       if (user?.id) {
         const payload = {
@@ -179,13 +210,20 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
         index: 0,
         routes: [
           {
-            name: 'MainTabs',
-            params: { screen: 'Content', params: { source: 'main' } },
+            name: 'CustomerOnboarding',
+            params: { zip, city, state },
           },
         ],
       });
-    } catch (error) {
-      Alert.alert('Location', 'Unable to check availability. Try again.');
+    } catch (err) {
+      const resolvedCity = cityState?.city || manualCity.trim();
+      const resolvedState = cityState?.state || manualState.trim();
+      if (resolvedCity && resolvedState) {
+        navigation.navigate('Waitlist', { zip, city: resolvedCity, state: resolvedState });
+      } else {
+        setShowManualCityState(true);
+        Alert.alert('Location', 'Unable to check availability. Enter your city and state, or browse the feed.');
+      }
     } finally {
       setIsChecking(false);
     }
@@ -193,8 +231,8 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#06b6d4" />
-      <LinearGradient colors={['#06b6d4', '#0891b2']} style={styles.gradient}>
+      <StatusBar barStyle="light-content" backgroundColor="#26B7C9" />
+      <LinearGradient colors={['#26B7C9', '#047B9B']} style={styles.gradient}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoid}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -216,10 +254,10 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
                         navigation.goBack();
                         return;
                       }
-                      navigation.navigate('AccountTypeSelection');
+                      navigation.navigate('ProfileType');
                     }}
                   >
-                    <Ionicons name="arrow-back" size={22} color="#0891b2" />
+                    <Ionicons name="arrow-back" size={22} color="#047B9B" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.card}>
@@ -273,7 +311,7 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
                   )}
 
                   <TouchableOpacity style={styles.secondaryButton} onPress={handleUseCurrentLocation}>
-                    <Ionicons name="navigate" size={16} color="#0891b2" />
+                    <Ionicons name="navigate" size={16} color="#047B9B" />
                     <Text style={styles.secondaryButtonText}>Use Current Location</Text>
                   </TouchableOpacity>
 
@@ -304,6 +342,15 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
                       <Text style={styles.primaryButtonText}>Continue</Text>
                     )}
                   </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.browseFeedLink}
+                    onPress={() => isValidZip(zip) && navigateToFeed()}
+                    disabled={!isValidZip(zip)}
+                  >
+                    <Ionicons name="play-circle-outline" size={16} color="#047B9B" />
+                    <Text style={styles.browseFeedText}>Browse feed</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -316,21 +363,21 @@ const LocationLockScreen: React.FC<LocationLockProps> = ({ navigation }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  gradient: { flex: 1, padding: 20 },
+  gradient: { flex: 1, padding: wp('5%') },
   keyboardAvoid: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 320,
+    paddingBottom: hp('38%'),
     justifyContent: 'center',
   },
   header: {
-    paddingTop: 6,
-    paddingBottom: 12,
+    paddingTop: hp('0.7%'),
+    paddingBottom: hp('1.5%'),
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: wp('10%'),
+    height: wp('10%'),
+    borderRadius: wp('5%'),
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -342,64 +389,72 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: wp('5%'),
+    padding: wp('6%'),
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
-  title: { fontSize: 24, fontWeight: '800', color: '#1F2937', marginBottom: 8 },
-  subtitle: { fontSize: 14, color: '#6B7280', marginBottom: 20 },
+  title: { fontSize: wp('6%'), fontWeight: '800', color: '#1F2937', marginBottom: hp('1%') },
+  subtitle: { fontSize: wp('3.5%'), color: '#6B7280', marginBottom: hp('2.5%') },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    gap: 8,
+    borderRadius: wp('3%'),
+    paddingHorizontal: wp('3%'),
+    gap: wp('2%'),
   },
-  input: { flex: 1, fontSize: 16, paddingVertical: 12, color: '#111827' },
-  helper: { marginTop: 8, color: '#0891b2', fontWeight: '600' },
+  input: { flex: 1, fontSize: wp('4%'), paddingVertical: hp('1.5%'), color: '#111827' },
+  helper: { marginTop: hp('1%'), color: '#047B9B', fontWeight: '600' },
   manualRow: {
-    marginTop: 12,
+    marginTop: hp('1.5%'),
     flexDirection: 'row',
-    gap: 10,
+    gap: wp('2.5%'),
   },
   manualInput: {
     flex: 1,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('3%'),
     color: '#111827',
   },
   manualInputLeft: {},
   manualInputRight: { maxWidth: 90, textAlign: 'center' },
   secondaryButton: {
-    marginTop: 16,
+    marginTop: hp('2%'),
     borderWidth: 1,
-    borderColor: '#0891b2',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderColor: '#047B9B',
+    borderRadius: wp('3%'),
+    paddingVertical: hp('1.5%'),
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
-  secondaryButtonText: { color: '#0891b2', fontWeight: '700' },
+  secondaryButtonText: { color: '#047B9B', fontWeight: '700' },
   primaryButton: {
-    marginTop: 16,
+    marginTop: hp('2%'),
     backgroundColor: '#26B7C9',
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: hp('1.7%'),
+    borderRadius: wp('3%'),
     alignItems: 'center',
     overflow: 'hidden',
   },
   primaryButtonDisabled: { opacity: 0.7 },
-  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  primaryButtonText: { color: '#fff', fontSize: wp('4%'), fontWeight: '700' },
+  browseFeedLink: {
+    marginTop: hp('1.5%'),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: wp('1.5%'),
+  },
+  browseFeedText: { color: '#047B9B', fontWeight: '600', fontSize: wp('3.5%') },
   shimmerContainer: {
     width: '100%',
     alignItems: 'center',

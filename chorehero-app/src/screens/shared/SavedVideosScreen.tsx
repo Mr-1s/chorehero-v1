@@ -22,6 +22,8 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import * as Haptics from 'expo-haptics';
+import { wp, hp } from '../../utils/responsive';
+import { navigateToChoresContent } from '../../navigation/mainTabsContentNavigation';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -125,7 +127,7 @@ const SavedVideosScreen: React.FC = () => {
   };
 
   const handleVideoPress = (video: SavedVideo) => {
-    navigation.navigate('VideoFeed', {
+    navigateToChoresContent(navigation as any, {
       source: 'saved',
       initialVideoId: video.content_id,
     });
@@ -149,7 +151,7 @@ const SavedVideosScreen: React.FC = () => {
             />
           ) : (
             <LinearGradient
-              colors={['#0891b2', '#06b6d4', '#22d3ee']}
+              colors={['#047B9B', '#26B7C9', '#26B7C9']}
               style={styles.thumbnailPlaceholder}
             >
               <Ionicons name="videocam" size={32} color="#FFFFFF" />
@@ -176,7 +178,7 @@ const SavedVideosScreen: React.FC = () => {
             style={styles.unsaveButton}
             onPress={() => handleUnsave(item.id, item.content_id)}
           >
-            <Ionicons name="bookmark" size={18} color="#3AD3DB" />
+            <Ionicons name="bookmark" size={18} color="#26B7C9" />
           </TouchableOpacity>
         </View>
 
@@ -187,7 +189,7 @@ const SavedVideosScreen: React.FC = () => {
           <View style={styles.creatorRow}>
             <Image
               source={{ 
-                uri: content.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(content.user?.name || 'User')}&background=3ad3db&color=ffffff`
+                uri: content.user?.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(content.user?.name || 'User')}&background=26B7C9&color=ffffff`
               }}
               style={styles.creatorAvatar}
             />
@@ -237,7 +239,7 @@ const SavedVideosScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3AD3DB" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading saved videos...</Text>
         </View>
       ) : (
@@ -253,7 +255,7 @@ const SavedVideosScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#3AD3DB"
+              tintColor="#26B7C9"
             />
           }
           ListEmptyComponent={renderEmptyState}
@@ -272,8 +274,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
@@ -281,13 +283,13 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -296,7 +298,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   countBadge: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#6B7280',
   },
@@ -306,8 +308,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: hp('1.5%'),
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   listContent: {
@@ -316,12 +318,12 @@ const styles = StyleSheet.create({
   },
   row: {
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   videoCard: {
     width: CARD_WIDTH,
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -357,7 +359,7 @@ const styles = StyleSheet.create({
   playButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -369,16 +371,16 @@ const styles = StyleSheet.create({
     bottom: 8,
     left: 8,
     flexDirection: 'row',
-    gap: 8,
+    gap: wp('2%'),
   },
   stat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
     backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   statText: {
     color: '#FFFFFF',
@@ -391,7 +393,7 @@ const styles = StyleSheet.create({
     right: 8,
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     backgroundColor: 'rgba(255,255,255,0.95)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -405,25 +407,25 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   videoTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#1F2937',
     lineHeight: 18,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   creatorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   creatorAvatar: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
   },
   creatorName: {
     flex: 1,
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     fontWeight: '500',
   },
@@ -431,36 +433,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingTop: 80,
+    paddingHorizontal: wp('10%'),
+    paddingTop: hp('10%'),
   },
   emptyIcon: {
     width: 120,
     height: 120,
-    borderRadius: 60,
+    borderRadius: wp('15%'),
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: hp('3%'),
   },
   browseButton: {
-    backgroundColor: '#3AD3DB',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
   },
   browseButtonText: {
     color: '#FFFFFF',

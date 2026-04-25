@@ -20,6 +20,8 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { COLORS, TYPOGRAPHY, SPACING } from '../../utils/constants';
 import { supabase } from '../../services/supabase';
 import { trackingWorkflowService } from '../../services/trackingWorkflowService';
+import { navigateRoot } from '../../navigation/navigationRef';
+import { wp, hp } from '../../utils/responsive';
 
 type TabParamList = {
   Home: undefined;
@@ -48,6 +50,8 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
   
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState<any>(null);
+  /** Always set from `bookings.cleaner_id` — never rely on broken PostgREST embeds for navigation. */
+  const [cleanerUserId, setCleanerUserId] = useState<string | null>(null);
   const [cleaner, setCleaner] = useState<any>(null);
   const [eta, setETA] = useState(18); // minutes
   const [cleanerLocation, setCleanerLocation] = useState({
@@ -63,6 +67,19 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
 
   const cardSlideAnim = useRef(new Animated.Value(300)).current;
   const etaUpdateAnim = useRef(new Animated.Value(1)).current;
+  const mapRef = useRef<MapView | null>(null);
+
+  const getStatusLabel = (status: string): string => {
+    switch (status) {
+      case 'confirmed': return 'Confirmed';
+      case 'cleaner_assigned': return 'Scheduled';
+      case 'cleaner_en_route': return 'On the way';
+      case 'cleaner_arrived': return 'Arrived';
+      case 'in_progress': return 'Cleaning';
+      case 'completed': return 'Completed';
+      default: return 'Pending';
+    }
+  };
 
   // Fetch real booking and cleaner data
   useEffect(() => {
@@ -71,7 +88,6 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         setLoading(true);
         console.log('📍 Loading booking data for:', bookingId);
 
-        // Fetch booking with cleaner data
         const { data: bookingData, error: bookingError } = await supabase
           .from('bookings')
           .select(`
@@ -83,22 +99,17 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
               zip_code,
               latitude,
               longitude
-            ),
-            cleaner:users!bookings_cleaner_id_fkey(
-              id,
-              name,
-              avatar_url,
-              phone
             )
           `)
           .eq('id', bookingId)
           .single();
 
-        if (bookingError) {
+        if (bookingError || !bookingData) {
           console.error('❌ Error fetching booking:', bookingError);
           setBooking(null);
+          setCleanerUserId(null);
           setCleaner(null);
-        } else if (bookingData) {
+        } else {
           setBooking(bookingData);
           setBookingStatus(bookingData.status);
 
@@ -110,21 +121,37 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
             setDestinationLocation(dest);
             setCustomerLocation(dest);
           }
-          
-          // Fetch cleaner profile separately
-          const { data: profileData } = await supabase
-            .from('cleaner_profiles')
-            .select('rating_average')
-            .eq('user_id', bookingData.cleaner_id)
-            .maybeSingle();
-          
+
+          const proId = bookingData.cleaner_id as string | null;
+          setCleanerUserId(proId);
+
+          let cleanerUser: { id: string; name: string | null; avatar_url: string | null; phone: string | null } | null =
+            null;
+          if (proId) {
+            const { data: u } = await supabase
+              .from('users')
+              .select('id, name, avatar_url, phone')
+              .eq('id', proId)
+              .maybeSingle();
+            cleanerUser = u;
+          }
+
+          const { data: profileData } = proId
+            ? await supabase
+                .from('cleaner_profiles')
+                .select('rating_average')
+                .eq('user_id', proId)
+                .maybeSingle()
+            : { data: null };
+
           setCleaner({
-            id: bookingData.cleaner?.id,
-            name: bookingData.cleaner?.name || 'Your Cleaner',
-            avatar: bookingData.cleaner?.avatar_url,
-            rating: profileData?.rating_average || 0,
+            id: proId,
+            name: cleanerUser?.name || 'Your pro',
+            avatar: cleanerUser?.avatar_url,
+            rating: profileData?.rating_average ?? 0,
             status: getStatusLabel(bookingData.status),
-            phone: bookingData.cleaner?.phone,
+            phone: cleanerUser?.phone,
+            vehicle: null,
           });
         }
         
@@ -167,14 +194,20 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     };
   }, [bookingId]);
 
-  const getStatusLabel = (status: string): string => {
+  const getActiveProgressStep = (status: string): number => {
     switch (status) {
-      case 'confirmed': return 'Confirmed';
-      case 'cleaner_en_route': return 'On the way';
-      case 'cleaner_arrived': return 'Arrived';
-      case 'in_progress': return 'Cleaning';
-      case 'completed': return 'Completed';
-      default: return 'Pending';
+      case 'confirmed':
+      case 'cleaner_assigned':
+        return 0;
+      case 'cleaner_en_route':
+        return 1;
+      case 'cleaner_arrived':
+      case 'in_progress':
+        return 2;
+      case 'completed':
+        return 3;
+      default:
+        return 0;
     }
   };
 
@@ -244,6 +277,21 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     navigation.goBack();
   };
 
+  const handleViewProProfile = () => {
+    const id = cleanerUserId || cleaner?.id;
+    if (!id) {
+      return;
+    }
+    navigateRoot('CleanerProfile', { cleanerId: id });
+  };
+
+  const handleOpenBookings = () => {
+    (navigation as any).navigate('Bookings', {
+      bookingId,
+      activeTab: 'upcoming',
+    });
+  };
+
   const handleMessageCleaner = () => {
     if (cleaner?.id) {
       navigation.navigate('IndividualChat', { 
@@ -265,35 +313,76 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
     ? {
         latitude: (cleanerLocation.latitude + destinationLocation.latitude) / 2,
         longitude: (cleanerLocation.longitude + destinationLocation.longitude) / 2,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
+        latitudeDelta: 0.06,
+        longitudeDelta: 0.06,
       }
     : {
         latitude: cleanerLocation.latitude,
         longitude: cleanerLocation.longitude,
-        latitudeDelta: 0.02,
-        longitudeDelta: 0.02,
+        latitudeDelta: 0.06,
+        longitudeDelta: 0.06,
       };
+
+  const showProMarker =
+    bookingStatus === 'cleaner_en_route' ||
+    bookingStatus === 'cleaner_assigned' ||
+    bookingStatus === 'cleaner_arrived' ||
+    bookingStatus === 'in_progress' ||
+    bookingStatus === 'confirmed';
+
+  const progressStep = getActiveProgressStep(bookingStatus);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!mapRef.current) return;
+    const coords: { latitude: number; longitude: number }[] = [];
+    if (destinationLocation) {
+      coords.push(destinationLocation);
+    }
+    if (showProMarker) {
+      coords.push(cleanerLocation);
+    }
+    if (coords.length === 0) {
+      return;
+    }
+    setTimeout(() => {
+      if (mapRef.current && coords.length > 0) {
+        if (coords.length === 1) {
+          mapRef.current.animateToRegion(
+            { ...coords[0], latitudeDelta: 0.04, longitudeDelta: 0.04 },
+            300
+          );
+        } else {
+          mapRef.current.fitToCoordinates(coords, {
+            edgePadding: { top: 100, right: 48, bottom: 280, left: 48 },
+            animated: true,
+          });
+        }
+      }
+    }, 400);
+  }, [loading, destinationLocation, cleanerLocation.latitude, cleanerLocation.longitude, showProMarker]);
 
   // Show loading state
   if (loading) {
     return (
       <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={{ marginTop: 16, color: COLORS.textGray }}>Loading tracking info...</Text>
+        <Text style={{ marginTop: hp('2%'), color: COLORS.text.muted }}>Loading tracking info...</Text>
       </View>
     );
   }
 
-  // Show error if no cleaner data
-  if (!cleaner) {
+  if (!booking) {
     return (
       <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', padding: 20 }]}>
-        <Ionicons name="alert-circle-outline" size={64} color={COLORS.textGray} />
-        <Text style={{ marginTop: 16, color: COLORS.textGray, fontSize: 18, textAlign: 'center' }}>
+        <Ionicons name="alert-circle-outline" size={64} color={COLORS.text.muted} />
+        <Text style={{ marginTop: hp('2%'), color: COLORS.text.muted, fontSize: wp('4.5%'), textAlign: 'center' }}>
           Unable to load booking details
         </Text>
-        <TouchableOpacity onPress={handleBackPress} style={{ marginTop: 20, padding: 16, backgroundColor: COLORS.primary, borderRadius: 12 }}>
+        <TouchableOpacity
+          onPress={handleBackPress}
+          style={{ marginTop: hp('2.5%'), padding: 16, backgroundColor: COLORS.primary, borderRadius: wp('3%') }}
+        >
           <Text style={{ color: '#fff', fontWeight: '600' }}>Go Back</Text>
         </TouchableOpacity>
       </View>
@@ -317,9 +406,12 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
       
       {/* Full-screen Map */}
       <MapView
+        ref={(r) => {
+          mapRef.current = r;
+        }}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
-        region={mapRegion}
+        initialRegion={mapRegion}
         customMapStyle={silverMapStyle}
         showsUserLocation={false}
         showsMyLocationButton={false}
@@ -327,14 +419,11 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         showsScale={false}
         mapType="standard"
       >
-        {bookingStatus === 'cleaner_en_route' && (
-          <Marker
-            coordinate={cleanerLocation}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
+        {showProMarker && (
+          <Marker coordinate={cleanerLocation} anchor={{ x: 0.5, y: 0.5 }} identifier="pro">
             <View style={styles.cleanerMarker}>
               <LinearGradient
-                colors={[COLORS.primary, '#E97E0B']}
+                colors={[COLORS.primary, '#26B7C9']}
                 style={styles.markerGradient}
               >
                 <Ionicons name="car" size={20} color={COLORS.text.inverse} />
@@ -347,6 +436,7 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
           <Marker
             coordinate={destinationLocation}
             anchor={{ x: 0.5, y: 0.5 }}
+            identifier="job"
           >
             <View style={styles.customerMarker}>
               <Ionicons name="home" size={24} color={COLORS.success} />
@@ -385,15 +475,33 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
         <BlurView intensity={90} style={styles.cardBlur}>
           <View style={styles.cardContent}>
             {/* Cleaner Info */}
-            <View style={styles.cleanerInfo}>
-              <Image source={{ uri: cleaner.avatar }} style={styles.cleanerAvatar} />
+            <TouchableOpacity
+              style={styles.cleanerInfo}
+              onPress={handleViewProProfile}
+              activeOpacity={0.85}
+              disabled={!cleanerUserId && !cleaner?.id}
+            >
+              <Image
+                source={{
+                  uri:
+                    cleaner.avatar ||
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(cleaner.name || 'Pro')}&size=120&background=0ea5e9&color=fff`,
+                }}
+                style={styles.cleanerAvatar}
+              />
               <View style={styles.cleanerDetails}>
-                <Text style={styles.cleanerName}>{cleaner.name}</Text>
+                <View style={styles.nameRow}>
+                  <Text style={styles.cleanerName}>{cleaner.name}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={COLORS.text.secondary} style={{ marginLeft: 4 }} />
+                </View>
                 <View style={styles.ratingContainer}>
                   <Ionicons name="star" size={14} color="#FFC93C" />
-                  <Text style={styles.ratingText}>{cleaner.rating}</Text>
+                  <Text style={styles.ratingText}>
+                    {Number(cleaner.rating) > 0 ? Number(cleaner.rating).toFixed(1) : '—'}
+                  </Text>
                 </View>
-                <Text style={styles.vehicleText}>{cleaner.vehicle}</Text>
+                <Text style={styles.viewProfileHint}>Tap to view full profile</Text>
+                {!!cleaner.vehicle && <Text style={styles.vehicleText}>{cleaner.vehicle}</Text>}
               </View>
               <View style={styles.statusContainer}>
                 <View style={styles.statusBadge}>
@@ -401,7 +509,12 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
                   <Text style={styles.statusText}>{cleaner.status}</Text>
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.bookingDetailsLink} onPress={handleOpenBookings} activeOpacity={0.8}>
+              <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.bookingDetailsLinkText}>Open this booking in Bookings</Text>
+            </TouchableOpacity>
 
             {/* Quick Actions */}
             <View style={styles.actionButtons}>
@@ -417,7 +530,7 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
 
               <TouchableOpacity style={styles.callAction} onPress={handleCallCleaner}>
                 <LinearGradient
-                  colors={[COLORS.primary, '#E97E0B']}
+                  colors={[COLORS.primary, '#26B7C9']}
                   style={styles.actionGradient}
                 >
                   <Ionicons name="call" size={20} color={COLORS.text.inverse} />
@@ -426,26 +539,50 @@ const LiveTrackingScreen: React.FC<LiveTrackingProps> = ({ navigation, route }) 
               </TouchableOpacity>
             </View>
 
-            {/* Service Progress */}
+            {/* Service Progress — driven by `bookingStatus` from Supabase */}
             <View style={styles.progressContainer}>
               <View style={styles.progressStep}>
-                <View style={[styles.progressDot, styles.completedDot]} />
-                <Text style={styles.progressLabel}>Confirmed</Text>
+                <View
+                  style={[
+                    styles.progressDot,
+                    progressStep > 0 && styles.completedDot,
+                    progressStep === 0 && styles.activeDot,
+                  ]}
+                />
+                <Text style={[styles.progressLabel, progressStep === 0 && styles.activeLabel]}>Confirmed</Text>
               </View>
               <View style={styles.progressLine} />
               <View style={styles.progressStep}>
-                <View style={[styles.progressDot, styles.activeDot]} />
-                <Text style={[styles.progressLabel, styles.activeLabel]}>En Route</Text>
+                <View
+                  style={[
+                    styles.progressDot,
+                    progressStep > 1 && styles.completedDot,
+                    progressStep === 1 && styles.activeDot,
+                  ]}
+                />
+                <Text style={[styles.progressLabel, progressStep === 1 && styles.activeLabel]}>En route</Text>
               </View>
               <View style={styles.progressLine} />
               <View style={styles.progressStep}>
-                <View style={styles.progressDot} />
-                <Text style={styles.progressLabel}>Arrived</Text>
+                <View
+                  style={[
+                    styles.progressDot,
+                    progressStep > 2 && styles.completedDot,
+                    progressStep === 2 && styles.activeDot,
+                  ]}
+                />
+                <Text style={[styles.progressLabel, progressStep === 2 && styles.activeLabel]}>Arrived</Text>
               </View>
               <View style={styles.progressLine} />
               <View style={styles.progressStep}>
-                <View style={styles.progressDot} />
-                <Text style={styles.progressLabel}>Complete</Text>
+                <View
+                  style={[
+                    styles.progressDot,
+                    progressStep >= 3 && styles.completedDot,
+                    progressStep === 3 && styles.activeDot,
+                  ]}
+                />
+                <Text style={[styles.progressLabel, progressStep === 3 && styles.activeLabel]}>Complete</Text>
               </View>
             </View>
           </View>
@@ -514,7 +651,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
@@ -546,7 +683,7 @@ const styles = StyleSheet.create({
     bottom: SPACING.lg,
     left: SPACING.lg,
     right: SPACING.lg,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     overflow: 'hidden',
     zIndex: 5,
   },
@@ -566,17 +703,39 @@ const styles = StyleSheet.create({
   cleanerAvatar: {
     width: 60,
     height: 60,
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
     marginRight: SPACING.md,
   },
   cleanerDetails: {
     flex: 1,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   cleanerName: {
     fontSize: TYPOGRAPHY.sizes.lg,
     fontWeight: TYPOGRAPHY.weights.semibold,
     color: COLORS.text.primary,
     marginBottom: SPACING.xs,
+  },
+  viewProfileHint: {
+    fontSize: TYPOGRAPHY.sizes.xs,
+    color: COLORS.text.secondary,
+    marginTop: 2,
+  },
+  bookingDetailsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  bookingDetailsLinkText: {
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
   ratingContainer: {
     flexDirection: 'row',
@@ -599,14 +758,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0FDFA',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.xs,
   },
   statusDot: {
     width: 8,
     height: 8,
-    borderRadius: 4,
+    borderRadius: wp('1%'),
     backgroundColor: COLORS.success,
     marginRight: SPACING.xs,
   },
@@ -630,7 +789,7 @@ const styles = StyleSheet.create({
   actionGradient: {
     width: 60,
     height: 60,
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.sm,
@@ -656,7 +815,7 @@ const styles = StyleSheet.create({
   progressDot: {
     width: 12,
     height: 12,
-    borderRadius: 6,
+    borderRadius: wp('1.5%'),
     backgroundColor: COLORS.border,
     marginBottom: SPACING.xs,
   },

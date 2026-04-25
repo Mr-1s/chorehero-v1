@@ -1,0 +1,14 @@
+{
+  "name": "chorehero-v2",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix chorehero-app run start",
+    "ios": "npm --prefix chorehero-app run ios",
+    "android": "npm --prefix chorehero-app run android",
+    "web": "npm --prefix chorehero-app run web",
+    "test": "npm --prefix chorehero-app run test"
+  },
+  "dependencies": {
+    "expo-updates": "~0.28.18"
+  }
+}

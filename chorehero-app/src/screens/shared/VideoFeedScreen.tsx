@@ -32,12 +32,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Import components
 import PlayIcon from '../../components/PlayIcon';
 import { BubbleStack } from '../../components/ActionBubble';
-import FloatingNavigation from '../../components/FloatingNavigation';
 import { TutorialOverlay } from '../../components/TutorialOverlay';
 
 // Import tutorial hook
 import { useTutorial } from '../../hooks/useTutorial';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { contentService } from '../../services/contentService';
 import { videoFeedAlgorithmService } from '../../services/videoFeedAlgorithmService';
 import { guestModeService } from '../../services/guestModeService';
@@ -54,6 +52,9 @@ import { getOrCreateGuestId, appendViewedVideo, createGuestSession } from '../..
 import GuestPromptModal, { GuestPromptType } from '../../components/GuestPromptModal';
 import { setPendingAuthAction, setPostAuthRoute } from '../../utils/authPendingAction';
 import { send_notification } from '../../services/notificationService';
+import { getMainTabBarChromeHeight } from '../../navigation/mainTabsChromeLayout';
+import { COLORS } from '../../utils/constants';
+import { FEATURE_DEMO_FALLBACK } from '../../config';
 
 type TabParamList = {
   Home: undefined;
@@ -114,11 +115,11 @@ const DESIGN_TOKENS = {
     xxl: 24,
     xxxl: 32,
   },
-  // Colors
+  // Colors (align brand/surface with app COLORS; feed-specific tints local)
   colors: {
-    brand: '#26B7C9',
+    brand: COLORS.primary,
     brandLight: 'rgba(38, 183, 201, 0.2)',
-    white: '#FFFFFF',
+    white: COLORS.surface,
     whiteAlpha95: 'rgba(255, 255, 255, 0.95)',
     text: {
       primary: '#1F2937',
@@ -585,7 +586,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   };
 
   const requireAuth = async (actionType: 'LIKE' | 'SAVE' | 'FOLLOW' | 'BOOK' | 'COMMENT' | 'SHARE', providerId: string) => {
-    await setPostAuthRoute({ name: 'VideoFeed', params: route?.params || { source } });
+    await setPostAuthRoute({
+      name: 'MainTabs',
+      params: { screen: 'Content', params: route?.params || { source } },
+    });
     if (['LIKE', 'SAVE', 'FOLLOW', 'BOOK'].includes(actionType)) {
       await setPendingAuthAction({ type: actionType as any, providerId });
     }
@@ -757,48 +761,53 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       console.log('✅ Content loading completed');
     } catch (error) {
       if (String(error).includes('Load timeout')) {
-        console.warn('⏱️ Feed load timed out, showing demo videos');
-        const demoVideos = guestModeService.getDemoVideos();
-        const items: FeedItem[] = demoVideos.map((v) => {
-          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 0);
-          const providerId = v.cleaner_id ?? v.id;
-          return {
-            post_id: v.id,
-            provider_id: providerId,
-            video_source: v.video_url,
-            provider_metadata: {
+        if (FEATURE_DEMO_FALLBACK) {
+          console.warn('⏱️ Feed load timed out, showing demo videos');
+          const demoVideos = guestModeService.getDemoVideos();
+          const items: FeedItem[] = demoVideos.map((v) => {
+            const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 0);
+            const providerId = v.cleaner_id ?? v.id;
+            return {
+              post_id: v.id,
+              provider_id: providerId,
+              video_source: v.video_url,
+              provider_metadata: {
+                name: v.cleaner_name,
+                rating: 4.5,
+                base_price: basePrice,
+                package_id: v.id,
+                package_type: v.package_type ?? undefined,
+                base_price_cents: v.base_price_cents ?? undefined,
+                estimated_hours: v.estimated_hours ?? undefined,
+              },
+              interaction_state: { is_liked: false, is_viewed: false },
+            };
+          });
+          const uiMap: Record<string, ProviderUI> = {};
+          demoVideos.forEach((v) => {
+            const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 55);
+            const estDuration =
+              v.package_type === 'hourly' && v.estimated_hours != null
+                ? `Est. ${v.estimated_hours} hrs`
+                : v.package_type === 'fixed' && v.estimated_hours != null
+                  ? `~${v.estimated_hours} hrs`
+                  : '2-3 hrs';
+            uiMap[v.id] = {
               name: v.cleaner_name,
-              rating: 4.5,
-              base_price: basePrice,
-              package_id: v.id,
-              package_type: v.package_type ?? undefined,
-              base_price_cents: v.base_price_cents ?? undefined,
-              estimated_hours: v.estimated_hours ?? undefined,
-            },
-            interaction_state: { is_liked: false, is_viewed: false },
-          };
-        });
-        const uiMap: Record<string, ProviderUI> = {};
-        demoVideos.forEach((v) => {
-          const basePrice = v.package_type === 'contact' ? 0 : (v.base_price_cents != null ? v.base_price_cents / 100 : 55);
-          const estDuration =
-            v.package_type === 'hourly' && v.estimated_hours != null
-              ? `Est. ${v.estimated_hours} hrs`
-              : v.package_type === 'fixed' && v.estimated_hours != null
-                ? `~${v.estimated_hours} hrs`
-                : '2-3 hrs';
-          uiMap[v.id] = {
-            name: v.cleaner_name,
-            avatar_url: v.cleaner_avatar,
-            rating_average: 4.5,
-            hourly_rate: basePrice,
-            verification_status: 'verified',
-            service_title: v.title,
-            description: v.description,
-            estimated_duration: estDuration,
-          };
-        });
-        setFeedData(items, uiMap, { append: false, hasMore: false });
+              avatar_url: v.cleaner_avatar,
+              rating_average: 4.5,
+              hourly_rate: basePrice,
+              verification_status: 'verified',
+              service_title: v.title,
+              description: v.description,
+              estimated_duration: estDuration,
+            };
+          });
+          setFeedData(items, uiMap, { append: false, hasMore: false });
+        } else {
+          console.warn('⏱️ Feed load timed out; demo fallback disabled, showing empty');
+          setFeedData([], {}, { append: false, hasMore: false });
+        }
         setIsShowingAreaFallback(true);
       } else {
         console.error('❌ Error loading content:', error);
@@ -954,6 +963,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       // Demo videos use non-UUID IDs (e.g. demo-vid-sarah-1). Skip DB query to avoid UUID error.
       const hasDemoIds = videoIds.some(id => !isValidUuid(id));
       if (hasDemoIds) {
+        if (!FEATURE_DEMO_FALLBACK) {
+          setFeedItems([]);
+          return;
+        }
         const demoById = Object.fromEntries(guestModeService.getDemoVideos().map(v => [v.id, v]));
         const demoVideos = videoIds.map(id => demoById[id]).filter(Boolean);
         if (demoVideos.length === 0) {
@@ -1088,9 +1101,9 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
 
       // Main feed: use populateFeed for robust fallback (ALWAYS returns content)
       if ((source === 'main' || source === 'global') && !append) {
-        let userLocation: { latitude: number; longitude: number } | undefined;
+        let userLocation: { latitude: number; longitude: number } | undefined = detectedLocation ?? undefined;
         let userCity: string | null = guestCity ?? detectedCity;
-        if (user?.id) {
+        if (user?.id && !userLocation) {
           const { data: addr } = await supabase
             .from('addresses')
             .select('latitude, longitude, city, state')
@@ -1103,9 +1116,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             userLocation = { latitude: Number(addr.latitude), longitude: Number(addr.longitude) };
             userCity = (addr as any).city ?? guestCity ?? detectedCity;
           }
-        }
-        if (!userLocation && detectedLocation) {
-          userLocation = detectedLocation;
         }
         const result = await populateFeed(false, { userLocation, userCity });
         const items: FeedItem[] = result.videos.map((v) => {
@@ -1247,111 +1257,127 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         return;
       }
 
-      // Final fallback: demo videos (never show empty)
+      // Final fallback: demo when enabled; otherwise empty + waitlist banner
       if (!append) {
-        const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
-        const items: FeedItem[] = sampleVideos.map((v) => {
-          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
-          const providerId = v.cleaner_id ?? v.id;
-          return {
-            post_id: v.id,
-            provider_id: providerId,
-            video_source: v.video_url,
-            isDemo: true,
-            provider_metadata: {
+        if (FEATURE_DEMO_FALLBACK) {
+          const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
+          const items: FeedItem[] = sampleVideos.map((v) => {
+            const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+            const providerId = v.cleaner_id ?? v.id;
+            return {
+              post_id: v.id,
+              provider_id: providerId,
+              video_source: v.video_url,
+              isDemo: true,
+              provider_metadata: {
+                name: v.cleaner_name,
+                rating: 4.5,
+                base_price: basePrice,
+                package_id: v.package_type ? v.id : undefined,
+                package_type: v.package_type ?? undefined,
+                base_price_cents: v.base_price_cents ?? undefined,
+                estimated_hours: v.estimated_hours ?? undefined,
+              },
+              interaction_state: { is_liked: false, is_viewed: false },
+            };
+          });
+          const uiMap: Record<string, ProviderUI> = {};
+          sampleVideos.forEach((v) => {
+            const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+            const estDuration =
+              v.package_type === 'hourly' && v.estimated_hours != null
+                ? `Est. ${v.estimated_hours} hrs`
+                : v.package_type === 'fixed' && v.estimated_hours != null
+                  ? `~${v.estimated_hours} hrs`
+                  : '2-3 hrs';
+            const key = v.cleaner_id ?? v.id;
+            uiMap[key] = {
               name: v.cleaner_name,
-              rating: 4.5,
-              base_price: basePrice,
-              package_id: v.package_type ? v.id : undefined,
-              package_type: v.package_type ?? undefined,
-              base_price_cents: v.base_price_cents ?? undefined,
-              estimated_hours: v.estimated_hours ?? undefined,
-            },
-            interaction_state: { is_liked: false, is_viewed: false },
-          };
-        });
-        const uiMap: Record<string, ProviderUI> = {};
-        sampleVideos.forEach((v) => {
-          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
-          const estDuration =
-            v.package_type === 'hourly' && v.estimated_hours != null
-              ? `Est. ${v.estimated_hours} hrs`
-              : v.package_type === 'fixed' && v.estimated_hours != null
-                ? `~${v.estimated_hours} hrs`
-                : '2-3 hrs';
-          const key = v.cleaner_id ?? v.id;
-          uiMap[key] = {
-            name: v.cleaner_name,
-            avatar_url: v.cleaner_avatar,
-            rating_average: 4.5,
-            hourly_rate: basePrice,
-            verification_status: 'verified',
-            service_title: v.title,
-            description: v.description,
-            estimated_duration: estDuration,
-          };
-        });
-        setFeedData(items, uiMap, { append: false, hasMore: false });
-        setFeedBanner({
-          show: true,
-          type: 'waitlist',
-          title: "We aren't in your area yet",
-          subtitle: "See what's coming to your neighborhood",
-          cta: 'Get early access',
-          action: handleAddToWaitlist,
-        });
-        setIsShowingAreaFallback(true);
-        console.log('📺 Showing demo fallback (always show content)');
+              avatar_url: v.cleaner_avatar,
+              rating_average: 4.5,
+              hourly_rate: basePrice,
+              verification_status: 'verified',
+              service_title: v.title,
+              description: v.description,
+              estimated_duration: estDuration,
+            };
+          });
+          setFeedData(items, uiMap, { append: false, hasMore: false });
+          setFeedBanner({
+            show: true,
+            type: 'waitlist',
+            title: "We aren't in your area yet",
+            subtitle: "See what's coming to your neighborhood",
+            cta: 'Get early access',
+            action: handleAddToWaitlist,
+          });
+          setIsShowingAreaFallback(true);
+          console.log('📺 Showing demo fallback (always show content)');
+        } else {
+          setFeedData([], {}, { append: false, hasMore: false });
+          setFeedBanner({
+            show: true,
+            type: 'waitlist',
+            title: "We aren't in your area yet",
+            subtitle: "See what's coming to your neighborhood",
+            cta: 'Get early access',
+            action: handleAddToWaitlist,
+          });
+          setIsShowingAreaFallback(true);
+        }
       }
       setHasMore(false);
       markActive();
     } catch (error) {
       console.error('❌ Error loading real content:', error);
       if (!append) {
-        // Never show empty: fallback to demo
-        const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
-        const items: FeedItem[] = sampleVideos.map((v) => {
-          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
-          const providerId = v.cleaner_id ?? v.id;
-          return {
-            post_id: v.id,
-            provider_id: providerId,
-            video_source: v.video_url,
-            isDemo: true,
-            provider_metadata: {
+        if (FEATURE_DEMO_FALLBACK) {
+          const sampleVideos = guestModeService.getDemoVideos().slice(0, 20);
+          const items: FeedItem[] = sampleVideos.map((v) => {
+            const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+            const providerId = v.cleaner_id ?? v.id;
+            return {
+              post_id: v.id,
+              provider_id: providerId,
+              video_source: v.video_url,
+              isDemo: true,
+              provider_metadata: {
+                name: v.cleaner_name,
+                rating: 4.5,
+                base_price: basePrice,
+                package_id: v.package_type ? v.id : undefined,
+                package_type: v.package_type ?? undefined,
+                base_price_cents: v.base_price_cents ?? undefined,
+                estimated_hours: v.estimated_hours ?? undefined,
+              },
+              interaction_state: { is_liked: false, is_viewed: false },
+            };
+          });
+          const uiMap: Record<string, ProviderUI> = {};
+          sampleVideos.forEach((v) => {
+            const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
+            const estDuration =
+              v.package_type === 'hourly' && v.estimated_hours != null
+                ? `Est. ${v.estimated_hours} hrs`
+                : v.package_type === 'fixed' && v.estimated_hours != null
+                  ? `~${v.estimated_hours} hrs`
+                  : '2-3 hrs';
+            const key = v.cleaner_id ?? v.id;
+            uiMap[key] = {
               name: v.cleaner_name,
-              rating: 4.5,
-              base_price: basePrice,
-              package_id: v.package_type ? v.id : undefined,
-              package_type: v.package_type ?? undefined,
-              base_price_cents: v.base_price_cents ?? undefined,
-              estimated_hours: v.estimated_hours ?? undefined,
-            },
-            interaction_state: { is_liked: false, is_viewed: false },
-          };
-        });
-        const uiMap: Record<string, ProviderUI> = {};
-        sampleVideos.forEach((v) => {
-          const basePrice = v.base_price_cents != null ? v.base_price_cents / 100 : 55;
-          const estDuration =
-            v.package_type === 'hourly' && v.estimated_hours != null
-              ? `Est. ${v.estimated_hours} hrs`
-              : v.package_type === 'fixed' && v.estimated_hours != null
-                ? `~${v.estimated_hours} hrs`
-                : '2-3 hrs';
-          const key = v.cleaner_id ?? v.id;
-          uiMap[key] = {
-            name: v.cleaner_name,
-            avatar_url: v.cleaner_avatar,
-            rating_average: 4.5,
-            hourly_rate: basePrice,
-            verification_status: 'verified',
-            service_title: v.title,
-            description: v.description,
-            estimated_duration: estDuration,
-          };
-        });
-        setFeedData(items, uiMap, { append: false, hasMore: false });
+              avatar_url: v.cleaner_avatar,
+              rating_average: 4.5,
+              hourly_rate: basePrice,
+              verification_status: 'verified',
+              service_title: v.title,
+              description: v.description,
+              estimated_duration: estDuration,
+            };
+          });
+          setFeedData(items, uiMap, { append: false, hasMore: false });
+        } else {
+          setFeedData([], {}, { append: false, hasMore: false });
+        }
         setFeedBanner({
           show: true,
           type: 'waitlist',
@@ -1497,7 +1523,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   };
 
   // Button interaction handlers
-  const handleLike = async (providerId: string) => {
+  const handleLike = async (providerId: string, contentPostId?: string) => {
     if (!user?.id) {
       requireAuth('LIKE', providerId);
       return;
@@ -1510,15 +1536,27 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       if (user.id !== providerId) {
         try {
-          await send_notification({
-            type: 'like',
-            title: 'New Like! ❤️',
-            message: `${user.name || 'A customer'} liked your cleaning video`,
-            fromUserId: user.id,
-            fromUserName: user.name || 'A customer',
-            fromUserAvatar: user.avatar_url,
-            toUserId: providerId,
-            relatedId: providerId,
+          const liker = user.name || 'A customer';
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: providerId,
+              title: 'New like on your video',
+              body: `${liker} liked your video.`,
+              data: {
+                type: 'video_like',
+                content_post_id: contentPostId,
+                liker_id: user.id,
+              },
+              insertNotification: {
+                type: 'video_like',
+                title: 'New like! ❤️',
+                message: `${liker} liked your video.`,
+                data: {
+                  content_post_id: contentPostId,
+                  liker_id: user.id,
+                },
+              },
+            },
           });
         } catch (error) {
           console.log('Could not send like notification:', error);
@@ -1791,7 +1829,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             <View style={styles.actionButtonContainer}>
               <TouchableOpacity 
                 style={styles.tikTokActionButton}
-                onPress={() => handleLike(item.provider_id)}
+                onPress={() => handleLike(item.provider_id, item.post_id)}
               >
                 <View style={styles.tikTokIconShadow}>
                 <Ionicons 
@@ -1915,8 +1953,8 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
-        <ActivityIndicator size="large" color="#26B7C9" />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading your feed…</Text>
       </View>
     );
@@ -1930,7 +1968,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
       <View ref={videoFeedRef} style={[styles.container, !feedHasVideos && styles.containerLight]}>
       <StatusBar
         barStyle={feedHasVideos ? 'light-content' : 'dark-content'}
-        backgroundColor={feedHasVideos ? 'black' : '#F8FAFC'}
+        backgroundColor={feedHasVideos ? 'black' : COLORS.background}
         translucent={!!feedHasVideos}
       />
       
@@ -2006,7 +2044,10 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
         const ctaLabel = price ? `Book Now $${price}` : 'Request Quote';
         return (
           <TouchableOpacity
-            style={[styles.bottomCtaBar, { bottom: 90 + Math.max(insets.bottom, 26) + 20 }]}
+            style={[
+              styles.bottomCtaBar,
+              { bottom: getMainTabBarChromeHeight(insets.bottom) + 20 },
+            ]}
             onPress={() => {
               if (isGuestMode) {
                 setGuestPromptType('booking_attempt');
@@ -2089,7 +2130,7 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
           </View>
           <Text style={styles.emptyStateTitle}>Nothing in your feed yet</Text>
           <Text style={styles.emptyStateSubtitle}>
-            When pros near you post clips, they will show up here. Pull to refresh anytime.
+            When pros near you post short clips, they show up here. Pull to refresh anytime.
           </Text>
           <TouchableOpacity
             style={styles.exploreButton}
@@ -2127,17 +2168,6 @@ const VideoFeedScreen = ({ navigation, route }: VideoFeedScreenProps) => {
             })}
           />
         </View>
-      )}
-      
-      {/* Floating Navigation - Show appropriate navigation based on effective role */}
-      {isCleaner ? (
-        <CleanerFloatingNavigation navigation={navigation as any} currentScreen="Content" />
-      ) : (
-        <FloatingNavigation
-          navigation={navigation as any}
-          currentScreen="Content"
-          variant="glass"
-        />
       )}
       
       {/* Tutorial Overlay */}
@@ -2220,7 +2250,7 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   containerLight: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: COLORS.background,
   },
   // Source-specific header styles
   sourceHeader: {
@@ -2266,10 +2296,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: COLORS.background,
   },
   loadingText: {
-    color: '#64748B',
+    color: COLORS.text.secondary,
     fontSize: wp('4%'),
     marginTop: hp('2%'),
   },
@@ -2567,7 +2597,7 @@ const styles = StyleSheet.create({
     right: 16,
     height: 60,
     borderRadius: 16,
-    backgroundColor: '#26B7C9',
+    backgroundColor: '#FFA52F',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2696,8 +2726,8 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 19,
-    marginBottom: 20,
-    maxWidth: 260,
+    marginBottom: 10,
+    maxWidth: 280,
   },
   emptyStateFeatures: {
     alignItems: 'flex-start',

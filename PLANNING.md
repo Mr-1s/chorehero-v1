@@ -1,5 +1,7 @@
 # ChoreHero Planning Notes
 
+> **Context:** For project identity, completed rounds, and architecture decisions, see [`docs/CHORE_HERO_MASTER_CONTEXT.md`](docs/CHORE_HERO_MASTER_CONTEXT.md).
+
 ## Product Flow Source of Truth
 
 ### Onboarding and Auth

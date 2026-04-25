@@ -351,85 +351,78 @@ class AccountDeletionService {
   // ============================================================================
   
   /**
-   * Complete account deletion with all safety measures
+   * Complete account deletion: server removes auth user + cascaded DB rows, storage cleanup in Edge Function.
+   * Cannot use auth.admin from the client — must call the `delete-account` Edge Function.
    */
   async deleteAccount(
-    userId: string, 
+    userId: string,
     options: DeletionOptions = {
-      export_data: true,
-      soft_delete_active_bookings: true,
-      anonymize_reviews: true,
+      export_data: false,
+      soft_delete_active_bookings: false,
+      anonymize_reviews: false,
       cancel_subscriptions: true,
-      delete_media_files: true
+      delete_media_files: false,
     }
   ): Promise<ApiResponse<{ exported_data?: UserDataExport }>> {
     try {
-      console.log('🗑️ Starting complete account deletion for:', userId);
-      
+      console.log('🗑️ Starting account deletion for:', userId);
+
       let exportedData: UserDataExport | undefined;
 
-      // Step 1: Export user data (GDPR compliance)
       if (options.export_data) {
         const exportResult = await this.exportUserData(userId);
         if (!exportResult.success) {
           throw new Error(`Data export failed: ${exportResult.error}`);
         }
         exportedData = exportResult.data;
-        console.log('✅ User data exported');
       }
 
-      // Step 2: Handle active bookings
-      if (options.soft_delete_active_bookings) {
-        const bookingResult = await this.softDeleteActiveBookings(userId);
-        if (!bookingResult.success) {
-          console.warn('⚠️ Booking soft deletion failed:', bookingResult.error);
-        }
-      }
-
-      // Step 3: Anonymize reviews
-      if (options.anonymize_reviews) {
-        const reviewResult = await this.anonymizeUserReviews(userId);
-        if (!reviewResult.success) {
-          console.warn('⚠️ Review anonymization failed:', reviewResult.error);
-        }
-      }
-
-      // Step 4: Delete media files
-      if (options.delete_media_files) {
-        const mediaResult = await this.deleteUserMediaFiles(userId);
-        if (!mediaResult.success) {
-          console.warn('⚠️ Media deletion failed:', mediaResult.error);
-        }
-      }
-
-      // Step 5: Cancel external subscriptions
       if (options.cancel_subscriptions) {
-        const subscriptionResult = await this.cancelExternalSubscriptions(userId);
-        if (!subscriptionResult.success) {
-          console.warn('⚠️ Subscription cancellation failed:', subscriptionResult.error);
-        }
+        await this.cancelExternalSubscriptions(userId);
       }
 
-      // Step 6: Delete user from Supabase Auth (this triggers all CASCADE DELETEs)
-      const { error: authError } = await supabase.auth.admin.deleteUser(userId);
-      
-      if (authError) {
-        throw new Error(`Auth deletion failed: ${authError.message}`);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not signed in');
       }
 
-      console.log('✅ Account deletion completed successfully');
-      
+      if (session.user.id !== userId) {
+        throw new Error('Session does not match user');
+      }
+
+      const { data, error } = await supabase.functions.invoke<{
+        success?: boolean;
+        error?: string;
+        detail?: string;
+      }>('delete-account', {
+        body: {},
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Delete request failed');
+      }
+      if (data && typeof data === 'object' && 'error' in data && data.error) {
+        const msg = String(data.error);
+        const detail = data.detail ? ` ${data.detail}` : '';
+        throw new Error(msg + detail);
+      }
+
+      console.log('✅ Account deletion completed');
       return {
         success: true,
-        data: { exported_data: exportedData }
+        data: { exported_data: exportedData },
       };
-
     } catch (error) {
       console.error('❌ Account deletion failed:', error);
       return {
         success: false,
         data: {},
-        error: error instanceof Error ? error.message : 'Account deletion failed'
+        error: error instanceof Error ? error.message : 'Account deletion failed',
       };
     }
   }

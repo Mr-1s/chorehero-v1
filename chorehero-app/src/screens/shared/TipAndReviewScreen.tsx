@@ -16,6 +16,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { wp, hp } from '../../utils/responsive';
 
 type StackParamList = {
   TipAndReview: { 
@@ -115,7 +116,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
 
   const handleScheduleNextClean = () => {
     setShowThankYou(false);
-    navigation.navigate('NewBookingFlow' as any, {
+    navigation.navigate('UnifiedBooking' as any, {
       cleanerId,
       serviceType: serviceTitle,
       basePrice: serviceCost,
@@ -134,7 +135,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
             <Ionicons
               name={star <= rating ? 'star' : 'star-outline'}
               size={40}
-              color={star <= rating ? '#FFD700' : '#D1D5DB'}
+              color={star <= rating ? '#E6B200' : '#D1D5DB'}
             />
           </TouchableOpacity>
         ))}
@@ -271,7 +272,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
           {tipAmount > 0 && (
             <View style={styles.tipSummary}>
               <LinearGradient
-                colors={['#3ad3db', '#2BC8D4']}
+                colors={['#26B7C9', '#047B9B']}
                 style={styles.tipSummaryGradient}
               >
                 <Ionicons name="heart" size={20} color="#ffffff" />
@@ -308,7 +309,7 @@ const TipAndReviewScreen: React.FC<TipAndReviewScreenProps> = ({ navigation, rou
           disabled={isSubmitting}
         >
           <LinearGradient
-            colors={isSubmitting ? ['#9CA3AF', '#6B7280'] : ['#3ad3db', '#2BC8D4']}
+            colors={isSubmitting ? ['#9CA3AF', '#6B7280'] : ['#26B7C9', '#047B9B']}
             style={styles.submitButtonGradient}
           >
             {isSubmitting ? (
@@ -359,8 +360,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
@@ -369,7 +370,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -382,7 +383,7 @@ const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: '#ffffff',
     margin: 16,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 20,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
@@ -397,7 +398,7 @@ const styles = StyleSheet.create({
   cleanerPhoto: {
     width: 60,
     height: 60,
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
     marginRight: 16,
     borderWidth: 2,
     borderColor: '#E5E7EB',
@@ -406,195 +407,195 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cleanerName: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   serviceTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   serviceCost: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   section: {
     backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('2%'),
+    borderRadius: wp('3%'),
     padding: 20,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   sectionSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   starsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   starButton: {
     padding: 8,
   },
   ratingText: {
     textAlign: 'center',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   reviewInput: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     padding: 16,
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#1F2937',
     backgroundColor: '#ffffff',
     height: 120,
   },
   characterCount: {
     textAlign: 'right',
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   tipOptionsContainer: {
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   tipSectionTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 12,
-    marginTop: 16,
+    marginBottom: hp('1.5%'),
+    marginTop: hp('2%'),
   },
   tipButtonsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   tipButton: {
     flex: 1,
-    marginHorizontal: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    marginHorizontal: wp('1%'),
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('2%'),
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     alignItems: 'center',
     backgroundColor: '#ffffff',
   },
   selectedTipButton: {
-    borderColor: '#3ad3db',
+    borderColor: '#26B7C9',
     backgroundColor: '#F0FDFA',
   },
   tipButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#374151',
   },
   selectedTipButtonText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   tipAmountText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginTop: 2,
   },
   selectedTipAmountText: {
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   customTipContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('4%'),
     backgroundColor: '#ffffff',
   },
   dollarSign: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
     marginRight: 8,
   },
   customTipInput: {
     flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingVertical: hp('1.5%'),
+    fontSize: wp('4%'),
     color: '#1F2937',
   },
   tipSummary: {
-    marginTop: 16,
+    marginTop: hp('2%'),
   },
   tipSummaryGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('2%'),
   },
   tipSummaryText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#ffffff',
     marginLeft: 8,
   },
   totalSection: {
     backgroundColor: '#ffffff',
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('2%'),
+    borderRadius: wp('3%'),
     padding: 20,
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   finalTotal: {
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
-    paddingTop: 12,
+    paddingTop: hp('1.5%'),
     marginBottom: 0,
   },
   totalLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   totalAmount: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   finalTotalLabel: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
   finalTotalAmount: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#3ad3db',
+    color: '#26B7C9',
   },
   submitButton: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('2%'),
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   submitButtonDisabled: {
@@ -604,11 +605,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
   },
   submitButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#ffffff',
     marginLeft: 8,
@@ -623,29 +624,29 @@ const styles = StyleSheet.create({
   modalCard: {
     width: '100%',
     backgroundColor: '#ffffff',
-    borderRadius: 16,
+    borderRadius: wp('4%'),
     padding: 24,
     alignItems: 'center',
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   modalSubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   modalPrimaryButton: {
     width: '100%',
     backgroundColor: '#26B7C9',
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
   },
   modalPrimaryText: {
     color: '#ffffff',
@@ -654,15 +655,15 @@ const styles = StyleSheet.create({
   },
   modalSecondaryButton: {
     width: '100%',
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingVertical: hp('1.2%'),
+    borderRadius: wp('3%'),
     borderWidth: 1,
     borderColor: '#E5E7EB',
     alignItems: 'center',
   },
   modalSecondaryText: {
     color: '#374151',
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
   },
   bottomSpacing: {

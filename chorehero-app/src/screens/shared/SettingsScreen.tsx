@@ -17,19 +17,29 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { AppState } from 'react-native';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import { CommonActions } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { accountDeletionService } from '../../services/accountDeletionService';
 import { supabase } from '../../services/supabase';
+import { ADMIN_EMAILS } from '../../config';
+import { uploadService } from '../../services/uploadService';
+import { useCleanerStore } from '../../store/cleanerStore';
+import { navigationRef } from '../../navigation/navigationRef';
+import { wp, hp } from '../../utils/responsive';
+import { Row } from '../../components/ui';
 
 type StackParamList = {
   SettingsScreen: undefined;
   PaymentScreen: { fromBooking?: boolean };
   AuthScreen: undefined;
+  Welcome: undefined;
   HelpScreen: undefined;
   PrivacyScreen: undefined;
   TermsScreen: undefined;
   MainTabs: undefined;
+  CleanerOnboarding: undefined;
 };
 
 type SettingsScreenProps = {
@@ -67,15 +77,59 @@ interface UserProfile {
   avatarUrl?: string | null;
 }
 
+interface VerificationSafetyStatus {
+  verification_status: string | null;
+  background_check_status: string | null;
+  background_check_date: string | null;
+  stripe_onboarding_complete: boolean | null;
+  stripe_account_id: string | null;
+}
+
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const { signOut, user, isAuthenticated, isCleaner, refreshUser } = useAuth();
+
+  /** Same intent as ProfileType “Become a ChoreHero”, but skips the account-type picker when you’re already signed in. */
+  const navigateToCleanerSignup = async () => {
+    if (!user?.id) {
+      if (navigationRef.isReady()) navigationRef.navigate('AuthScreen' as never);
+      return;
+    }
+    try {
+      await AsyncStorage.setItem('pending_auth_role', 'cleaner');
+    } catch {
+      // no-op
+    }
+    const profilePayload = {
+      id: user.id,
+      email: user.email || null,
+      name: user.name || null,
+      phone: user.phone || null,
+      username: (user as { username?: string | null }).username || null,
+      role: 'cleaner' as const,
+      cleaner_onboarding_state: 'APPLICANT',
+      cleaner_onboarding_step: 1,
+    };
+    const { error } = await supabase.from('users').upsert(profilePayload, { onConflict: 'id' });
+    if (error) console.warn('Failed to persist cleaner intent:', error);
+    await refreshUser().catch(() => {});
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('CleanerOnboarding' as never);
+    }
+  };
   
   // Dynamic theme colors based on user role
-  const themeColor = isCleaner ? '#FFA52F' : '#3ad3db';
+  const themeColor = isCleaner ? '#FFA52F' : '#26B7C9';
   const themeColorLight = isCleaner ? '#FFF3E0' : '#E0F7FA';
   const [isLoading, setIsLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [guestRole, setGuestRole] = useState<'customer' | 'cleaner' | null>(null);
+  const [verificationSafety, setVerificationSafety] = useState<VerificationSafetyStatus>({
+    verification_status: null,
+    background_check_status: null,
+    background_check_date: null,
+    stripe_onboarding_complete: null,
+    stripe_account_id: null,
+  });
   const [notifications, setNotifications] = useState<NotificationSettings>({
     bookingUpdates: true,
     jobMatches: true,
@@ -97,7 +151,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [user?.id, isCleaner]);
 
   // Keep profile preview in sync with auth user updates (e.g., avatar change)
   useEffect(() => {
@@ -121,6 +175,30 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       if (user) {
+        if (isCleaner && user.id) {
+          const { data: cleanerProfile } = await supabase
+            .from('cleaner_profiles')
+            .select(
+              'verification_status, background_check_status, background_check_date, stripe_onboarding_complete, stripe_account_id'
+            )
+            .eq('user_id', user.id)
+            .maybeSingle();
+          setVerificationSafety({
+            verification_status: cleanerProfile?.verification_status ?? null,
+            background_check_status: cleanerProfile?.background_check_status ?? null,
+            background_check_date: cleanerProfile?.background_check_date ?? null,
+            stripe_onboarding_complete: cleanerProfile?.stripe_onboarding_complete ?? null,
+            stripe_account_id: cleanerProfile?.stripe_account_id ?? null,
+          });
+        } else {
+          setVerificationSafety({
+            verification_status: null,
+            background_check_status: null,
+            background_check_date: null,
+            stripe_onboarding_complete: null,
+            stripe_account_id: null,
+          });
+        }
         setUserProfile({
           name: (user as any).name || 'Customer',
           email: (user as any).email || '',
@@ -159,39 +237,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     setNotifications(prev => ({ ...prev, [key]: value }));
   };
 
-  const switchGuestRole = async () => {
-    if (isAuthenticated) return; // Only for guest users
-    
-    const newRole = guestRole === 'customer' ? 'cleaner' : 'customer';
-    
-    Alert.alert(
-      'Switch Experience',
-      `Switch to ${newRole} mode? This will change your app experience and you'll need to restart the app.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Switch',
-          onPress: async () => {
-            try {
-              await AsyncStorage.setItem('guest_user_role', newRole);
-              setGuestRole(newRole);
-              setUserProfile(prev => prev ? { ...prev, role: newRole } : null);
-              
-              Alert.alert(
-                'Experience Switched',
-                `You're now in ${newRole} mode. Please restart the app to see the changes.`,
-                [{ text: 'OK' }]
-              );
-            } catch (error) {
-              console.error('Error switching guest role:', error);
-              Alert.alert('Error', 'Failed to switch experience. Please try again.');
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const updateAppSetting = (key: keyof AppSettings, value: any) => {
     setAppSettings(prev => ({ ...prev, [key]: value }));
   };
@@ -212,27 +257,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         },
       ]
     );
-  };
-
-  const handleSwitchAccount = async () => {
-    try {
-      if (!isAuthenticated) {
-        Alert.alert('Error', 'No account to switch from');
-        return;
-      }
-
-      const currentRole = ((user as any)?.role || (isCleaner ? 'cleaner' : 'customer')) as 'customer' | 'cleaner';
-      const newRole: 'customer' | 'cleaner' = currentRole === 'cleaner' ? 'customer' : 'cleaner';
-      await AsyncStorage.setItem('interface_role_override', newRole);
-      Alert.alert(
-        'Experience Switched',
-        `You're now viewing the ${newRole} experience.`,
-        [{ text: 'OK', onPress: () => navigation.navigate('MainTabs') }]
-      );
-    } catch (error) {
-      console.error('Error in handleSwitchAccount:', error);
-      Alert.alert('Error', 'Failed to switch account type');
-    }
   };
 
   const handleDeleteAccount = async () => {
@@ -306,29 +330,24 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
     try {
       const result = await accountDeletionService.deleteAccount(user.id, {
-        export_data: true,
-        soft_delete_active_bookings: true,
-        anonymize_reviews: true,
+        export_data: false,
         cancel_subscriptions: true,
-        delete_media_files: true
       });
 
       if (result.success) {
-        // If data was exported, we could offer to download it here
-        Alert.alert(
-          'Account Deleted',
-          'Your account has been deleted successfully. Your data has been exported and any active bookings have been handled appropriately.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Clear local storage and navigate to auth
-                AsyncStorage.clear();
-                navigation.navigate('AuthScreen');
-              }
-            }
-          ]
+        try {
+          await AsyncStorage.clear();
+        } catch {
+          // ignore
+        }
+        await signOut();
+        navigation.dispatch(
+          CommonActions.reset({
+            index: 0,
+            routes: [{ name: 'Welcome' }],
+          })
         );
+        Alert.alert('Account deleted', 'Your account and associated data have been removed.');
       } else {
         throw new Error(result.error || 'Deletion failed');
       }
@@ -371,6 +390,39 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     );
   };
 
+  const handleIdentityVerification = () => {
+    Alert.alert(
+      'Identity verification',
+      'Identity verification link will be added here. This section is ready for provider integration.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleBackgroundCheck = () => {
+    Alert.alert(
+      'Background check',
+      'Background check link will be added here. This section is ready for provider integration.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handlePayoutSetup = () => {
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('PayoutSetup' as never);
+    } else {
+      navigation.navigate('PayoutSetup' as any);
+    }
+  };
+
+  const payoutsReady = verificationSafety.stripe_onboarding_complete === true;
+  const payoutsStarted = !payoutsReady && !!verificationSafety.stripe_account_id;
+
+  const identityVerified = verificationSafety.verification_status === 'verified';
+  const backgroundCleared =
+    verificationSafety.background_check_status === 'cleared' ||
+    verificationSafety.background_check_status === 'verified' ||
+    !!verificationSafety.background_check_date;
+
   const handleChangeAvatar = async () => {
     if (!user?.id) {
       Alert.alert('Error', 'Please sign in to change your profile photo');
@@ -379,15 +431,48 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
     const persistAvatar = async (uri: string) => {
       try {
+        // Wait for app to be active after ImagePicker (avoids session loss on resume)
+        if (AppState.currentState !== 'active') {
+          await new Promise<void>((resolve) => {
+            const sub = AppState.addEventListener('change', (s) => {
+              if (s === 'active') {
+                sub.remove();
+                setTimeout(resolve, 400);
+              }
+            });
+            if (AppState.currentState === 'active') {
+              sub.remove();
+              setTimeout(resolve, 400);
+            }
+          });
+        } else {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        let urlToSave = uri;
+        if (uri.startsWith('file://')) {
+          const upload = await uploadService.uploadFile(uri, 'image');
+          if (!upload.success || !upload.url) {
+            Alert.alert('Upload failed', 'Could not upload photo. Please try again.');
+            return;
+          }
+          urlToSave = upload.url;
+        }
         const { error } = await supabase
           .from('users')
-          .update({ avatar_url: uri, updated_at: new Date().toISOString() })
+          .update({ avatar_url: urlToSave, updated_at: new Date().toISOString() })
           .eq('id', user.id);
-        
         if (error) throw error;
-        
-        setUserProfile(prev => prev ? { ...prev, avatarUrl: uri } : null);
+        setUserProfile(prev => prev ? { ...prev, avatarUrl: urlToSave } : null);
         await refreshUser();
+        // Reflect the new avatar in the cleaner dashboard's profile-completion
+        // checklist on next focus (no-op for customer accounts).
+        if (isCleaner) {
+          try {
+            void useCleanerStore.getState().refreshData();
+          } catch {
+            // no-op
+          }
+        }
         Alert.alert('Success', 'Profile photo updated');
       } catch (error) {
         console.error('Error updating avatar:', error);
@@ -460,29 +545,18 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     onPress?: () => void,
     showChevron = false
   ) => (
-    <TouchableOpacity
-      style={styles.settingsItem}
-      onPress={onPress}
-      disabled={!onPress}
-    >
-      <View style={styles.settingsItemLeft}>
-        <View style={[styles.settingsIcon, { backgroundColor: themeColorLight }]}>
-          <Ionicons name={icon as any} size={20} color={themeColor} />
-        </View>
-        <View style={styles.settingsItemContent}>
-          <Text style={styles.settingsItemTitle}>{title}</Text>
-          {subtitle && (
-            <Text style={styles.settingsItemSubtitle}>{subtitle}</Text>
-          )}
-        </View>
-      </View>
-      <View style={styles.settingsItemRight}>
-        {rightContent}
-        {showChevron && (
-          <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-        )}
-      </View>
-    </TouchableOpacity>
+    <View style={styles.settingsItem}>
+      <Row
+        leadingIcon={icon as any}
+        leadingIconColor={isCleaner ? themeColor : undefined}
+        iconLeadBackgroundColor={isCleaner ? themeColorLight : undefined}
+        title={title}
+        subtitle={subtitle}
+        trailing={rightContent as any}
+        chevron={showChevron}
+        onPress={onPress}
+      />
+    </View>
   );
 
   const renderSwitchItem = (
@@ -576,21 +650,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         {/* Guest Mode Settings */}
         {!isAuthenticated && renderSettingsSection('Guest Mode', [
           renderSettingsItem(
-            'swap-horizontal-outline',
-            'Switch Experience',
-            `Currently in ${guestRole || 'customer'} mode`,
-            undefined,
-            switchGuestRole,
-            true
-          ),
-          renderSettingsItem(
             'information-circle-outline',
             'About Guest Mode',
-            'You\'re using ChoreHero without an account',
+            `You're using ChoreHero in ${guestRole || 'customer'} mode`,
             undefined,
             () => Alert.alert(
               'Guest Mode',
-              'You\'re currently using ChoreHero as a guest. You can switch between customer and cleaner experiences, but your data won\'t be saved. Create an account to save your preferences and bookings.',
+              'You are browsing without an account. Create an account to save your preferences and bookings.',
               [{ text: 'OK' }]
             ),
             true
@@ -600,13 +666,29 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         {/* Account Settings */}
         {isAuthenticated && renderSettingsSection('Account', [
           renderSettingsItem(
-            'person-outline',
-            'Profile Information',
-            'Update your personal details',
+            'git-compare-outline',
+            'Customer or pro',
+            'One login — switch by choosing account type',
             undefined,
-            () => navigation.navigate('EditProfileScreen'),
+            () =>
+              Alert.alert(
+                'Customer or pro account',
+                'You have one login. To offer services, continue into cleaner signup — you can finish onboarding there. To only book services, stay on the customer experience.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Continue as a ChoreHero (cleaner)',
+                    onPress: () => {
+                      void navigateToCleanerSignup();
+                    },
+                  },
+                ]
+              ),
             true
           ),
+          // "Profile Information" row removed — both Customer and Cleaner now
+          // surface "Edit profile" directly from their Profile screen quick
+          // actions, so this Settings entry was redundant.
           renderSettingsItem(
             'card-outline',
             'Payment Methods',
@@ -629,6 +711,51 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'Control your privacy settings',
             undefined,
             () => navigation.navigate('PrivacyScreen'),
+            true
+          ),
+        ])}
+
+        {isAuthenticated && isCleaner && renderSettingsSection('Verification & Safety', [
+          renderSettingsItem(
+            'id-card-outline',
+            'Identity verification',
+            identityVerified ? 'Verified' : 'Complete identity check to build trust',
+            <View style={[styles.statusPill, identityVerified ? styles.statusPillDone : styles.statusPillPending]}>
+              <Text style={[styles.statusPillText, identityVerified ? styles.statusPillTextDone : styles.statusPillTextPending]}>
+                {identityVerified ? 'Verified' : 'Pending'}
+              </Text>
+            </View>,
+            handleIdentityVerification,
+            true
+          ),
+          renderSettingsItem(
+            'shield-checkmark-outline',
+            'Background check',
+            backgroundCleared
+              ? 'Cleared and on file'
+              : 'Submit and track your background check status',
+            <View style={[styles.statusPill, backgroundCleared ? styles.statusPillDone : styles.statusPillPending]}>
+              <Text style={[styles.statusPillText, backgroundCleared ? styles.statusPillTextDone : styles.statusPillTextPending]}>
+                {backgroundCleared ? 'Cleared' : 'Pending'}
+              </Text>
+            </View>,
+            handleBackgroundCheck,
+            true
+          ),
+          renderSettingsItem(
+            'card-outline',
+            'Payouts',
+            payoutsReady
+              ? 'Connected — earnings go straight to your bank'
+              : payoutsStarted
+                ? 'Verification in progress with Stripe'
+                : 'Set up Stripe to receive payouts',
+            <View style={[styles.statusPill, payoutsReady ? styles.statusPillDone : styles.statusPillPending]}>
+              <Text style={[styles.statusPillText, payoutsReady ? styles.statusPillTextDone : styles.statusPillTextPending]}>
+                {payoutsReady ? 'Ready' : payoutsStarted ? 'In review' : 'Not set up'}
+              </Text>
+            </View>,
+            handlePayoutSetup,
             true
           ),
         ])}
@@ -689,30 +816,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
         {/* App Preferences */}
         {renderSettingsSection('App Preferences', [
-          renderSettingsItem(
-            'language-outline',
-            'Language',
-            appSettings.language,
-            undefined,
-            () => Alert.alert('Language', 'Language selection not yet implemented'),
-            true
-          ),
-          renderSettingsItem(
-            'cash-outline',
-            'Currency',
-            appSettings.currency,
-            undefined,
-            () => Alert.alert('Currency', 'Currency selection not yet implemented'),
-            true
-          ),
-          renderSettingsItem(
-            'moon-outline',
-            'Theme',
-            `${appSettings.theme.charAt(0).toUpperCase()}${appSettings.theme.slice(1)}`,
-            undefined,
-            () => Alert.alert('Theme', 'Theme selection not yet implemented'),
-            true
-          ),
           renderSwitchItem(
             'location-outline',
             'Auto Location Updates',
@@ -728,6 +831,20 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             (value) => updateAppSetting('biometricAuth', value)
           ),
         ])}
+
+        {/* Admin (founder only) */}
+        {(ADMIN_EMAILS.includes((user?.email || '').toLowerCase()) ||
+          (user as any)?.role === 'admin') &&
+          renderSettingsSection('Admin', [
+            renderSettingsItem(
+              'construct-outline',
+              'Admin Dashboard',
+              'Jobs, bookings, manual actions',
+              undefined,
+              () => navigation.navigate('AdminDashboard' as any),
+              true
+            ),
+          ])}
 
         {/* Support & About */}
         {renderSettingsSection('Support & About', [
@@ -745,14 +862,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             'Reach out to our support team',
             undefined,
             handleContactSupport,
-            true
-          ),
-          renderSettingsItem(
-            'star-outline',
-            'Rate ChoreHero',
-            'Share your feedback on the App Store',
-            undefined,
-            () => Alert.alert('Rate App', 'App Store rating not yet implemented'),
             true
           ),
           renderSettingsItem(
@@ -796,14 +905,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         {/* Account Actions */}
         {renderSettingsSection('Account Actions', [
           renderSettingsItem(
-            'swap-horizontal-outline',
-            'Switch Account',
-            'Switch between customer and cleaner',
-            undefined,
-            handleSwitchAccount,
-            true
-          ),
-          renderSettingsItem(
             'log-out-outline',
             'Sign Out',
             'Sign out of your account',
@@ -842,22 +943,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#F3F4F6',
   },
   backButton: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -868,7 +969,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -877,12 +978,12 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    marginHorizontal: wp('4%'),
+    marginTop: hp('1%'),
+    marginBottom: hp('1%'),
+    borderRadius: wp('4%'),
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2.5%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -896,7 +997,7 @@ const styles = StyleSheet.create({
   profileAvatar: {
     width: 64,
     height: 64,
-    borderRadius: 32,
+    borderRadius: wp('8%'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -908,10 +1009,10 @@ const styles = StyleSheet.create({
   profileAvatarImage: {
     width: 64,
     height: 64,
-    borderRadius: 32,
+    borderRadius: wp('8%'),
   },
   profileAvatarText: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -931,15 +1032,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   profileName: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   profileEmail: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   profileStats: {
     flexDirection: 'row',
@@ -950,26 +1051,26 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   profileStatDot: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#D1D5DB',
-    marginHorizontal: 8,
+    marginHorizontal: wp('2%'),
   },
   section: {
-    marginTop: 16,
+    marginTop: hp('2%'),
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#6B7280',
-    marginBottom: 12,
-    marginHorizontal: 20,
+    marginBottom: hp('1.5%'),
+    marginHorizontal: wp('5%'),
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   sectionContent: {
     backgroundColor: '#FFFFFF',
-    marginHorizontal: 16,
-    borderRadius: 16,
+    marginHorizontal: wp('4%'),
+    borderRadius: wp('4%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -978,11 +1079,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   settingsItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 8,
   },
   settingsItemLeft: {
     flexDirection: 'row',
@@ -992,7 +1090,7 @@ const styles = StyleSheet.create({
   settingsIcon: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -1001,7 +1099,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingsItemTitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 2,
@@ -1014,6 +1112,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  statusPillDone: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  statusPillPending: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  statusPillTextDone: {
+    color: '#047857',
+  },
+  statusPillTextPending: {
+    color: '#B45309',
+  },
   separator: {
     height: 1,
     backgroundColor: '#F3F4F6',
@@ -1021,17 +1143,17 @@ const styles = StyleSheet.create({
   },
   versionSection: {
     alignItems: 'center',
-    paddingVertical: 32,
-    paddingHorizontal: 20,
+    paddingVertical: hp('4%'),
+    paddingHorizontal: wp('5%'),
   },
   versionText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#9CA3AF',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
     fontWeight: '500',
   },
   versionSubtext: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#D1D5DB',
   },
 });

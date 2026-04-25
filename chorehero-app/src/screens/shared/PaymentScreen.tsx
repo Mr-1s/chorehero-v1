@@ -10,33 +10,81 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Animated,
   Switch,
-  KeyboardAvoidingView,
   Platform,
-  Keyboard,
-  TouchableWithoutFeedback,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { RouteProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
+import { getMainTabBarChromeHeight } from '../../navigation/mainTabsChromeLayout';
 import { supabase } from '../../services/supabase';
+import { authService } from '../../services/auth';
+import * as Linking from 'expo-linking';
 import { useStripe } from '@stripe/stripe-react-native';
 import { wp, hp } from '../../utils/responsive';
 
 const PAYMENT_METHODS_STORAGE_KEY = 'chorehero_saved_payment_methods';
 
+/**
+ * Extract a useful error from a Supabase Edge Function call.
+ * supabase-js v2 returns the parsed body in `data` when the function returns
+ * JSON. When it errors with a non-2xx, the parsed body is on `fnError.context`
+ * (a Response object) and we have to read it ourselves.
+ */
+async function parseEdgeFunctionError(
+  data: unknown,
+  fnError: { context?: { json?: () => Promise<unknown>; status?: number; text?: () => Promise<string> }; message?: string } | null | undefined
+): Promise<string> {
+  // Body that supabase-js parsed for us.
+  if (data && typeof data === 'object' && 'error' in data) {
+    const e = (data as { error?: string }).error;
+    if (typeof e === 'string' && e.length) return e;
+  }
+  // Body that supabase-js left on the FunctionsHttpError context.
+  const ctx = fnError?.context;
+  if (ctx && typeof ctx.json === 'function') {
+    try {
+      const body = await ctx.json();
+      if (body && typeof body === 'object' && 'error' in body) {
+        const e = (body as { error?: string }).error;
+        if (typeof e === 'string' && e.length) return e;
+      }
+    } catch {
+      try {
+        if (typeof ctx.text === 'function') {
+          const text = await ctx.text();
+          if (text) return text;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+  const status = ctx?.status;
+  const base = fnError?.message || 'Request failed';
+  if (status === 404) {
+    return 'Payment service is not deployed yet. Please contact support.';
+  }
+  if (status === 401 || status === 403) {
+    return 'Your session expired. Please sign in again.';
+  }
+  if (/non-2xx/i.test(base)) {
+    return 'Payment service returned an error. Please try again, or contact support if it continues.';
+  }
+  return base;
+}
+
 // Theme colors
 const THEMES = {
   customer: {
-    primary: '#0891b2',
+    primary: '#047B9B',
     primaryLight: '#E0F7FA',
     primaryDark: '#0e7490',
-    accent: '#06b6d4',
+    accent: '#26B7C9',
   },
   cleaner: {
     primary: '#F59E0B',
@@ -54,7 +102,7 @@ type StackParamList = {
     fromBooking?: boolean;
     paymentIntent?: string;
   };
-  BookingConfirmation: {
+  BookingConfirmed: {
     bookingId: string;
     paymentId: string;
   };
@@ -90,6 +138,8 @@ interface BillingAddress {
 }
 
 const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
+  const insets = useSafeAreaInsets();
+  const tabBarChromeBottom = getMainTabBarChromeHeight(insets.bottom);
   const { bookingId, bookingTotal, cleanerId, fromBooking, paymentIntent } = route.params || {};
   const { user, isCleaner } = useAuth();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -99,10 +149,12 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
   
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Synchronous double-submit guard. `isProcessing` is React state and the
+  // first paint may not flip the disabled prop before a fast double-tap fires.
+  const addCardInFlightRef = useRef(false);
   const [activeTab, setActiveTab] = useState<'methods' | 'billing' | 'history'>('methods');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
-  const [showAddCard, setShowAddCard] = useState(false);
   const [billingAddress, setBillingAddress] = useState<BillingAddress>({
     firstName: '',
     lastName: '',
@@ -114,48 +166,69 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     country: 'US',
   });
   const [autoSaveCards, setAutoSaveCards] = useState(true);
-  const [newCard, setNewCard] = useState({
-    number: '',
-    expiry: '',
-    cvc: '',
-    name: '',
-    nickname: '',
-    saveCard: true,
-  });
-
-  const slideAnim = useRef(new Animated.Value(0)).current;
-  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    loadPaymentData();
-  }, []);
+    void loadPaymentData();
+  }, [user?.id]);
 
-  useEffect(() => {
-    if (showAddCard) {
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 100,
-        friction: 8,
-      }).start();
-    } else {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 100,
-        friction: 8,
-      }).start();
-    }
-  }, [showAddCard]);
+  const mapRowToMethod = (row: {
+    id: string;
+    type: string;
+    last_four: string | null;
+    brand: string | null;
+    exp_month: number | null;
+    exp_year: number | null;
+    is_default: boolean | null;
+  }): PaymentMethod => {
+    const b = (row.brand || 'card').toLowerCase();
+    const pretty = b.charAt(0).toUpperCase() + b.slice(1);
+    return {
+      id: row.id,
+      type: 'card',
+      provider: row.type === 'card' ? pretty : 'Card',
+      last4: row.last_four || '----',
+      brand: b,
+      expiryMonth: row.exp_month ?? undefined,
+      expiryYear: row.exp_year ?? undefined,
+      isDefault: !!row.is_default,
+    };
+  };
 
   const loadPaymentData = async () => {
     setIsLoading(true);
     try {
-      const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
-      const stored = await AsyncStorage.getItem(storageKey);
-      const methods: PaymentMethod[] = stored ? JSON.parse(stored) : [];
-      setPaymentMethods(methods);
-      setSelectedMethodId(methods.find(m => m.isDefault)?.id || methods[0]?.id || null);
+      if (user?.id) {
+        const { data, error } = await supabase
+          .from('payment_methods')
+          .select('id, type, last_four, brand, exp_month, exp_year, is_default')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          const storageKey = `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}`;
+          const stored = await AsyncStorage.getItem(storageKey);
+          const local: PaymentMethod[] = stored ? JSON.parse(stored) : [];
+          setPaymentMethods(local);
+          setSelectedMethodId(
+            local.find((m) => m.isDefault)?.id || local[0]?.id || null
+          );
+        } else {
+          const rows = data ?? [];
+          const methods = rows.map((r) => mapRowToMethod(r as any));
+          setPaymentMethods(methods);
+          setSelectedMethodId(
+            methods.find((m) => m.isDefault)?.id || methods[0]?.id || null
+          );
+        }
+      } else {
+        const stored = await AsyncStorage.getItem(PAYMENT_METHODS_STORAGE_KEY);
+        const local: PaymentMethod[] = stored ? JSON.parse(stored) : [];
+        setPaymentMethods(local);
+        setSelectedMethodId(
+          local.find((m) => m.isDefault)?.id || local[0]?.id || null
+        );
+      }
 
       setBillingAddress({
         firstName: '',
@@ -167,7 +240,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         zipCode: '',
         country: 'US',
       });
-    } catch (error) {
+    } catch {
       setPaymentMethods([]);
       setSelectedMethodId(null);
     } finally {
@@ -175,79 +248,77 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
     }
   };
 
-  const formatCardNumber = (text: string) => {
-    const cleaned = text.replace(/\s/g, '');
-    const match = cleaned.match(/.{1,4}/g);
-    return match ? match.join(' ').substr(0, 19) : cleaned;
-  };
-
-  const formatExpiry = (text: string) => {
-    const cleaned = text.replace(/\D/g, '');
-    if (cleaned.length >= 2) {
-      return `${cleaned.substr(0, 2)}/${cleaned.substr(2, 2)}`;
+  const handleAddCardWithStripe = async () => {
+    if (!user?.id) {
+      Alert.alert('Sign in required', 'Add a card after you sign in.');
+      return;
     }
-    return cleaned;
-  };
-
-  const validateCard = () => {
-    if (newCard.number.replace(/\s/g, '').length < 16) {
-      Alert.alert('Invalid Card', 'Please enter a valid card number');
-      return false;
+    if (!process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+      // Without the publishable key the Stripe SDK silently rejects every
+      // setup-sheet invocation, which previously surfaced as a generic error.
+      Alert.alert(
+        'Payments not configured',
+        'This build is missing the Stripe publishable key. Please update the app or contact support.'
+      );
+      return;
     }
-    if (newCard.expiry.length < 5) {
-      Alert.alert('Invalid Expiry', 'Please enter a valid expiry date');
-      return false;
+    if (addCardInFlightRef.current) {
+      // Double-tap guard — synchronous and survives React state batching.
+      return;
     }
-    if (newCard.cvc.length < 3) {
-      Alert.alert('Invalid CVC', 'Please enter a valid CVC code');
-      return false;
-    }
-    if (!newCard.name.trim()) {
-      Alert.alert('Invalid Name', 'Please enter the cardholder name');
-      return false;
-    }
-    return true;
-  };
-
-  const handleAddCard = async () => {
-    if (!validateCard()) return;
-
+    addCardInFlightRef.current = true;
     setIsProcessing(true);
     try {
-      const lastFour = newCard.number.replace(/\s/g, '').slice(-4);
-      const [month, year] = newCard.expiry.split('/');
-
-      const newMethod: PaymentMethod = {
-        id: Date.now().toString(),
-        type: 'card',
-        provider: 'Visa',
-        brand: 'visa',
-        last4: lastFour,
-        expiryMonth: parseInt(month),
-        expiryYear: 2000 + parseInt(year),
-        isDefault: paymentMethods.length === 0,
-        nickname: newCard.nickname || `Card ending in ${lastFour}`,
-      };
-
-      const updated = [...paymentMethods, newMethod];
-      setPaymentMethods(updated);
-      setSelectedMethodId(newMethod.id);
-      setShowAddCard(false);
-      setNewCard({
-        number: '',
-        expiry: '',
-        cvc: '',
-        name: '',
-        nickname: '',
-        saveCard: true,
+      // create-setup-intent returns 404 when the auth user has no row in
+      // public.users. Backfill it first so the very first card-add doesn't fail.
+      const ensureRes = await authService.ensureUserExists(user.id, {
+        email: user.email ?? undefined,
+        name: user.name ?? undefined,
+        phone: (user as { phone?: string }).phone ?? undefined,
+        role: (user.role as 'customer' | 'cleaner' | undefined) ?? 'customer',
       });
-
-      if (newCard.saveCard) {
-        const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
-        await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+      if (!ensureRes.success) {
+        throw new Error(ensureRes.error || 'Could not prepare your account for payments.');
       }
 
-      if (user?.id && user.role === 'customer') {
+      const { data, error: fnError } = await supabase.functions.invoke('create-setup-intent', {
+        body: {},
+      });
+      if (fnError || !data || !(data as { clientSecret?: string }).clientSecret) {
+        const msg = await parseEdgeFunctionError(data, fnError as any);
+        throw new Error(msg || 'Could not start card setup');
+      }
+      if (!(data as { setupIntentId?: string }).setupIntentId) {
+        const msg = await parseEdgeFunctionError(data, fnError as any);
+        throw new Error(msg || 'Missing setup intent from server');
+      }
+
+      const { error: initError } = await initPaymentSheet({
+        merchantDisplayName: 'ChoreHero',
+        setupIntentClientSecret: (data as { clientSecret: string }).clientSecret,
+        allowsDelayedPaymentMethods: false,
+        returnURL: Linking.createURL('stripe-redirect'),
+        defaultBillingDetails: { name: (user as { name?: string })?.name || '' },
+      });
+      if (initError) throw new Error(initError.message);
+
+      const { error: sheetError } = await presentPaymentSheet();
+      if (sheetError) {
+        if (sheetError.code === 'Canceled') {
+          return;
+        }
+        throw new Error(sheetError.message);
+      }
+
+      const { data: fin, error: finErr } = await supabase.functions.invoke('finalize-setup-intent', {
+        body: { setupIntentId: (data as { setupIntentId: string }).setupIntentId },
+      });
+      if (finErr || !fin || (fin as { error?: string }).error) {
+        const msg = await parseEdgeFunctionError(fin, finErr as any);
+        throw new Error(msg || 'Could not save card');
+      }
+
+      if (user.role === 'customer') {
         await supabase
           .from('users')
           .update({
@@ -257,51 +328,69 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
           .eq('id', user.id);
       }
 
-      Alert.alert('Success', newCard.saveCard ? 'Payment method saved for future use' : 'Payment method added');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add payment method');
+      await loadPaymentData();
+      Alert.alert('Success', 'Payment method saved');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to add card');
     } finally {
       setIsProcessing(false);
-    }
-  };
-
-  const persistPaymentMethods = async (methods: PaymentMethod[]) => {
-    try {
-      const storageKey = user?.id ? `${PAYMENT_METHODS_STORAGE_KEY}_${user.id}` : PAYMENT_METHODS_STORAGE_KEY;
-      await AsyncStorage.setItem(storageKey, JSON.stringify(methods));
-    } catch {
-      // ignore
+      addCardInFlightRef.current = false;
     }
   };
 
   const handleSetDefault = async (methodId: string) => {
-    const updated = paymentMethods.map(method => ({
-      ...method,
-      isDefault: method.id === methodId,
-    }));
-    setPaymentMethods(updated);
-    setSelectedMethodId(methodId);
-    await persistPaymentMethods(updated);
+    if (!user?.id) {
+      const updated = paymentMethods.map((m) => ({ ...m, isDefault: m.id === methodId }));
+      setPaymentMethods(updated);
+      setSelectedMethodId(methodId);
+      await AsyncStorage.setItem(PAYMENT_METHODS_STORAGE_KEY, JSON.stringify(updated));
+      return;
+    }
+    const { error: a } = await supabase
+      .from('payment_methods')
+      .update({ is_default: false })
+      .eq('user_id', user.id);
+    if (a) {
+      Alert.alert('Error', a.message);
+      return;
+    }
+    const { error: b } = await supabase
+      .from('payment_methods')
+      .update({ is_default: true })
+      .eq('id', methodId);
+    if (b) {
+      Alert.alert('Error', b.message);
+      return;
+    }
+    await loadPaymentData();
   };
 
   const handleDeleteMethod = (methodId: string) => {
-    Alert.alert(
-      'Remove Payment Method',
-      'Are you sure you want to remove this payment method?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            const updated = paymentMethods.filter(m => m.id !== methodId);
+    Alert.alert('Remove Payment Method', 'Are you sure you want to remove this payment method?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          if (user?.id) {
+            const { error } = await supabase.from('payment_methods').delete().eq('id', methodId);
+            if (error) {
+              Alert.alert('Error', error.message);
+              return;
+            }
+            await loadPaymentData();
+          } else {
+            const updated = paymentMethods.filter((m) => m.id !== methodId);
             setPaymentMethods(updated);
             setSelectedMethodId(updated[0]?.id || null);
-            await persistPaymentMethods(updated);
-          },
+            await AsyncStorage.setItem(
+              PAYMENT_METHODS_STORAGE_KEY,
+              JSON.stringify(updated)
+            );
+          }
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleProcessPayment = async () => {
@@ -333,6 +422,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
           merchantDisplayName: 'ChoreHero',
           paymentIntentClientSecret: clientSecret,
           allowsDelayedPaymentMethods: false,
+          returnURL: Linking.createURL('stripe-redirect'),
           defaultBillingDetails: {
             name: user?.name || '',
           },
@@ -359,7 +449,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
 
         // 4. Payment confirmed by Stripe — webhook will finalize booking
         const paymentId = clientSecret.split('_secret_')[0]; // payment intent id
-        navigation.navigate('BookingConfirmation', {
+        navigation.navigate('BookingConfirmed', {
           bookingId: bookingId || 'pending',
           paymentId,
         });
@@ -483,127 +573,6 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         </TouchableOpacity>
       </View>
     </View>
-  );
-
-  const renderAddCardForm = () => (
-    <Animated.View 
-      style={[
-        styles.addCardForm,
-        {
-          transform: [{
-            translateY: slideAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [300, 0],
-            })
-          }],
-          opacity: slideAnim,
-        }
-      ]}
-    >
-      <KeyboardAvoidingView 
-        style={styles.addCardKeyboardAvoid}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-      >
-        <View style={styles.formHeader}>
-          <Text style={styles.formTitle}>Add Payment Method</Text>
-          <TouchableOpacity onPress={() => { Keyboard.dismiss(); setShowAddCard(false); }}>
-            <Ionicons name="close" size={24} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.addCardScrollContent}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.formContent}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Card Number</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={newCard.number}
-                  onChangeText={(text) => setNewCard(prev => ({ ...prev, number: formatCardNumber(text) }))}
-                  placeholder="1234 5678 9012 3456"
-                  keyboardType="numeric"
-                  maxLength={19}
-                />
-              </View>
-
-              <View style={styles.inputRow}>
-                <View style={[styles.inputGroup, { flex: 1, marginRight: wp('3%') }]}>
-                  <Text style={styles.inputLabel}>Expiry Date</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={newCard.expiry}
-                    onChangeText={(text) => setNewCard(prev => ({ ...prev, expiry: formatExpiry(text) }))}
-                    placeholder="MM/YY"
-                    keyboardType="numeric"
-                    maxLength={5}
-                  />
-                </View>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={styles.inputLabel}>CVC</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={newCard.cvc}
-                    onChangeText={(text) => setNewCard(prev => ({ ...prev, cvc: text.replace(/\D/g, '') }))}
-                    placeholder="123"
-                    keyboardType="numeric"
-                    maxLength={4}
-                    secureTextEntry
-                  />
-                </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Cardholder Name</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={newCard.name}
-                  onChangeText={(text) => setNewCard(prev => ({ ...prev, name: text }))}
-                  placeholder="John Doe"
-                  autoCapitalize="words"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Nickname (Optional)</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={newCard.nickname}
-                  onChangeText={(text) => setNewCard(prev => ({ ...prev, nickname: text }))}
-                  placeholder="Personal Card"
-                />
-              </View>
-
-              <View style={styles.switchContainer}>
-                <Text style={styles.switchLabel}>Save this card for future use</Text>
-                <Switch
-                  value={newCard.saveCard}
-                  onValueChange={(value) => setNewCard(prev => ({ ...prev, saveCard: value }))}
-                  trackColor={{ false: '#E5E7EB', true: theme.primary }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
-
-              <TouchableOpacity 
-                style={[styles.addCardButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
-                onPress={handleAddCard}
-                disabled={isProcessing}
-              >
-                {isProcessing ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.addCardButtonText}>Add Payment Method</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Animated.View>
   );
 
   const renderBillingForm = () => (
@@ -745,16 +714,25 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
 
       {renderTabBar()}
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: tabBarChromeBottom + hp('2%') }}
+      >
         {activeTab === 'methods' && (
           <View style={styles.methodsContainer}>
             <View style={styles.methodsHeader}>
               <Text style={styles.sectionTitle}>Payment Methods</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.addButton, { backgroundColor: theme.primaryLight }]}
-                onPress={() => setShowAddCard(true)}
+                onPress={handleAddCardWithStripe}
+                disabled={isProcessing}
               >
-                <Ionicons name="add" size={20} color={theme.primary} />
+                {isProcessing ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <Ionicons name="add" size={20} color={theme.primary} />
+                )}
                 <Text style={[styles.addButtonText, { color: theme.primary }]}>Add Method</Text>
               </TouchableOpacity>
             </View>
@@ -778,7 +756,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
       </ScrollView>
 
       {fromBooking && bookingTotal && selectedMethodId && (
-        <View style={styles.bottomContainer}>
+        <View style={[styles.bottomContainer, { marginBottom: tabBarChromeBottom }]}>
           <BlurView intensity={95} style={styles.bottomBlur}>
             <TouchableOpacity 
               style={[styles.processButton, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
@@ -800,17 +778,6 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({ navigation, route }) => {
         </View>
       )}
 
-      {showAddCard && (
-        <View style={styles.overlay}>
-          <BlurView intensity={50} style={styles.overlayBlur}>
-            <TouchableOpacity 
-              style={styles.overlayTouchable}
-              onPress={() => { Keyboard.dismiss(); setShowAddCard(false); }}
-            />
-            {renderAddCardForm()}
-          </BlurView>
-        </View>
-      )}
     </SafeAreaView>
   );
 };
@@ -843,7 +810,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: wp('11%'),
     height: wp('11%'),
-    borderRadius: 22,
+    borderRadius: wp('5.5%'),
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
@@ -854,7 +821,7 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   totalContainer: {
-    backgroundColor: '#0891b2', // Will be overridden dynamically
+    backgroundColor: '#047B9B', // Will be overridden dynamically
     paddingHorizontal: wp('5%'),
     paddingVertical: hp('2%'),
     alignItems: 'center',
@@ -862,7 +829,7 @@ const styles = StyleSheet.create({
   totalLabel: {
     fontSize: wp('3.5%'),
     color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   totalAmount: {
     fontSize: wp('6%'),
@@ -885,7 +852,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#0891b2', // Will be overridden dynamically
+    borderBottomColor: '#047B9B', // Will be overridden dynamically
   },
   tabText: {
     fontSize: wp('3.2%'),
@@ -896,7 +863,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   activeTabText: {
-    color: '#0891b2', // Will be overridden dynamically
+    color: '#047B9B', // Will be overridden dynamically
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'SF Pro Display' : 'Roboto',
     letterSpacing: 0.5,
@@ -929,7 +896,7 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: wp('3.5%'),
     fontWeight: '600',
-    color: '#0891b2', // Will be overridden dynamically
+    color: '#047B9B', // Will be overridden dynamically
     marginLeft: 6,
   },
   paymentMethodCard: {
@@ -970,7 +937,7 @@ const styles = StyleSheet.create({
     fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   methodDetails: {
     fontSize: wp('3.5%'),
@@ -985,11 +952,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   defaultBadge: {
-    backgroundColor: '#0891b2', // Will be overridden dynamically
+    backgroundColor: '#047B9B', // Will be overridden dynamically
     borderRadius: wp('3%'),
     paddingHorizontal: wp('2%'),
     paddingVertical: hp('0.5%'),
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   defaultText: {
     fontSize: wp('2.5%'),
@@ -999,20 +966,20 @@ const styles = StyleSheet.create({
   radioButton: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     borderWidth: 2,
     borderColor: '#D1D5DB',
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioButtonSelected: {
-    borderColor: '#0891b2', // Will be overridden dynamically
+    borderColor: '#047B9B', // Will be overridden dynamically
   },
   radioButtonInner: {
     width: 12,
     height: 12,
-    borderRadius: 6,
-    backgroundColor: '#0891b2', // Will be overridden dynamically
+    borderRadius: wp('1.5%'),
+    backgroundColor: '#047B9B', // Will be overridden dynamically
   },
   methodActions: {
     flexDirection: 'row',
@@ -1044,8 +1011,8 @@ const styles = StyleSheet.create({
     fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
   },
   emptyMethodsSubtext: {
     fontSize: wp('3.5%'),
@@ -1062,7 +1029,7 @@ const styles = StyleSheet.create({
     fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   textInput: {
     borderWidth: 1,
@@ -1101,8 +1068,8 @@ const styles = StyleSheet.create({
     fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: hp('2%'),
+    marginBottom: hp('1%'),
   },
   emptyHistorySubtext: {
     fontSize: wp('3.5%'),
@@ -1122,82 +1089,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0891b2', // Will be overridden dynamically
+    backgroundColor: '#047B9B', // Will be overridden dynamically
     borderRadius: wp('4%'),
     paddingVertical: hp('2%'),
-    gap: 8,
-    shadowColor: '#0891b2', // Will be overridden dynamically
+    gap: wp('2%'),
+    shadowColor: '#047B9B', // Will be overridden dynamically
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
   processButtonText: {
-    fontSize: wp('4%'),
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
-  },
-  overlayBlur: {
-    flex: 1,
-  },
-  overlayTouchable: {
-    flex: 1,
-  },
-  addCardForm: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: wp('6%'),
-    borderTopRightRadius: wp('6%'),
-    paddingHorizontal: wp('5%'),
-    paddingBottom: hp('2.5%'),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-    maxHeight: '90%',
-  },
-  addCardKeyboardAvoid: {
-    flex: 1,
-    maxHeight: '100%',
-  },
-  addCardScrollContent: {
-    paddingBottom: 320,
-  },
-  formHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: hp('2.5%'),
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    marginBottom: hp('2.5%'),
-  },
-  formTitle: {
-    fontSize: wp('4.5%'),
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  formContent: {
-    marginBottom: hp('2.5%'),
-  },
-  addCardButton: {
-    marginTop: hp('1.5%'),
-    backgroundColor: '#0891b2', // Will be overridden dynamically
-    borderRadius: wp('4%'),
-    paddingVertical: hp('2%'),
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0891b2', // Will be overridden dynamically
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  addCardButtonText: {
     fontSize: wp('4%'),
     fontWeight: '600',
     color: '#FFFFFF',

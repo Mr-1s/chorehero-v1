@@ -1,6 +1,14 @@
 // Test setup for ChoreHero app
 
-import 'react-native-get-random-values';
+// `react-native-get-random-values` is only needed in app runtime; it is not
+// listed as a test dep and resolving it at jest startup blocks the suite from
+// running. Try-load it without crashing when missing.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('react-native-get-random-values');
+} catch {
+  // optional
+}
 
 jest.mock('expo-video', () => ({
   VideoView: 'VideoView',
@@ -50,21 +58,32 @@ jest.mock('../src/services/supabase', () => ({
   },
 }));
 
-jest.mock('../src/hooks/useHaptic', () => ({
-  useHaptic: () => ({
-    impact: jest.fn(),
-    notification: jest.fn(),
-    selection: jest.fn(),
+// `useHaptic`, `useLocation`, `useVideoFeed` were removed/renamed — using
+// `virtual: true` keeps jest from failing when the module path no longer
+// resolves (these mocks are still safe no-ops if anything imports them).
+jest.mock(
+  '../src/hooks/useHaptic',
+  () => ({
+    useHaptic: () => ({
+      impact: jest.fn(),
+      notification: jest.fn(),
+      selection: jest.fn(),
+    }),
   }),
-}));
+  { virtual: true }
+);
 
-jest.mock('../src/hooks/useLocation', () => ({
-  useLocation: () => ({
-    location: null,
-    error: null,
-    loading: false,
+jest.mock(
+  '../src/hooks/useLocation',
+  () => ({
+    useLocation: () => ({
+      location: null,
+      error: null,
+      loading: false,
+    }),
   }),
-}));
+  { virtual: true }
+);
 
 jest.mock('../src/hooks/useAuth', () => ({
   useAuth: () => ({
@@ -76,14 +95,18 @@ jest.mock('../src/hooks/useAuth', () => ({
   }),
 }));
 
-jest.mock('../src/hooks/useVideoFeed', () => ({
-  useVideoFeed: () => ({
-    videos: [],
-    loading: false,
-    error: null,
-    refresh: jest.fn(),
+jest.mock(
+  '../src/hooks/useVideoFeed',
+  () => ({
+    useVideoFeed: () => ({
+      videos: [],
+      loading: false,
+      error: null,
+      refresh: jest.fn(),
+    }),
   }),
-}));
+  { virtual: true }
+);
 
 // Mock React Native modules
 jest.mock('react-native', () => {
@@ -125,11 +148,15 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: jest.fn(),
 }));
 
-jest.mock('expo-secure-store', () => ({
-  getItemAsync: jest.fn(),
-  setItemAsync: jest.fn(),
-  deleteItemAsync: jest.fn(),
-}));
+jest.mock(
+  'expo-secure-store',
+  () => ({
+    getItemAsync: jest.fn(),
+    setItemAsync: jest.fn(),
+    deleteItemAsync: jest.fn(),
+  }),
+  { virtual: true }
+);
 
 jest.mock('expo-status-bar', () => ({
   StatusBar: 'StatusBar',

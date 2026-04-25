@@ -14,14 +14,30 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../services/supabase';
+import { bookingService } from '../../services/booking';
+import { cleanerBookingService } from '../../services/cleanerBookingService';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../hooks/useAuth';
 import { useCleanerStore } from '../../store/cleanerStore';
+import { wp, hp } from '../../utils/responsive';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const FOOTER_GUTTER = 12;
+
+function humanizeJobNotes(text: string | undefined | null): string | undefined {
+  if (!text?.trim()) return undefined;
+  const t = text.trim();
+  if (/job\s*from\s*quote/i.test(t)) {
+    return 'This job was booked from your accepted video quote.';
+  }
+  return t;
+}
 
 type StackParamList = {
   JobDetails: { jobId: string };
   Jobs: undefined;
+  IndividualChat: { bookingId: string; cleanerId: string; otherParticipant: any };
   ChatScreen: { bookingId: string; otherParticipant: any };
   TrackingScreen: { jobId: string };
 };
@@ -37,7 +53,7 @@ type JobDetailsScreenProps = {
 
 interface JobDetails {
   id: string;
-  status: 'pending' | 'accepted' | 'on_the_way' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'pending' | 'accepted' | 'on_the_way' | 'arrived' | 'in_progress' | 'completed' | 'cancelled';
   customer: {
     id: string;
     name: string;
@@ -82,14 +98,18 @@ interface JobDetails {
   createdAt: string;
   acceptedAt?: string;
   completedAt?: string;
+  messagingEnabled?: boolean;
+  quoteId?: string;
 }
 
 const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }) => {
   const { jobId } = route.params;
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [job, setJob] = useState<JobDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [paymentExpanded, setPaymentExpanded] = useState(false);
   const payoutDetails = useMemo(() => {
     if (!job) return null;
     const hours = Math.max(job.schedule.duration / 60, 0.5);
@@ -149,6 +169,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       switch (activeBooking.status) {
         case 'accepted': return 'accepted';
         case 'on_the_way': return 'on_the_way';
+        case 'arrived': return 'arrived';
         case 'in_progress': return 'in_progress';
         default: return 'accepted';
       }
@@ -182,13 +203,24 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       // Fetch real coordinates from DB (addresses table)
       let lat = 37.7749;
       let lng = -122.4194;
+      let bookingRow: { address?: { latitude?: number; longitude?: number }; quote_id?: string; customer_id?: string } | null = null;
       const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(jobId);
+      let customerPhone: string | null = null;
       if (isValidUUID) {
-        const { data: bookingRow } = await supabase
+        const { data } = await supabase
           .from('bookings')
-          .select('address_id, address:addresses(latitude, longitude)')
+          .select('address_id, quote_id, customer_id, address:addresses(latitude, longitude)')
           .eq('id', jobId)
           .single();
+        bookingRow = data;
+        if (bookingRow?.customer_id) {
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('phone')
+            .eq('id', bookingRow.customer_id)
+            .single();
+          customerPhone = userRow?.phone ?? null;
+        }
         if (bookingRow?.address && (bookingRow.address as { latitude?: number; longitude?: number }).latitude != null) {
           lat = Number((bookingRow.address as { latitude: number }).latitude);
           lng = Number((bookingRow.address as { longitude: number }).longitude);
@@ -206,10 +238,10 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
         id: jobId,
         status: findBookingStatus,
         customer: {
-          id: 'customer-1',
+          id: storeBooking.customerId || 'customer-1',
           name: storeBooking.customerName,
           avatar: storeBooking.customerAvatarUrl || 'https://images.unsplash.com/photo-1494790108755-2616b612b47c?ixlib=rb-4.0.3&auto=format&fit=crop&w=150&q=80',
-          phone: '+1 (555) 123-4567',
+          phone: customerPhone || '+1 (555) 123-4567',
           rating: storeBooking.customerRating || 4.8,
           totalBookings: storeBooking.customerTotalBookings || 0,
         },
@@ -217,7 +249,9 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           type: storeBooking.serviceType,
           title: storeBooking.serviceType,
           addOns: storeBooking.addOns || [],
-          specialInstructions: storeBooking.hasSpecialRequests ? storeBooking.specialRequestText : undefined,
+          specialInstructions: humanizeJobNotes(
+            storeBooking.hasSpecialRequests ? storeBooking.specialRequestText : undefined
+          ),
         },
         location: {
           address: storeBooking.addressLine1,
@@ -244,6 +278,8 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           paymentMethod: 'Credit Card',
         },
         createdAt: storeBooking.scheduledAt,
+        messagingEnabled: storeBooking.messagingEnabled,
+        quoteId: bookingRow?.quote_id ?? undefined,
       };
 
       setJob(jobDetails);
@@ -256,7 +292,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   };
 
   // Get store actions
-  const { acceptBooking, declineBooking, startTraveling, markInProgress, markCompleted } = useCleanerStore();
+  const { acceptBooking, declineBooking, startTraveling, markInProgress, markCompleted, refreshData } = useCleanerStore();
 
   const handleRunningLate = async () => {
     if (!job) return;
@@ -373,6 +409,39 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     );
   };
 
+  const handleMarkArrived = async () => {
+    if (!job) return;
+    setActionLoading(true);
+    try {
+      const ok = await cleanerBookingService.updateBookingStatus(job.id, 'cleaner_arrived');
+      if (ok) {
+        setJob(prev => prev ? { ...prev, status: 'arrived' } : null);
+        await refreshData();
+      } else {
+        throw new Error('Failed to update status');
+      }
+    } catch (error) {
+      console.error('Error marking arrived:', error);
+      Alert.alert('Error', 'Failed to update status');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleMessageCustomer = () => {
+    if (!job || !job.messagingEnabled || !user?.id) return;
+    navigation.navigate('IndividualChat', {
+      bookingId: job.id,
+      cleanerId: user.id,
+      otherParticipant: {
+        id: job.customer.id,
+        name: job.customer.name,
+        avatar_url: job.customer.avatar || '',
+        role: 'customer',
+      },
+    });
+  };
+
   const handleStartJob = async () => {
     if (!job) return;
     
@@ -391,20 +460,37 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
 
   const handleCompleteJob = async () => {
     if (!job) return;
-    
+
     setActionLoading(true);
     try {
       await markCompleted(job.id);
-      setJob(prev => prev ? { 
-        ...prev, 
-        status: 'completed', 
-        completedAt: new Date().toISOString() 
-      } : null);
+      setJob(prev => prev ? { ...prev, status: 'completed', completedAt: new Date().toISOString() } : null);
       Alert.alert('Job Completed', 'You have marked this job as completed!');
-      navigation.goBack(); // Return to jobs list
+      navigation.goBack();
     } catch (error) {
       console.error('Error completing job:', error);
-      Alert.alert('Error', 'Failed to complete job');
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to complete job');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /** Quick Complete: for quote-originated bookings, skip Start Traveling/Start Job and mark complete directly. */
+  const handleQuickComplete = async () => {
+    if (!job || !job.quoteId || !user?.id) return;
+    setActionLoading(true);
+    try {
+      const updated = await cleanerBookingService.updateBookingStatus(job.id, 'in_progress');
+      if (!updated) throw new Error('Failed to update status');
+      const result = await cleanerBookingService.markJobComplete(job.id, user.id);
+      if (!result.success) throw new Error(result.error);
+      setJob(prev => prev ? { ...prev, status: 'completed', completedAt: new Date().toISOString() } : null);
+      await refreshData();
+      Alert.alert('Job Completed', 'You have marked this job as completed!');
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error in quick complete:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to complete job');
     } finally {
       setActionLoading(false);
     }
@@ -413,29 +499,64 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
   const handleContactCustomer = () => {
     if (!job) return;
     
+    const buttons: Array<{ text: string; onPress?: () => void; style?: 'cancel' | 'destructive' }> = [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Call',
+        onPress: () => Linking.openURL(`tel:${job.customer.phone}`),
+      },
+    ];
+    if (job.messagingEnabled) {
+      buttons.push({
+        text: 'Message',
+        onPress: () => navigation.navigate('IndividualChat', {
+          bookingId: job.id,
+          cleanerId: job.customer.id,
+          otherParticipant: {
+            id: job.customer.id,
+            name: job.customer.name,
+            avatar: job.customer.avatar,
+            role: 'customer',
+          },
+        }),
+      });
+    }
     Alert.alert(
       'Contact Customer',
       'How would you like to contact the customer?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Call',
-          onPress: () => Linking.openURL(`tel:${job.customer.phone}`),
-        },
-        {
-          text: 'Message',
-          onPress: () => navigation.navigate('IndividualChat', {
-            bookingId: job.id,
-            otherParticipant: {
-              id: job.customer.id,
-              name: job.customer.name,
-              avatar: job.customer.avatar,
-              role: 'customer',
-            },
-          }),
-        },
-      ]
+      buttons
     );
+  };
+
+  const handleProEmergencyCancel = () => {
+    if (!job || !user?.id) return;
+    const reasons = [
+      { text: 'Cancel', style: 'cancel' as const },
+      { text: 'Medical emergency', onPress: () => runProEmergencyCancel('Medical emergency') },
+      { text: 'Family emergency', onPress: () => runProEmergencyCancel('Family emergency') },
+      { text: 'Vehicle/transport issue', onPress: () => runProEmergencyCancel('Vehicle/transport issue') },
+      { text: 'Other', onPress: () => runProEmergencyCancel('Other') },
+    ];
+    Alert.alert(
+      'Cancel Job (Emergency)',
+      'This will cancel the job. You may incur a $25 fee. Customer receives full refund + $25 credit.\n\nSelect a reason:',
+      reasons
+    );
+  };
+
+  const runProEmergencyCancel = async (reason: string) => {
+    if (!job || !user?.id) return;
+    setActionLoading(true);
+    try {
+      const result = await bookingService.proEmergencyCancel(job.id, user.id, reason);
+      if (!result.success) throw new Error(result.error);
+      Alert.alert('Job Cancelled', 'The job has been cancelled. Customer will receive a full refund plus $25 credit.');
+      navigation.goBack();
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to cancel job');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleGetDirections = () => {
@@ -455,6 +576,7 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       case 'pending': return '#FBBF24';      // Amber 400 - light yellow-orange
       case 'accepted': return '#F59E0B';     // Amber 500 - main orange
       case 'on_the_way': return '#D97706';   // Amber 600 - en route
+      case 'arrived': return '#D97706';     // Amber 600 - arrived
       case 'in_progress': return '#D97706';  // Amber 600 - darker orange
       case 'completed': return '#92400E';    // Amber 800 - deep brown
       case 'cancelled': return '#DC2626';    // Red 600
@@ -462,12 +584,19 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
     }
   };
 
+  const maskPhone = (phone: string): string => {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 4) return '***-***-****';
+    return `***-***-${digits.slice(-4)}`;
+  };
+
   const getStatusText = (status: string) => {
     switch (status) {
       case 'pending': return 'Pending Acceptance';
       case 'accepted': return 'Accepted';
-      case 'on_the_way': return 'En Route';
-      case 'in_progress': return 'In Progress';
+    case 'on_the_way': return 'En Route';
+    case 'arrived': return 'Arrived';
+    case 'in_progress': return 'In Progress';
       case 'completed': return 'Completed';
       case 'cancelled': return 'Cancelled';
       default: return status;
@@ -517,14 +646,96 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           <Ionicons name="arrow-back" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Job Details</Text>
-        <View style={styles.headerRight}>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(job.status) }]}>
-            <Text style={styles.statusBadgeText}>{getStatusText(job.status)}</Text>
-          </View>
-        </View>
+        <View style={styles.headerRight} />
       </View>
 
-      <ScrollView style={styles.scrollView}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: 280 + insets.bottom },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View
+          style={[
+            styles.statusStrip,
+            { backgroundColor: `${getStatusColor(job.status)}18` },
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: getStatusColor(job.status) }]} />
+          <Text style={styles.statusStripText}>{getStatusText(job.status)}</Text>
+        </View>
+
+        {/* Schedule & Location — first: what matters on the way */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>When & where</Text>
+
+          <View style={styles.scheduleLocationCard}>
+            <View style={styles.scheduleRow}>
+              <View style={styles.scheduleItem}>
+                <Ionicons name="calendar-outline" size={20} color="#F59E0B" />
+                <View style={styles.scheduleInfo}>
+                  <Text style={styles.scheduleLabel}>Date & time</Text>
+                  <Text style={styles.scheduleValue}>
+                    {job.schedule.date} at {job.schedule.time}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.scheduleItem}>
+                <Ionicons name="time-outline" size={20} color="#F59E0B" />
+                <View style={styles.scheduleInfo}>
+                  <Text style={styles.scheduleLabel}>Duration</Text>
+                  <Text style={styles.scheduleValue}>{job.schedule.duration} min</Text>
+                </View>
+              </View>
+            </View>
+
+            {householdDetails && (
+              <View style={styles.householdList}>
+                <View style={styles.householdListRow}>
+                  <Ionicons name="home-outline" size={16} color="#047857" />
+                  <Text style={styles.householdListText}>
+                    <Text style={styles.householdListLabel}>Home · </Text>
+                    {householdDetails.rooms}
+                  </Text>
+                </View>
+                <View style={styles.householdListRow}>
+                  <Ionicons name="expand-outline" size={16} color="#047857" />
+                  <Text style={styles.householdListText}>
+                    <Text style={styles.householdListLabel}>Size · </Text>
+                    {householdDetails.squareFeet}
+                  </Text>
+                </View>
+                <View style={styles.householdListRow}>
+                  <Ionicons name="paw-outline" size={16} color="#047857" />
+                  <Text style={styles.householdListText}>
+                    <Text style={styles.householdListLabel}>Pets · </Text>
+                    {householdDetails.pets}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.locationBlock}>
+              <View style={styles.locationTitleRow}>
+                <Ionicons name="location-outline" size={20} color="#F59E0B" />
+                <Text style={styles.locationTitleLarge}>Address</Text>
+              </View>
+              <Text style={styles.locationAddressLarge}>{job.location.address}</Text>
+              <TouchableOpacity
+                style={styles.directionsButtonFull}
+                onPress={handleGetDirections}
+                activeOpacity={0.9}
+              >
+                <Ionicons name="navigate" size={18} color="#B45309" />
+                <Text style={styles.directionsButtonFullText}>Open in Maps</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* Customer Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Customer</Text>
@@ -538,29 +749,36 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
                   <Text style={styles.statText}>{job.customer.rating}</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Ionicons name="calendar" size={14} color="#6B7280" />
-                  <Text style={styles.statText}>{job.customer.totalBookings} bookings</Text>
+                  <Ionicons name="briefcase-outline" size={14} color="#6B7280" />
+                  <Text style={styles.statText}>
+                    {job.customer.totalBookings} past booking
+                    {job.customer.totalBookings === 1 ? '' : 's'}
+                  </Text>
                 </View>
               </View>
+              {job.customer.phone && (
+                <Text style={styles.customerPhone}>
+                  {job.status === 'in_progress' || job.status === 'on_the_way' || job.status === 'arrived'
+                    ? job.customer.phone
+                    : maskPhone(job.customer.phone)}
+                </Text>
+              )}
             </View>
-            <TouchableOpacity
-              style={styles.contactButton}
-              onPress={handleContactCustomer}
-            >
-              <Ionicons name="chatbubble-outline" size={20} color="#F59E0B" />
+            <TouchableOpacity style={styles.contactButton} onPress={handleContactCustomer} activeOpacity={0.85}>
+              <Ionicons name="chatbubbles-outline" size={20} color="#D97706" />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Service Details */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Service Details</Text>
+          <Text style={styles.sectionTitle}>Service</Text>
           <View style={styles.detailsCard}>
-            <Text style={styles.serviceTitle}>{job?.service?.title || job?.service?.name || 'Service'}</Text>
-            
+            <Text style={styles.serviceTitle}>{job.service.title || job.service.type || 'Service'}</Text>
+
             {job.service.addOns.length > 0 && (
               <View style={styles.addOnsContainer}>
-                <Text style={styles.addOnsTitle}>Add-ons:</Text>
+                <Text style={styles.addOnsTitle}>Add-ons</Text>
                 {job.service.addOns.map((addOn, index) => (
                   <View key={index} style={styles.addOnItem}>
                     <Ionicons name="checkmark-circle" size={16} color="#F59E0B" />
@@ -569,27 +787,26 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
                 ))}
               </View>
             )}
-
           </View>
         </View>
 
         {vibeDetails && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Vibe & Access</Text>
+            <Text style={styles.sectionTitle}>Access & notes</Text>
             <View style={styles.vibeCard}>
               <View style={styles.vibeRow}>
-                <Ionicons name="paw-outline" size={18} color="#14B8A6" />
+                <Ionicons name="paw-outline" size={18} color="#0D9488" />
                 <Text style={styles.vibeText}>{vibeDetails.pets}</Text>
               </View>
               {vibeDetails.access && (
                 <View style={styles.vibeRow}>
-                  <Ionicons name="key-outline" size={18} color="#14B8A6" />
+                  <Ionicons name="key-outline" size={18} color="#0D9488" />
                   <Text style={styles.vibeText}>{vibeDetails.access}</Text>
                 </View>
               )}
               {vibeDetails.notes && (
                 <View style={styles.vibeRow}>
-                  <Ionicons name="alert-circle-outline" size={18} color="#14B8A6" />
+                  <Ionicons name="document-text-outline" size={18} color="#0D9488" />
                   <Text style={styles.vibeText}>{vibeDetails.notes}</Text>
                 </View>
               )}
@@ -597,104 +814,55 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           </View>
         )}
 
-        {/* Schedule & Location */}
+        {/* Payment Details - Collapsible */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Schedule & Location</Text>
-          
-          <View style={styles.scheduleLocationCard}>
-            <View style={styles.scheduleRow}>
-              <View style={styles.scheduleItem}>
-                <Ionicons name="calendar-outline" size={20} color="#F59E0B" />
-                <View style={styles.scheduleInfo}>
-                  <Text style={styles.scheduleLabel}>Date & Time</Text>
-                  <Text style={styles.scheduleValue}>{job.schedule.date} at {job.schedule.time}</Text>
-                </View>
-              </View>
-              
-              <View style={styles.scheduleItem}>
-                <Ionicons name="time-outline" size={20} color="#F59E0B" />
-                <View style={styles.scheduleInfo}>
-                  <Text style={styles.scheduleLabel}>Duration</Text>
-                  <Text style={styles.scheduleValue}>{job.schedule.duration} min</Text>
-                </View>
-              </View>
+          <TouchableOpacity
+            style={styles.paymentHeader}
+            onPress={() => setPaymentExpanded(!paymentExpanded)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.sectionTitle}>Payment Details</Text>
+            <Ionicons
+              name={paymentExpanded ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color="#6B7280"
+            />
+          </TouchableOpacity>
+          {paymentExpanded && (
+            <View style={styles.paymentCard}>
+              {payoutDetails && (
+                <>
+                  <View style={[styles.paymentRow, styles.paymentRowTotal]}>
+                    <Text style={styles.paymentLabelTotal}>Total Payout</Text>
+                    <Text style={styles.paymentValueTotal}>${payoutDetails.payout.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.paymentRow}>
+                    <Text style={styles.paymentLabel}>Rate x Hours</Text>
+                    <Text style={styles.paymentValue}>
+                      ${payoutDetails.rate.toFixed(2)}/hr x {payoutDetails.hours.toFixed(1)}h
+                    </Text>
+                  </View>
+                  <View style={styles.paymentRow}>
+                    <Text style={styles.paymentLabel}>Platform Fee (20%)</Text>
+                    <Text style={styles.paymentValue}>-${payoutDetails.platformFee.toFixed(2)}</Text>
+                  </View>
+                </>
+              )}
+              <Text style={styles.paymentMethod}>Payment: {job.payment.paymentMethod}</Text>
             </View>
-
-            {householdDetails && (
-              <View style={styles.householdRow}>
-                <View style={styles.householdItem}>
-                  <Ionicons name="home-outline" size={18} color="#10B981" />
-                  <View style={styles.householdInfo}>
-                    <Text style={styles.householdLabel}>Rooms</Text>
-                    <Text style={styles.householdValue}>{householdDetails.rooms}</Text>
-                  </View>
-                </View>
-                <View style={styles.householdItem}>
-                  <Ionicons name="expand-outline" size={18} color="#10B981" />
-                  <View style={styles.householdInfo}>
-                    <Text style={styles.householdLabel}>Sq Ft</Text>
-                    <Text style={styles.householdValue}>{householdDetails.squareFeet}</Text>
-                  </View>
-                </View>
-                <View style={styles.householdItem}>
-                  <Ionicons name="paw-outline" size={18} color="#10B981" />
-                  <View style={styles.householdInfo}>
-                    <Text style={styles.householdLabel}>Pets</Text>
-                    <Text style={styles.householdValue}>{householdDetails.pets}</Text>
-                  </View>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.locationContainer}>
-              <View style={styles.locationHeader}>
-                <Ionicons name="location-outline" size={20} color="#F59E0B" />
-                <Text style={styles.locationTitle}>Location</Text>
-                <TouchableOpacity
-                  style={styles.directionsButton}
-                  onPress={handleGetDirections}
-                >
-                  <Text style={styles.directionsButtonText}>Directions</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.locationAddress}>{job.location.address}</Text>
-            </View>
-          </View>
+          )}
         </View>
-
-        {/* Payment Details */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Payment Details</Text>
-          <View style={styles.paymentCard}>
-            {payoutDetails && (
-              <>
-                <View style={[styles.paymentRow, styles.paymentRowTotal]}>
-                  <Text style={styles.paymentLabelTotal}>Total Payout</Text>
-                  <Text style={styles.paymentValueTotal}>${payoutDetails.payout.toFixed(2)}</Text>
-                </View>
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Rate x Hours</Text>
-                  <Text style={styles.paymentValue}>
-                    ${payoutDetails.rate.toFixed(2)}/hr x {payoutDetails.hours.toFixed(1)}h
-                  </Text>
-                </View>
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Platform Fee (20%)</Text>
-                  <Text style={styles.paymentValue}>-${payoutDetails.platformFee.toFixed(2)}</Text>
-                </View>
-              </>
-            )}
-            <Text style={styles.paymentMethod}>Payment: {job.payment.paymentMethod}</Text>
-          </View>
-        </View>
-
-        {/* Bottom Spacing */}
-        <View style={styles.bottomSpacing} />
       </ScrollView>
 
       {/* Action Buttons */}
       {job.status === 'pending' && (
-        <View style={styles.actionButtons}>
+        <View
+          style={[
+            styles.footerBar,
+            { paddingBottom: insets.bottom + FOOTER_GUTTER },
+            { flexDirection: 'row' },
+          ]}
+        >
           <TouchableOpacity
             style={[styles.actionButton, styles.declineButton]}
             onPress={handleDeclineJob}
@@ -702,7 +870,6 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
           >
             <Text style={styles.declineButtonText}>Decline</Text>
           </TouchableOpacity>
-          
           <TouchableOpacity
             style={[styles.actionButton, styles.acceptButton]}
             onPress={handleAcceptJob}
@@ -718,60 +885,174 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
       )}
 
       {job.status === 'accepted' && (
-        <View style={styles.actionButtons}>
+        <View style={[styles.footerBar, { paddingBottom: insets.bottom + FOOTER_GUTTER }]}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.secondaryButton]}
-            onPress={handleRunningLate}
-          >
-            <Text style={styles.secondaryButtonText}>Running Late</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.startButton]}
+            style={styles.actionPrimary}
             onPress={handleStartTraveling}
             disabled={actionLoading}
+            activeOpacity={0.9}
           >
             {actionLoading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="navigate" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.startButtonText}>Start Traveling</Text>
+              <View style={styles.actionPrimaryInner}>
+                <Ionicons name="navigate" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.actionPrimaryText}>Start traveling</Text>
               </View>
             )}
+          </TouchableOpacity>
+          <View style={styles.actionRowEqual}>
+            <TouchableOpacity
+              style={[
+                styles.actionSecondaryOutline,
+                styles.actionFlex,
+                job.messagingEnabled && styles.actionColGap,
+              ]}
+              onPress={handleRunningLate}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+              <Text style={styles.actionSecondaryLabel}>Running late</Text>
+            </TouchableOpacity>
+            {job.messagingEnabled && (
+              <TouchableOpacity
+                style={[styles.actionSecondaryOutline, styles.actionFlex]}
+                onPress={handleMessageCustomer}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="chatbubbles-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+                <Text style={styles.actionSecondaryLabel} numberOfLines={1}>
+                  Message
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {job.quoteId && (
+            <TouchableOpacity
+              style={styles.quickCompleteLink}
+              onPress={handleQuickComplete}
+              disabled={actionLoading}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="checkmark-done-outline" size={18} color="#64748B" />
+              <Text style={styles.quickCompleteLinkText}>Complete now (short path for quote jobs)</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.dangerBar}
+            onPress={handleProEmergencyCancel}
+            disabled={actionLoading}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="warning-outline" size={18} color="#B91C1C" style={{ marginRight: 8 }} />
+            <Text style={styles.dangerBarText}>Cancel job (emergency)</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {job.status === 'on_the_way' && (
-        <View style={styles.actionButtons}>
+        <View style={[styles.footerBar, { paddingBottom: insets.bottom + FOOTER_GUTTER }]}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.secondaryButton]}
-            onPress={handleRunningLate}
-          >
-            <Text style={styles.secondaryButtonText}>Running Late</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.startButton]}
-            onPress={handleStartJob}
+            style={styles.actionPrimary}
+            onPress={handleMarkArrived}
             disabled={actionLoading}
+            activeOpacity={0.9}
           >
             {actionLoading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Text style={styles.startButtonText}>Start Job</Text>
+              <Text style={styles.actionPrimaryText}>{"I've arrived"}</Text>
             )}
           </TouchableOpacity>
+          <View style={styles.actionRowEqual}>
+            <TouchableOpacity
+              style={[
+                styles.actionSecondaryOutline,
+                styles.actionFlex,
+                job.messagingEnabled && styles.actionColGap,
+              ]}
+              onPress={handleRunningLate}
+            >
+              <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+              <Text style={styles.actionSecondaryLabel}>Running late</Text>
+            </TouchableOpacity>
+            {job.messagingEnabled && (
+              <TouchableOpacity
+                style={[styles.actionSecondaryOutline, styles.actionFlex]}
+                onPress={handleMessageCustomer}
+              >
+                <Ionicons name="chatbubbles-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+                <Text style={styles.actionSecondaryLabel} numberOfLines={1}>
+                  Message
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      {job.status === 'arrived' && (
+        <View style={[styles.footerBar, { paddingBottom: insets.bottom + FOOTER_GUTTER }]}>
+          <TouchableOpacity
+            style={styles.actionPrimary}
+            onPress={handleStartJob}
+            disabled={actionLoading}
+            activeOpacity={0.9}
+          >
+            {actionLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <View style={styles.actionPrimaryInner}>
+                <Ionicons name="play" size={22} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.actionPrimaryText}>Start job</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <View style={styles.actionRowEqual}>
+            <TouchableOpacity
+              style={[
+                styles.actionSecondaryOutline,
+                styles.actionFlex,
+                job.messagingEnabled && styles.actionColGap,
+              ]}
+              onPress={handleRunningLate}
+            >
+              <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+              <Text style={styles.actionSecondaryLabel}>Running late</Text>
+            </TouchableOpacity>
+            {job.messagingEnabled && (
+              <TouchableOpacity
+                style={[styles.actionSecondaryOutline, styles.actionFlex]}
+                onPress={handleMessageCustomer}
+              >
+                <Ionicons name="chatbubbles-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+                <Text style={styles.actionSecondaryLabel} numberOfLines={1}>
+                  Message
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       )}
 
       {job.status === 'in_progress' && (
-        <View style={styles.actionButtons}>
+        <View style={[styles.footerBar, { paddingBottom: insets.bottom + FOOTER_GUTTER }]}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.completeButton]}
+            style={[styles.actionPrimary, styles.actionPrimaryComplete]}
             onPress={handleCompleteJob}
+            activeOpacity={0.9}
           >
-            <Text style={styles.completeButtonText}>Mark Complete</Text>
+            <Text style={styles.actionPrimaryText}>Mark complete</Text>
           </TouchableOpacity>
+          {job.messagingEnabled && (
+            <TouchableOpacity
+              style={[styles.actionSecondaryOutline, { width: '100%', justifyContent: 'center' }]}
+              onPress={handleMessageCustomer}
+            >
+              <Ionicons name="chatbubbles-outline" size={18} color="#D97706" style={{ marginRight: 6 }} />
+              <Text style={styles.actionSecondaryLabel}>Message customer</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </SafeAreaView>
@@ -781,24 +1062,24 @@ const JobDetailsScreen: React.FC<JobDetailsScreenProps> = ({ navigation, route }
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9F9F9',
+    backgroundColor: '#F3F4F6',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('1.4%'),
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
   },
   headerBackButton: {
     padding: 8,
     marginLeft: -8,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
     flex: 1,
@@ -808,13 +1089,13 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: wp('3%'),
+    paddingVertical: hp('0.7%'),
+    borderRadius: wp('3%'),
   },
   statusBadgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
   },
   loadingContainer: {
@@ -823,8 +1104,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: hp('2%'),
+    fontSize: wp('4%'),
     color: '#6B7280',
   },
   loadingIndicator: {
@@ -834,47 +1115,79 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: wp('10%'),
   },
   errorText: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 24,
+    marginTop: hp('2%'),
+    marginBottom: hp('3%'),
   },
   backButton: {
     backgroundColor: '#F59E0B',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingHorizontal: wp('6%'),
+    paddingVertical: hp('1.5%'),
+    borderRadius: wp('3%'),
   },
   backButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
   },
   scrollView: {
     flex: 1,
   },
-  section: {
-    backgroundColor: '#FFFFFF',
-    marginTop: 12,
-    marginHorizontal: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+  scrollContent: {
+    paddingTop: hp('0.5%'),
   },
-  sectionTitle: {
-    fontSize: 18,
+  statusStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: wp('4%'),
+    marginBottom: hp('0.5%'),
+    marginTop: hp('0.5%'),
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 10,
+  },
+  statusStripText: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 16,
+  },
+  section: {
+    backgroundColor: '#FFFFFF',
+    marginTop: hp('1%'),
+    marginHorizontal: wp('4%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.8%'),
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: hp('1.2%'),
+    letterSpacing: -0.2,
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   customerCard: {
     flexDirection: 'row',
@@ -883,17 +1196,17 @@ const styles = StyleSheet.create({
   customerAvatar: {
     width: 60,
     height: 60,
-    borderRadius: 30,
+    borderRadius: wp('7.5%'),
   },
   customerInfo: {
     flex: 1,
     marginLeft: 16,
   },
   customerName: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   customerStats: {
     flexDirection: 'row',
@@ -905,70 +1218,86 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   statText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginLeft: 4,
   },
+  customerPhone: {
+    fontSize: wp('3.5%'),
+    color: '#6B7280',
+    marginTop: 4,
+  },
   contactButton: {
-    padding: 12,
-    backgroundColor: '#FEF3C7',
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFBF5',
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
   },
   detailsCard: {
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   serviceTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
+    color: '#111827',
   },
   addOnsContainer: {
-    marginBottom: 16,
+    marginBottom: hp('2%'),
   },
   addOnsTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   addOnItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   addOnText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     marginLeft: 8,
   },
   vibeCard: {
     backgroundColor: '#F0FDFA',
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#CCFBF1',
   },
   vibeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
-    gap: 10,
   },
   vibeText: {
     flex: 1,
-    fontSize: 13,
-    color: '#0F172A',
-    fontWeight: '600',
+    fontSize: 14,
+    color: '#134E4A',
+    lineHeight: 20,
+    marginLeft: 10,
+    fontWeight: '500',
   },
   scheduleLocationCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FAFAFA',
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
   },
   scheduleRow: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: hp('1.2%'),
   },
   scheduleItem: {
     flex: 1,
@@ -979,130 +1308,209 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   scheduleLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     marginBottom: 2,
   },
   scheduleValue: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#111827',
   },
-  householdRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  householdItem: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  householdInfo: {
-    marginLeft: 8,
-  },
-  householdLabel: {
-    fontSize: 11,
-    color: '#047857',
-    marginBottom: 2,
-    fontWeight: '600',
-  },
-  householdValue: {
-    fontSize: 12,
-    color: '#0F172A',
-    fontWeight: '600',
-  },
-  locationContainer: {
+  householdList: {
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
-    paddingTop: 16,
+    paddingTop: 12,
+    marginBottom: 12,
   },
-  locationHeader: {
+  householdListRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  locationTitle: {
+  householdListText: {
     fontSize: 14,
-    fontWeight: '600',
     color: '#374151',
     marginLeft: 8,
     flex: 1,
   },
-  directionsButton: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  directionsButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  locationAddress: {
-    fontSize: 14,
+  householdListLabel: {
     color: '#6B7280',
+    fontWeight: '500',
+  },
+  locationBlock: {
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    paddingTop: 14,
+  },
+  locationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  locationTitleLarge: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+    marginLeft: 8,
+  },
+  locationAddressLarge: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#4B5563',
     marginBottom: 12,
+  },
+  directionsButtonFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFBF5',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  directionsButtonFullText: {
+    color: '#B45309',
+    fontSize: 15,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   paymentCard: {
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 16,
   },
   paymentRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   paymentRowTotal: {
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
-    paddingTop: 12,
-    marginTop: 8,
-    marginBottom: 12,
+    paddingTop: hp('1.5%'),
+    marginTop: hp('1%'),
+    marginBottom: hp('1.5%'),
   },
   paymentLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   paymentValue: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#1F2937',
   },
   paymentLabelTotal: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
   },
   paymentValueTotal: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#F59E0B',
   },
   paymentMethod: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     fontStyle: 'italic',
   },
-  actionButtons: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+  footerBar: {
+    paddingHorizontal: wp('4%'),
+    paddingTop: 12,
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 12,
+  },
+  actionPrimary: {
+    width: '100%',
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  actionPrimaryComplete: {
+    backgroundColor: '#B45309',
+  },
+  actionPrimaryInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  actionRowEqual: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginBottom: 4,
+  },
+  actionFlex: {
+    flex: 1,
+  },
+  actionSecondaryOutline: {
+    minHeight: 48,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionColGap: {
+    marginEnd: 8,
+  },
+  actionSecondaryLabel: {
+    color: '#B45309',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  quickCompleteLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginBottom: 4,
+  },
+  quickCompleteLinkText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  dangerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  dangerBarText: {
+    color: '#B91C1C',
+    fontSize: 14,
+    fontWeight: '600',
   },
   actionButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
+    paddingVertical: hp('2%'),
+    borderRadius: wp('3%'),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1114,7 +1522,7 @@ const styles = StyleSheet.create({
   },
   declineButtonText: {
     color: '#DC2626',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
   },
   acceptButton: {
@@ -1123,37 +1531,8 @@ const styles = StyleSheet.create({
   },
   acceptButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
-  },
-  startButton: {
-    backgroundColor: '#F59E0B',
-  },
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#F59E0B',
-  },
-  secondaryButtonText: {
-    color: '#F59E0B',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  startButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  completeButton: {
-    backgroundColor: '#92400E',  // Deep amber brown
-  },
-  completeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  bottomSpacing: {
-    height: 20,
   },
 });
 

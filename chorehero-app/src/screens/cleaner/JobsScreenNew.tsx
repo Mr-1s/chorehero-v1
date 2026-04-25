@@ -34,7 +34,6 @@ import { useCleanerStore, selectFilteredBookings } from '../../store/cleanerStor
 
 // Components
 import { Chip, JobCard } from '../../components/cleaner';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
 import { SkeletonList } from '../../components/Skeleton';
 import { useToast } from '../../components/Toast';
 
@@ -44,15 +43,20 @@ import { cleanerTheme } from '../../utils/theme';
 // Types
 import type { Booking, JobFilter, JobTab } from '../../types/cleaner';
 import { wp, hp } from '../../utils/responsive';
+import { getProAccessInstructionsLine } from '../../utils/bookingAccessDisplay';
+import { ensureForegroundLocationForProTracking } from '../../utils/proTrackingLocation';
+import { shouldShowTodaysJobCallout } from '../../utils/cleanerJobsTabUi';
+import { resolveQuoteJobIdForBooking } from '../../utils/resolveQuoteJobId';
 
 const { colors, typography, spacing, radii, shadows } = cleanerTheme;
-const BRAND_TEAL = '#26B7C9';
+const BRAND_ORANGE = colors.primary;
 
 type StackParamList = {
   JobsScreen: undefined;
   Jobs: { initialTab?: string };
   JobDetails: { jobId: string };
   QuoteJobDetail: { jobId: string };
+  QuoteList: { jobId: string; viewerRole?: 'customer' | 'pro' };
   ChatScreen: { bookingId: string; otherParticipant: any };
   Profile: undefined;
 };
@@ -92,6 +96,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
 
   // Store state
   const {
+    currentCleaner,
     availableBookings,
     activeBookings,
     pastBookings,
@@ -106,6 +111,16 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
     refreshData,
     removeCancelledBooking,
   } = useCleanerStore();
+
+  /**
+   * Cleaners can't accept jobs until both their profile is complete AND they
+   * have toggled themselves online. Until then, hide every job list and show
+   * a single "finish setup" CTA so the screen isn't a confusing dead end.
+   */
+  const profileCompletion = currentCleaner?.profileCompletion ?? 0;
+  const isAvailableForJobs = !!currentCleaner?.isOnline;
+  const profileGateActive =
+    !!currentCleaner && (profileCompletion < 0.999 || !isAvailableForJobs);
 
   // Local state
   const [selectedFilter] = useState<JobFilter>('all');
@@ -359,11 +374,20 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
   };
 
   const handleStartTraveling = async (bookingId: string) => {
+    const locOk = await ensureForegroundLocationForProTracking();
+    if (!locOk) {
+      showToast?.({
+        type: 'info',
+        message: 'Turn on location permission to share your trip with the customer.',
+      });
+      throw new Error('location_unavailable');
+    }
     try {
       await startTraveling(bookingId);
-      showToast?.({ type: 'success', message: 'Tracking started' });
+      showToast?.({ type: 'success', message: 'On the way — customer can follow your trip.' });
     } catch (error) {
-      showToast?.({ type: 'error', message: 'Failed to start traveling' });
+      showToast?.({ type: 'error', message: 'Failed to start heading. Try again.' });
+      throw error;
     }
   };
 
@@ -404,6 +428,20 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
     navigation.navigate('JobDetails', { jobId: booking.id });
   };
 
+  const openTodaysJobQuoteContext = useCallback(() => {
+    if (!todayActive) return;
+    const jid = resolveQuoteJobIdForBooking(todayActive);
+    if (jid) {
+      navigation.navigate('QuoteList', { jobId: jid, viewerRole: 'pro' });
+      return;
+    }
+    showToast?.({
+      type: 'info',
+      message: 'No linked quote job for this booking. Opening job details.',
+    });
+    navigation.navigate('JobDetails', { jobId: todayActive.id });
+  }, [todayActive, navigation, showToast]);
+
   const handleQuoteJobPress = (job: Job) => {
     (navigation as any).navigate('QuoteJobDetail', { jobId: job.id });
   };
@@ -437,12 +475,12 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
 
   const getQuoteStatusStyle = (status: string, expiresAt: string) => {
     const isExpired = new Date(expiresAt) < new Date();
-    if (status === 'accepted') return { bg: '#10B981', label: 'Accepted', textColor: '#FFFFFF' };
-    if (status === 'declined') return { bg: '#F1F5F9', label: 'Declined', textColor: '#64748B' };
-    if (status === 'withdrawn') return { bg: '#F1F5F9', label: 'Withdrawn', textColor: '#64748B' };
-    if (status === 'expired' || isExpired) return { bg: '#F1F5F9', label: 'Expired', textColor: '#64748B' };
-    if (status === 'viewed') return { bg: '#DBEAFE', label: 'Viewed', textColor: '#1D4ED8' };
-    return { bg: '#FEF3C7', label: 'Pending', textColor: '#92400E' };
+    if (status === 'accepted') return { bg: colors.success, label: 'Accepted', textColor: colors.textInverse };
+    if (status === 'declined') return { bg: colors.borderLight, label: 'Declined', textColor: colors.textSecondary };
+    if (status === 'withdrawn') return { bg: colors.borderLight, label: 'Withdrawn', textColor: colors.textSecondary };
+    if (status === 'expired' || isExpired) return { bg: colors.borderLight, label: 'Expired', textColor: colors.textSecondary };
+    if (status === 'viewed') return { bg: colors.primaryLight, label: 'Viewed', textColor: colors.primary };
+    return { bg: colors.specialRequestBg, label: 'Pending', textColor: BRAND_ORANGE };
   };
 
   const canEditQuote = (q: Quote & { job?: Job }) =>
@@ -496,11 +534,11 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
     >
       <View style={styles.quoteJobCardLeft}>
         <View style={styles.quoteJobCardIcon}>
-          <Ionicons name="videocam" size={22} color={BRAND_TEAL} />
+          <Ionicons name="videocam" size={22} color={BRAND_ORANGE} />
         </View>
         <View style={styles.quoteJobCardContent}>
           <Text style={styles.quoteJobCardHeadline} numberOfLines={2}>
-            {job.headline}
+            {jobQuoteService.getJobDisplayTitle(job)}
           </Text>
           <View style={styles.quoteJobCardMeta}>
             <Text style={styles.quoteJobCardCategory}>
@@ -519,7 +557,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
   );
 
   const renderMyQuoteCard = (q: Quote & { job?: Job }) => {
-    const job = q.job as { headline?: string; category?: string } | undefined;
+    const job = q.job;
     const { bg, label, textColor } = getQuoteStatusStyle(q.status, q.expires_at);
     const expired = new Date(q.expires_at) < new Date();
     return (
@@ -529,7 +567,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
         activeOpacity={0.9}
       >
         <Text style={styles.myQuoteHeadlineLarge} numberOfLines={2}>
-          {job?.headline || 'Job'}
+          {jobQuoteService.getJobDisplayTitle(job)}
         </Text>
         <Text style={styles.myQuotePriceGreen}>${(q.price_cents / 100).toFixed(0)}</Text>
         <View style={[styles.myQuoteStatusBadge, { backgroundColor: bg }]}>
@@ -547,7 +585,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
                 handleEditQuotePress(q);
               }}
             >
-              <Ionicons name="pencil" size={14} color={BRAND_TEAL} />
+              <Ionicons name="pencil" size={14} color={BRAND_ORANGE} />
               <Text style={styles.myQuoteEditBtnText}>Edit</Text>
             </TouchableOpacity>
           )}
@@ -580,7 +618,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
       return (
         <View style={styles.jobCardWrapper}>
           <View style={styles.quoteJobBadge}>
-            <Ionicons name="videocam" size={10} color="#FFFFFF" />
+            <Ionicons name="videocam" size={10} color={colors.textInverse} />
             <Text style={styles.quoteJobBadgeText}>Video Quote</Text>
           </View>
           {renderQuoteJobCard(item.data)}
@@ -591,17 +629,19 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
     const showEmergencyTag =
       activeTab === 'available' &&
       (booking.isInstant || booking.serviceType.toLowerCase().includes('emergency'));
+    const cardVariant =
+      activeTab === 'history' ? 'history' : activeTab === 'active' ? 'active' : 'available';
     return (
       <View style={styles.jobCardWrapper}>
         {showEmergencyTag && (
           <View style={styles.emergencyTag}>
-            <Ionicons name="flash" size={12} color="#FFFFFF" />
+            <Ionicons name="flash" size={12} color={colors.textInverse} />
             <Text style={styles.emergencyTagText}>Emergency Clean</Text>
           </View>
         )}
         <JobCard
           booking={booking}
-          variant={activeTab}
+          variant={cardVariant}
           onPress={() => handleJobPress(booking)}
           onAccept={() => handleAcceptJob(booking.id)}
           onDecline={() => handleDeclineJob(booking.id)}
@@ -609,6 +649,11 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
           onMarkArrived={() => handleMarkArrived(booking.id)}
           onStartJob={() => handleStartJob(booking.id)}
           onMarkComplete={() => handleMarkComplete(booking.id)}
+          onOpenLiveMap={
+            activeTab === 'active'
+              ? () => (navigation as any).navigate('LiveTracking', { bookingId: booking.id })
+              : undefined
+          }
           isAccepting={acceptingJobId === booking.id}
           delay={index * 50}
         />
@@ -629,7 +674,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
                   activeTab === 'quotes' ? 'videocam-outline' :
                   activeTab === 'active' ? 'time-outline' : 'checkmark-done-outline'} 
             size={26} 
-            color={BRAND_TEAL} 
+            color={BRAND_ORANGE} 
           />
         </View>
         <Text style={styles.emptyTitle}>
@@ -662,7 +707,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
               disabled={isRefreshing}
               activeOpacity={0.8}
             >
-              <Ionicons name={isQuotesEmpty ? 'briefcase-outline' : 'refresh'} size={20} color="#FFFFFF" />
+            <Ionicons name={isQuotesEmpty ? 'briefcase-outline' : 'refresh'} size={20} color={colors.textInverse} />
               <Text style={styles.emptyPrimaryButtonText}>
                 {isQuotesEmpty ? 'Browse Requests' : isRefreshing ? 'Refreshing...' : 'Refresh Jobs'}
               </Text>
@@ -673,7 +718,7 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
                 onPress={() => (navigation as any).navigate('Profile')}
                 activeOpacity={0.8}
               >
-                <Ionicons name="person-add-outline" size={18} color={BRAND_TEAL} />
+                <Ionicons name="person-add-outline" size={18} color={BRAND_ORANGE} />
                 <Text style={styles.emptySecondaryButtonText}>Complete Profile</Text>
               </TouchableOpacity>
             )}
@@ -702,22 +747,66 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
       {/* Tab Bar */}
       {renderTabBar()}
 
-      {/* Filter Bar */}
-      {renderFilterBar()}
-
-      {todayActive && (
-        <View style={styles.activeJobCard}>
-          <Text style={styles.activeJobTitle}>Today’s Job</Text>
-          <Text style={styles.activeJobName}>{todayActive.customerName}</Text>
-          <Text style={styles.activeJobMeta}>Access Instructions</Text>
-          <Text style={styles.activeJobInstructions}>
-            {todayActive.specialRequestText || 'Check the lockbox by the front door.'}
+      {profileGateActive ? (
+        <View style={styles.gateContainer}>
+          <View style={styles.gateIconWrap}>
+            <Ionicons name="shield-checkmark" size={32} color={BRAND_ORANGE} />
+          </View>
+          <Text style={styles.gateTitle}>
+            {profileCompletion < 0.999 ? 'Finish your profile to see jobs' : 'Go online to start receiving jobs'}
           </Text>
-          <TouchableOpacity style={styles.slideButton} onPress={() => handleStartTraveling(todayActive.id)}>
-            <Ionicons name="car" size={18} color="#FFFFFF" />
-            <Text style={styles.slideButtonText}>Slide to Start Heading</Text>
+          <Text style={styles.gateSubtitle}>
+            {profileCompletion < 0.999
+              ? 'Complete your bio, service area, rate, and verification so customers can trust your work and pros around you can take requests.'
+              : 'You\'re fully set up. Toggle yourself online from the Profile tab and we\'ll start sending jobs your way.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.gateButton}
+            onPress={() => (navigation as any).navigate('Profile')}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={profileCompletion < 0.999 ? 'arrow-forward-circle' : 'power'}
+              size={18}
+              color={colors.textInverse}
+            />
+            <Text style={styles.gateButtonText}>
+              {profileCompletion < 0.999 ? 'Continue setup' : 'Go to Profile'}
+            </Text>
           </TouchableOpacity>
+          {profileCompletion < 0.999 ? (
+            <Text style={styles.gateMeta}>{Math.round(profileCompletion * 100)}% complete</Text>
+          ) : null}
         </View>
+      ) : (
+        <>
+          {/* Filter Bar */}
+          {renderFilterBar()}
+
+          {shouldShowTodaysJobCallout(activeTab) && todayActive && (
+        <TouchableOpacity
+          style={styles.activeJobCard}
+          onPress={openTodaysJobQuoteContext}
+          activeOpacity={0.9}
+          accessibilityRole="button"
+          accessibilityLabel="View todays job and quotes"
+        >
+          <View style={styles.todaysJobCardHeader}>
+            <Text style={styles.activeJobTitle}>Today’s job</Text>
+            <Ionicons name="chevron-forward" size={22} color={BRAND_ORANGE} />
+          </View>
+          <Text style={styles.tapToViewHint}>Tap to open this job and its video quotes (same as the customer’s quote screen)</Text>
+          <Text style={styles.activeJobName}>{todayActive.customerName}</Text>
+          {!!todayActive.serviceType?.trim() && (
+            <Text style={styles.activeJobServiceTitle} numberOfLines={2}>
+              {todayActive.serviceType}
+            </Text>
+          )}
+          <Text style={styles.activeJobMeta}>Access</Text>
+          <Text style={styles.activeJobInstructions}>
+            {getProAccessInstructionsLine(todayActive)}
+          </Text>
+        </TouchableOpacity>
       )}
 
       {/* Job List */}
@@ -749,12 +838,8 @@ const JobsScreenNew: React.FC<JobsScreenProps> = ({ navigation, route }) => {
           }
         />
       )}
-
-      {/* Bottom Navigation */}
-      <CleanerFloatingNavigation
-        navigation={navigation as any}
-        currentScreen="Jobs"
-      />
+        </>
+      )}
     </SafeAreaView>
   );
 };
@@ -764,6 +849,61 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  // Profile-completion gate (replaces all job lists when the cleaner isn't
+  // yet ready to take work). Keeps the screen purposeful instead of showing
+  // empty placeholders that look broken.
+  gateContainer: {
+    margin: spacing.lg,
+    padding: spacing.xl,
+    backgroundColor: colors.cardBg,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 47, 0.45)',
+    alignItems: 'center',
+  },
+  gateIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 165, 47, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  gateTitle: {
+    fontSize: typography.cardTitle.fontSize,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  gateSubtitle: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: spacing.lg,
+  },
+  gateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+  },
+  gateButtonText: {
+    color: colors.textInverse,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  gateMeta: {
+    marginTop: spacing.md,
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   capacityBadge: {
     backgroundColor: colors.primary + '20',
@@ -771,7 +911,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: radii.sm,
   },
-  capacityBadgeFull: { backgroundColor: '#FEE2E2' },
+  capacityBadgeFull: { backgroundColor: colors.errorLight },
   capacityBadgeText: { fontSize: 12, fontWeight: '600', color: colors.primary },
   header: {
     flexDirection: 'row',
@@ -787,7 +927,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   headerBadge: {
-    backgroundColor: 'rgba(38, 183, 201, 0.12)',
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radii.pill,
@@ -795,29 +935,45 @@ const styles = StyleSheet.create({
   headerBadgeText: {
     fontSize: typography.labelSmall.fontSize,
     fontWeight: typography.label.fontWeight,
-    color: BRAND_TEAL,
+    color: BRAND_ORANGE,
   },
   activeJobCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.cardBg,
     marginHorizontal: spacing.xl,
     marginTop: spacing.md,
     marginBottom: spacing.md,
     borderRadius: radii.card,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: 'rgba(38, 183, 201, 0.35)',
+    borderColor: colors.primaryBorder,
     ...shadows.soft,
+  },
+  todaysJobCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: hp('0.4%'),
   },
   activeJobTitle: {
     fontSize: typography.label.fontSize,
     fontWeight: '700',
-    color: BRAND_TEAL,
-    marginBottom: hp('0.7%'),
+    color: BRAND_ORANGE,
+  },
+  tapToViewHint: {
+    fontSize: typography.caption?.fontSize ?? 12,
+    color: colors.textMuted,
+    marginBottom: hp('0.8%'),
   },
   activeJobName: {
     fontSize: typography.title.fontSize,
     fontWeight: typography.title.fontWeight,
     color: colors.textPrimary,
+    marginBottom: hp('0.5%'),
+  },
+  activeJobServiceTitle: {
+    fontSize: typography.body.fontSize,
+    fontWeight: '600',
+    color: colors.textSecondary,
     marginBottom: hp('1%'),
   },
   activeJobMeta: {
@@ -829,21 +985,6 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     color: colors.textSecondary,
     marginTop: hp('0.7%'),
-    marginBottom: hp('1.5%'),
-  },
-  slideButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: wp('2%'),
-    backgroundColor: BRAND_TEAL,
-    paddingVertical: hp('1.5%'),
-    borderRadius: radii.pill,
-  },
-  slideButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: typography.label.fontSize,
   },
   tabScroll: {
     marginBottom: hp('1%'),
@@ -851,11 +992,11 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.cardBg,
     borderRadius: 14,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.borderSubtle,
   },
   tab: {
     flex: 1,
@@ -869,7 +1010,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   activeTab: {
-    backgroundColor: '#E6FAFB',
+    backgroundColor: colors.primaryLight,
   },
   tabUnderline: {
     position: 'absolute',
@@ -877,20 +1018,20 @@ const styles = StyleSheet.create({
     left: '22%',
     right: '22%',
     height: 3,
-    backgroundColor: BRAND_TEAL,
+    backgroundColor: BRAND_ORANGE,
     borderRadius: 2,
   },
   tabText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#64748B',
+    color: colors.textSecondary,
   },
   activeTabText: {
-    color: '#0D9488',
+    color: BRAND_ORANGE,
     fontWeight: '700',
   },
   tabBadge: {
-    backgroundColor: BRAND_TEAL,
+    backgroundColor: BRAND_ORANGE,
     borderRadius: 999,
     minWidth: 18,
     height: 18,
@@ -899,7 +1040,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabBadgeText: {
-    color: '#FFFFFF',
+    color: colors.textInverse,
     fontSize: 10,
     fontWeight: '700',
   },
@@ -922,14 +1063,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('1.5%'),
-    backgroundColor: '#F97316',
+    backgroundColor: colors.error,
     paddingHorizontal: wp('2.5%'),
     paddingVertical: hp('0.7%'),
     borderRadius: wp('3%'),
     marginBottom: hp('1%'),
   },
   emergencyTagText: {
-    color: '#FFFFFF',
+    color: colors.textInverse,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -938,14 +1079,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: wp('1.5%'),
-    backgroundColor: BRAND_TEAL,
+    backgroundColor: BRAND_ORANGE,
     paddingHorizontal: wp('2.5%'),
     paddingVertical: hp('0.7%'),
     borderRadius: wp('3%'),
     marginBottom: hp('1%'),
   },
   quoteJobBadgeText: {
-    color: '#FFFFFF',
+    color: colors.textInverse,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -953,12 +1094,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.cardBg,
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderSubtle,
   },
   quoteJobCardLeft: {
     flexDirection: 'row',
@@ -969,7 +1110,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#E6FAFB',
+    backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -980,7 +1121,7 @@ const styles = StyleSheet.create({
   quoteJobCardHeadline: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.textPrimary,
     letterSpacing: -0.2,
   },
   quoteJobCardMeta: {
@@ -991,46 +1132,46 @@ const styles = StyleSheet.create({
   },
   quoteJobCardCategory: {
     fontSize: 12,
-    color: '#64748B',
+    color: colors.textSecondary,
     fontWeight: '500',
   },
   quoteJobCardDistance: {
     fontSize: 12,
-    color: BRAND_TEAL,
+    color: BRAND_ORANGE,
     fontWeight: '600',
   },
   myQuoteCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.cardBg,
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.borderSubtle,
   },
   myQuoteHeadlineLarge: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.textPrimary,
     marginBottom: 6,
     letterSpacing: -0.2,
   },
   myQuoteHeadline: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#0F172A',
+    color: colors.textPrimary,
     marginBottom: 6,
   },
   myQuotePriceGreen: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#0F766E',
+    color: BRAND_ORANGE,
     marginBottom: 8,
     letterSpacing: -0.5,
   },
   myQuotePrice: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#0F766E',
+    color: BRAND_ORANGE,
     marginBottom: 8,
   },
   myQuoteStatusBadge: {
@@ -1043,11 +1184,11 @@ const styles = StyleSheet.create({
   myQuoteStatusText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.textInverse,
   },
   myQuoteDateSmall: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: colors.textMuted,
     marginTop: 2,
     marginBottom: 8,
   },
@@ -1069,12 +1210,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: wp('3%'),
     borderRadius: wp('2%'),
     borderWidth: 1,
-    borderColor: BRAND_TEAL,
+    borderColor: BRAND_ORANGE,
   },
   myQuoteEditBtnText: {
     fontSize: typography.labelSmall.fontSize,
     fontWeight: '600',
-    color: BRAND_TEAL,
+    color: BRAND_ORANGE,
   },
   myQuoteWithdrawBtn: {
     paddingVertical: hp('0.8%'),
@@ -1099,7 +1240,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
@@ -1107,14 +1248,14 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#0F172A',
+    color: colors.textPrimary,
     marginBottom: 6,
     textAlign: 'center',
     letterSpacing: -0.2,
   },
   emptySubtitle: {
     fontSize: 13,
-    color: '#64748B',
+    color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 19,
     marginBottom: 18,
@@ -1131,14 +1272,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: wp('2%'),
-    backgroundColor: BRAND_TEAL,
+    backgroundColor: BRAND_ORANGE,
     paddingVertical: hp('1.8%'),
     borderRadius: radii.pill,
   },
   emptyPrimaryButtonText: {
     fontSize: typography.label.fontSize,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: colors.textInverse,
   },
   emptySecondaryButton: {
     flexDirection: 'row',
@@ -1146,14 +1287,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: wp('2%'),
     borderWidth: 2,
-    borderColor: BRAND_TEAL,
+    borderColor: BRAND_ORANGE,
     paddingVertical: hp('1.5%'),
     borderRadius: radii.pill,
   },
   emptySecondaryButtonText: {
     fontSize: typography.label.fontSize,
     fontWeight: '700',
-    color: BRAND_TEAL,
+    color: BRAND_ORANGE,
   },
 });
 

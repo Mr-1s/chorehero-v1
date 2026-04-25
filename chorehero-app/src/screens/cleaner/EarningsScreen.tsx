@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
@@ -18,8 +19,18 @@ import type { StackNavigationProp } from '@react-navigation/stack';
 import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { wp, hp } from '../../utils/responsive';
+import { cleanerTheme } from '../../utils/theme';
+import { COLORS } from '../../utils/constants';
 
 const { width } = Dimensions.get('window');
+const T = cleanerTheme.colors;
+const BR = T.primary;
+const BRD = T.primaryDark;
+const TXT = T.textPrimary;
+const TXTM = T.textSecondary;
+const TXTSUB = T.textMuted;
+const SURFACE = T.cardBg;
+const BORDER = T.borderSubtle;
 
 interface EarningsScreenProps {
   navigation: StackNavigationProp<any>;
@@ -42,6 +53,7 @@ interface PaymentHistory {
 }
 
 const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,8 +70,50 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [pendingPayouts, setPendingPayouts] = useState<{ id: string; amount_cents: number; scheduled_at: string; booking_id: string }[]>([]);
   const [paidPayouts, setPaidPayouts] = useState<{ id: string; amount_cents: number; created_at: string; booking_id: string }[]>([]);
+  const [heroEngagement, setHeroEngagement] = useState({ totalJobs: 0, jobsThisMonth: 0 });
 
   const { currentBalance, pendingBalance, totalEarnings } = earningsData;
+
+  const getHeroMeta = (totalJobs: number) => {
+    if (totalJobs >= 15) {
+      return {
+        label: 'Gold Hero',
+        sub: 'Top tier',
+        progress: 1,
+        nextLine: 'Maintain quality to stay here',
+        color: '#D97706',
+        icon: 'trophy' as const,
+      };
+    }
+    if (totalJobs >= 5) {
+      return {
+        label: 'Silver Hero',
+        sub: 'Strong local reputation',
+        progress: (totalJobs - 5) / 10,
+        nextLine: totalJobs < 15 ? `${15 - totalJobs} more completed jobs to Gold` : null,
+        color: '#94A3B8',
+        icon: 'star' as const,
+      };
+    }
+    if (totalJobs >= 1) {
+      return {
+        label: 'Bronze Hero',
+        sub: 'Building momentum',
+        progress: (totalJobs - 1) / 4,
+        nextLine: totalJobs < 5 ? `${5 - totalJobs} more jobs to Silver` : null,
+        color: BRD,
+        icon: 'medal' as const,
+      };
+    }
+    return {
+      label: 'Rising Hero',
+      sub: 'Start your streak',
+      progress: 0,
+      nextLine: 'Complete your first job to unlock Bronze',
+      color: BR,
+      icon: 'flame' as const,
+    };
+  };
 
   useEffect(() => {
     loadEarningsData();
@@ -192,6 +246,10 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
       }));
 
       setPaymentHistory(history);
+      setHeroEngagement({
+        totalJobs: (completedBookings || []).length,
+        jobsThisMonth: monthlyBookings.length,
+      });
       console.log('✅ Earnings loaded:', { totalEarned, pendingAmount, jobCount: completedBookings?.length });
 
     } catch (error) {
@@ -218,10 +276,10 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return '#4ECDC4';
-      case 'processing': return '#FFD93D';
-      case 'pending': return '#F59E0B';
-      default: return '#718096';
+      case 'completed': return COLORS.success;
+      case 'processing': return COLORS.warning;
+      case 'pending': return BR;
+      default: return TXTSUB;
     }
   };
 
@@ -249,7 +307,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4ECDC4" />
+          <ActivityIndicator size="large" color={BR} />
           <Text style={styles.loadingText}>Loading earnings...</Text>
         </View>
       </SafeAreaView>
@@ -261,16 +319,16 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
       <ScrollView 
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4ECDC4" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={BR} />
         }
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, hp('1.5%')) }]}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="#ffffff" />
+            <Ionicons name="arrow-back" size={24} color={TXT} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Earnings</Text>
           <View style={styles.placeholder} />
@@ -279,7 +337,9 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
         {/* Balance Cards */}
         <View style={styles.balanceContainer}>
           <LinearGradient
-            colors={['#4ECDC4', '#44A08D']}
+            colors={[BR, BRD]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.balanceCard}
           >
             <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -312,6 +372,58 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
           </View>
         </View>
 
+        {(() => {
+          const hero = getHeroMeta(heroEngagement.totalJobs);
+          return (
+            <View style={styles.heroCardWrap}>
+              <View style={styles.heroCard}>
+                <View style={styles.heroCardHeader}>
+                  <View style={styles.heroIconRing}>
+                    <Ionicons name={hero.icon} size={24} color={hero.color} />
+                  </View>
+                  <View style={styles.heroCardTitles}>
+                    <Text style={styles.heroLabel}>{hero.label}</Text>
+                    <Text style={styles.heroSub}>{hero.sub}</Text>
+                  </View>
+                </View>
+                <View style={styles.xpBarBg}>
+                  <View
+                    style={[
+                      styles.xpBarFill,
+                      {
+                        width: `${Math.min(100, Math.round(hero.progress * 100))}%`,
+                        backgroundColor: hero.color,
+                      },
+                    ]}
+                  />
+                </View>
+                {hero.nextLine && <Text style={styles.heroNextLine}>{hero.nextLine}</Text>}
+                <View style={styles.heroStatsRow}>
+                  <View style={styles.heroStatPill}>
+                    <Ionicons name="checkmark-circle" size={16} color={BRD} />
+                    <Text style={styles.heroStatText}>
+                      {heroEngagement.totalJobs} lifetime job{heroEngagement.totalJobs === 1 ? '' : 's'}
+                    </Text>
+                  </View>
+                  <View style={styles.heroStatPill}>
+                    <Ionicons name="calendar" size={16} color={BRD} />
+                    <Text style={styles.heroStatText}>{heroEngagement.jobsThisMonth} this month</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          );
+        })()}
+
+        <View style={styles.flowExplainer}>
+          <Text style={styles.flowTitle}>Where your money goes</Text>
+          <Text style={styles.flowBody}>
+            Customers pay in the app with Stripe. ChoreHero takes a platform fee, then your share is recorded on each job.
+            After the job is marked complete, there is a short holding period, then a payout is queued (often about 48 hours).
+            Funds are sent to the bank account linked in your Stripe Connect profile—not stored in the app.
+          </Text>
+        </View>
+
         {/* Pending Payouts (payout_queue - 48h after job complete) */}
         {pendingPayouts.length > 0 && (
           <View style={styles.analyticsContainer}>
@@ -341,11 +453,11 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
                 </View>
                 <View style={styles.analyticsDetails}>
                   <View style={styles.analyticsItem}>
-                    <Ionicons name="briefcase" size={16} color="#718096" />
+                    <Ionicons name="briefcase" size={16} color={TXTM} />
                     <Text style={styles.analyticsLabel}>{data.jobs} jobs</Text>
                   </View>
                   <View style={styles.analyticsItem}>
-                    <Ionicons name="trending-up" size={16} color="#718096" />
+                    <Ionicons name="trending-up" size={16} color={TXTM} />
                     <Text style={styles.analyticsLabel}>${data.avgPerJob.toFixed(2)} avg</Text>
                   </View>
                 </View>
@@ -354,7 +466,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
-                <Ionicons name="analytics-outline" size={48} color="#CBD5E0" />
+                <Ionicons name="analytics-outline" size={48} color={T.borderLight} />
               </View>
               <Text style={styles.emptyTitle}>No Earnings Yet</Text>
               <Text style={styles.emptySubtitle}>
@@ -371,15 +483,15 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
             {paidPayouts.map((t) => (
               <View key={t.id} style={styles.historyItem}>
                 <View style={styles.historyIcon}>
-                  <Ionicons name="checkmark-circle" size={24} color="#4ECDC4" />
+                  <Ionicons name="checkmark-circle" size={24} color={BR} />
                 </View>
                 <View style={styles.historyDetails}>
                   <Text style={styles.historyDescription}>Payout to bank</Text>
                   <Text style={styles.historyDate}>{new Date(t.created_at).toLocaleDateString()}</Text>
                 </View>
                 <View style={styles.historyAmount}>
-                  <Text style={[styles.historyAmountText, { color: '#4ECDC4' }]}>+${(t.amount_cents / 100).toFixed(2)}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: '#4ECDC4' }]}>
+                  <Text style={[styles.historyAmountText, { color: BR }]}>+${(t.amount_cents / 100).toFixed(2)}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: BR }]}>
                     <Text style={styles.statusText}>Paid</Text>
                   </View>
                 </View>
@@ -399,7 +511,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
                   <Ionicons 
                     name={payment.type === 'earning' ? 'add-circle' : 'card'} 
                     size={24} 
-                    color={payment.type === 'earning' ? '#4ECDC4' : '#6B7280'} 
+                    color={payment.type === 'earning' ? BR : TXTM} 
                   />
                 </View>
                 <View style={styles.historyDetails}>
@@ -409,7 +521,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
                 <View style={styles.historyAmount}>
                   <Text style={[
                     styles.historyAmountText,
-                    { color: payment.type === 'earning' ? '#4ECDC4' : '#2d3748' }
+                    { color: payment.type === 'earning' ? BR : TXT }
                   ]}>
                     {payment.type === 'earning' ? '+' : ''}${payment.amount.toFixed(2)}
                   </Text>
@@ -422,7 +534,7 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
-                <Ionicons name="receipt-outline" size={48} color="#CBD5E0" />
+                <Ionicons name="receipt-outline" size={48} color={T.borderLight} />
               </View>
               <Text style={styles.emptyTitle}>No Payment History</Text>
               <Text style={styles.emptySubtitle}>
@@ -435,13 +547,13 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
         {/* Tax Information */}
         <View style={styles.taxContainer}>
           <View style={styles.taxCard}>
-            <Ionicons name="document-text" size={24} color="#4ECDC4" />
+            <Ionicons name="document-text" size={24} color={BR} />
             <View style={styles.taxInfo}>
               <Text style={styles.taxTitle}>Tax Information</Text>
               <Text style={styles.taxSubtitle}>Download your 1099 forms and earnings summary</Text>
             </View>
             <TouchableOpacity style={styles.taxButton}>
-              <Ionicons name="download" size={20} color="#4ECDC4" />
+              <Ionicons name="download" size={20} color={BR} />
             </TouchableOpacity>
           </View>
         </View>
@@ -455,29 +567,32 @@ const EarningsScreen: React.FC<EarningsScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: T.bg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: wp('5%'),
-    paddingVertical: hp('1.5%'),
-    backgroundColor: '#26B7C9',
-    paddingTop: hp('6%'),
+    paddingBottom: hp('1.5%'),
+    backgroundColor: SURFACE,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: BORDER,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: wp('5%'),
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: T.bg,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: BORDER,
   },
   headerTitle: {
     fontSize: wp('5%'),
     fontWeight: '600',
-    color: '#ffffff',
+    color: TXT,
   },
   placeholder: {
     width: 40,
@@ -524,23 +639,112 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: SURFACE,
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 14,
     marginHorizontal: wp('1.5%'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: BORDER,
   },
   statValue: {
     fontSize: wp('5%'),
     fontWeight: '700',
-    color: '#2d3748',
+    color: TXT,
     marginBottom: hp('0.5%'),
   },
   statLabel: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
+  },
+  heroCardWrap: {
+    paddingHorizontal: wp('5%'),
+    marginTop: hp('1.5%'),
+  },
+  heroCard: {
+    borderRadius: 18,
+    padding: 16,
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: T.primaryBorder,
+    shadowColor: T.shadowColor,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  heroIconRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: T.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  heroCardTitles: { marginLeft: 12, flex: 1 },
+  heroLabel: {
+    fontSize: wp('4.5%'),
+    fontWeight: '700',
+    color: TXT,
+  },
+  heroSub: {
+    fontSize: wp('3.3%'),
+    color: TXTM,
+    marginTop: 2,
+  },
+  xpBarBg: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: T.metaBg,
+    overflow: 'hidden',
+  },
+  xpBarFill: {
+    height: 8,
+    borderRadius: 999,
+  },
+  heroNextLine: {
+    marginTop: 10,
+    fontSize: wp('3.2%'),
+    color: TXTSUB,
+    lineHeight: 18,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  heroStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: T.primaryLight,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginRight: 8,
+  },
+  heroStatText: {
+    fontSize: wp('3.1%'),
+    color: BRD,
+    marginLeft: 6,
+  },
+  flowExplainer: {
+    paddingHorizontal: wp('5%'),
+    marginTop: hp('2%'),
+  },
+  flowTitle: {
+    fontSize: wp('4%'),
+    fontWeight: '700',
+    color: TXT,
+    marginBottom: 8,
+  },
+  flowBody: {
+    fontSize: wp('3.3%'),
+    lineHeight: 20,
+    color: TXTM,
   },
   analyticsContainer: {
     paddingHorizontal: wp('5%'),
@@ -549,21 +753,21 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: wp('5%'),
     fontWeight: '600',
-    color: '#2d3748',
+    color: TXT,
     marginBottom: hp('2%'),
   },
   sectionSubtitle: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
     marginBottom: hp('1.5%'),
   },
   analyticsCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: SURFACE,
     borderRadius: 14,
     padding: 16,
     marginBottom: hp('1%'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: BORDER,
   },
   analyticsHeader: {
     flexDirection: 'row',
@@ -574,12 +778,12 @@ const styles = StyleSheet.create({
   periodText: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#2d3748',
+    color: TXT,
   },
   amountText: {
     fontSize: wp('4.5%'),
     fontWeight: '700',
-    color: '#26B7C9',
+    color: BR,
   },
   analyticsDetails: {
     flexDirection: 'row',
@@ -591,7 +795,7 @@ const styles = StyleSheet.create({
   },
   analyticsLabel: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
     marginLeft: 6,
   },
   historyContainer: {
@@ -601,12 +805,12 @@ const styles = StyleSheet.create({
   historyItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: SURFACE,
     borderRadius: 14,
     padding: 14,
     marginBottom: hp('1%'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: BORDER,
   },
   historyIcon: {
     marginRight: 12,
@@ -617,12 +821,12 @@ const styles = StyleSheet.create({
   historyDescription: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#2d3748',
+    color: TXT,
     marginBottom: hp('0.5%'),
   },
   historyDate: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
   },
   historyAmount: {
     alignItems: 'flex-end',
@@ -649,11 +853,11 @@ const styles = StyleSheet.create({
   taxCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: SURFACE,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: BORDER,
   },
   taxInfo: {
     flex: 1,
@@ -662,12 +866,12 @@ const styles = StyleSheet.create({
   taxTitle: {
     fontSize: wp('4%'),
     fontWeight: '600',
-    color: '#2d3748',
+    color: TXT,
     marginBottom: hp('0.5%'),
   },
   taxSubtitle: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
   },
   taxButton: {
     width: 40,
@@ -688,7 +892,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: hp('2%'),
     fontSize: wp('4%'),
-    color: '#718096',
+    color: TXTM,
   },
   // Empty State Styles
   emptyState: {
@@ -700,7 +904,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: wp('10%'),
-    backgroundColor: '#F7FAFC',
+    backgroundColor: T.metaBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: hp('2%'),
@@ -708,13 +912,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: wp('4.5%'),
     fontWeight: '600',
-    color: '#2D3748',
+    color: TXT,
     marginBottom: hp('1%'),
     textAlign: 'center',
   },
   emptySubtitle: {
     fontSize: wp('3.5%'),
-    color: '#718096',
+    color: TXTM,
     textAlign: 'center',
     lineHeight: 20,
     maxWidth: 280,

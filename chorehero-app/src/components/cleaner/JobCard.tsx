@@ -7,17 +7,11 @@
  * - history: Muted, no CTAs
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withDelay,
-  FadeInUp,
-} from 'react-native-reanimated';
+import Animated, { FadeInUp } from 'react-native-reanimated';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { cleanerTheme } from '../../utils/theme';
 import type { Booking } from '../../types/cleaner';
 import Chip from './Chip';
@@ -35,6 +29,10 @@ interface JobCardProps {
   onDecline?: () => void;
   onStartTraveling?: () => void;
   onMarkArrived?: () => void;
+  onStartJob?: () => void;
+  onMarkComplete?: () => void;
+  /** Full-screen live map / tracking (active jobs on Jobs tab). */
+  onOpenLiveMap?: () => void;
   isAccepting?: boolean;
   delay?: number;
 }
@@ -88,6 +86,8 @@ const getStatusChip = (status: string, variant: JobCardVariant) => {
       return <Chip label="Confirmed" variant="status" color="primary" size="sm" />;
     case 'on_the_way':
       return <Chip label="En Route" variant="status" color="primary" size="sm" />;
+    case 'arrived':
+      return <Chip label="Arrived" variant="status" color="primary" size="sm" />;
     case 'in_progress':
       return <Chip label="In Progress" variant="status" color="primary" size="sm" />;
     case 'completed':
@@ -105,6 +105,9 @@ const JobCard: React.FC<JobCardProps> = ({
   onDecline,
   onStartTraveling,
   onMarkArrived,
+  onStartJob,
+  onMarkComplete,
+  onOpenLiveMap,
   isAccepting = false,
   delay = 0,
 }) => {
@@ -113,30 +116,29 @@ const JobCard: React.FC<JobCardProps> = ({
   
   const serviceColor = getServiceColor(booking.serviceType);
 
+  const hasJobPin =
+    typeof booking.jobLatitude === 'number' &&
+    typeof booking.jobLongitude === 'number' &&
+    Number.isFinite(booking.jobLatitude) &&
+    Number.isFinite(booking.jobLongitude);
+
   return (
     <Animated.View entering={FadeInUp.delay(delay).duration(400)}>
       <PressableScale onPress={onPress} style={styles.cardWrapper}>
         <View style={[styles.card, variant === 'history' && styles.cardMuted]}>
           {/* Left accent bar */}
           <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-          
-          {/* Card gradient background */}
-          {variant !== 'history' && (
-            <LinearGradient
-              colors={[colors.cardGradientStart, colors.cardGradientEnd]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            />
-          )}
 
           <View style={styles.content}>
             {/* Row 1: Customer info */}
             <View style={styles.customerRow}>
-              <Image 
-                source={{ uri: booking.customerAvatarUrl || 'https://via.placeholder.com/48' }}
-                style={styles.avatar}
-              />
+              {booking.customerAvatarUrl ? (
+                <Image source={{ uri: booking.customerAvatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Ionicons name="person" size={18} color={colors.textMuted} />
+                </View>
+              )}
               <View style={styles.customerInfo}>
                 <Text style={styles.customerName}>{booking.customerName}</Text>
                 <View style={styles.customerMeta}>
@@ -170,49 +172,119 @@ const JobCard: React.FC<JobCardProps> = ({
               {getStatusChip(booking.status, variant)}
             </View>
 
-            {/* Row 3: Meta bar (date, duration, distance) */}
-            <View style={styles.metaBar}>
-              <View style={styles.metaItem}>
-                <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.metaItemText}>{formatTime(booking.scheduledAt)}</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.metaItemText}>{booking.durationMinutes} min</Text>
-              </View>
-              <View style={styles.metaItem}>
-                <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.metaItemText}>{booking.distanceMiles.toFixed(1)} mi</Text>
-              </View>
-            </View>
+            {(variant === 'active' || variant === 'history') && onPress && (
+              <TouchableOpacity
+                style={styles.viewJobCta}
+                onPress={onPress}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="View job details"
+              >
+                <Ionicons name="document-text-outline" size={16} color={colors.primary} />
+                <Text style={styles.viewJobCtaText}>View job details</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
 
-            {/* Row 4: Address */}
-            <View style={styles.addressContainer}>
-              <Text style={styles.addressText} numberOfLines={1}>
+            <View style={styles.detailStack}>
+              <View style={styles.metaBar}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.metaItemText}>{formatTime(booking.scheduledAt)}</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.metaItemText}>{booking.durationMinutes} min</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="location-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.metaItemText}>{booking.distanceMiles.toFixed(1)} mi</Text>
+                </View>
+              </View>
+              <View style={styles.detailDivider} />
+              <Text style={styles.addressInStack} numberOfLines={2}>
                 {booking.addressLine1}
               </Text>
+              {booking.hasSpecialRequests && booking.specialRequestText && (
+                <>
+                  <View style={styles.detailDivider} />
+                  <View
+                    style={
+                      booking.specialRequestText.startsWith('Job from quote')
+                        ? styles.quoteRowInStack
+                        : styles.specialRequestInner
+                    }
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={14}
+                      color={booking.specialRequestText.startsWith('Job from quote') ? colors.textMuted : '#92400E'}
+                    />
+                    <Text
+                      style={
+                        booking.specialRequestText.startsWith('Job from quote')
+                          ? styles.quoteOriginText
+                          : styles.specialRequestText
+                      }
+                      numberOfLines={3}
+                    >
+                      {booking.specialRequestText.startsWith('Job from quote')
+                        ? 'Booked from your video quote'
+                        : booking.specialRequestText}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
 
-            {/* Row 5: Special requests (if any) */}
-            {booking.hasSpecialRequests && booking.specialRequestText && (
-              <View style={styles.specialRequestContainer}>
-                <Ionicons name="chatbubble-ellipses-outline" size={14} color="#92400E" />
-                <Text style={styles.specialRequestText} numberOfLines={2}>
-                  {booking.specialRequestText}
-                </Text>
+            {variant === 'active' && hasJobPin && (
+              <View style={styles.jobMapSection} pointerEvents="box-none">
+                <MapView
+                  provider={PROVIDER_GOOGLE}
+                  style={styles.jobMap}
+                  scrollEnabled={false}
+                  zoomEnabled={false}
+                  rotateEnabled={false}
+                  pitchEnabled={false}
+                  pointerEvents="none"
+                  initialRegion={{
+                    latitude: booking.jobLatitude!,
+                    longitude: booking.jobLongitude!,
+                    latitudeDelta: 0.02,
+                    longitudeDelta: 0.02,
+                  }}
+                >
+                  <Marker
+                    coordinate={{
+                      latitude: booking.jobLatitude!,
+                      longitude: booking.jobLongitude!,
+                    }}
+                    title={booking.addressLine1}
+                  />
+                </MapView>
+                {onOpenLiveMap && (
+                  <TouchableOpacity
+                    style={styles.liveMapButton}
+                    onPress={onOpenLiveMap}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="map" size={16} color="#FFFFFF" />
+                    <Text style={styles.liveMapButtonText}>Live map & tracking</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
-            {/* Row 6: Price + Actions */}
-            <View style={styles.priceRow}>
+            <View style={styles.priceAndActions}>
               <View style={styles.priceInfo}>
                 <Text style={styles.totalPrice}>${booking.totalPrice.toFixed(2)}</Text>
                 <Text style={styles.earningsText}>
-                  You earn: <Text style={styles.earningsAmount}>${booking.payoutToCleaner.toFixed(2)}</Text>
+                  You earn{' '}
+                  <Text style={styles.earningsAmount}>${booking.payoutToCleaner.toFixed(2)}</Text>
                 </Text>
               </View>
 
-              {/* Action buttons based on variant */}
               {variant === 'available' && (
                 <View style={styles.actionButtons}>
                   <TouchableOpacity 
@@ -237,19 +309,12 @@ const JobCard: React.FC<JobCardProps> = ({
 
               {variant === 'active' && booking.status === 'accepted' && (
                 <TouchableOpacity 
-                  style={styles.travelButton}
+                  style={styles.arrivedButton}
                   onPress={onStartTraveling}
                   activeOpacity={0.8}
                 >
-                  <LinearGradient
-                    colors={['#F59E0B', '#D97706']}
-                    style={styles.travelButtonGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                  >
-                    <Ionicons name="navigate" size={16} color="#FFFFFF" />
-                    <Text style={styles.travelButtonText}>Start Traveling</Text>
-                  </LinearGradient>
+                  <Ionicons name="navigate" size={16} color="#FFFFFF" />
+                  <Text style={styles.arrivedButtonText}>Start Traveling</Text>
                 </TouchableOpacity>
               )}
 
@@ -259,7 +324,28 @@ const JobCard: React.FC<JobCardProps> = ({
                   onPress={onMarkArrived}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.arrivedButtonText}>I've Arrived</Text>
+                  <Text style={styles.arrivedButtonText}>{"I've arrived"}</Text>
+                </TouchableOpacity>
+              )}
+
+              {variant === 'active' && booking.status === 'arrived' && onStartJob && (
+                <TouchableOpacity 
+                  style={styles.arrivedButton}
+                  onPress={onStartJob}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="play" size={16} color="#FFFFFF" />
+                  <Text style={styles.arrivedButtonText}>Start Job</Text>
+                </TouchableOpacity>
+              )}
+
+              {variant === 'active' && booking.status === 'in_progress' && onMarkComplete && (
+                <TouchableOpacity 
+                  style={styles.completeButton}
+                  onPress={onMarkComplete}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.completeButtonText}>Mark Complete</Text>
                 </TouchableOpacity>
               )}
 
@@ -320,6 +406,10 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
     backgroundColor: colors.metaBg,
   },
+  avatarPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   customerInfo: {
     flex: 1,
   },
@@ -358,16 +448,65 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginBottom: spacing.md,
   },
+  viewJobCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.lg,
+    backgroundColor: colors.metaBg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
+  viewJobCtaText: {
+    flex: 1,
+    fontSize: typography.label.fontSize,
+    fontWeight: '700' as const,
+    color: colors.primary,
+  },
 
+  detailStack: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  detailDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.borderSubtle,
+    marginVertical: spacing.md,
+  },
+  addressInStack: {
+    fontSize: typography.body.fontSize,
+    lineHeight: 20,
+    color: colors.textPrimary,
+    fontWeight: '500' as const,
+  },
+  quoteRowInStack: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingTop: spacing.xs,
+    gap: spacing.sm,
+  },
+  specialRequestInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: colors.specialRequestBg,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
   // Meta bar
   metaBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    backgroundColor: colors.metaBg,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    gap: spacing.lg,
-    marginBottom: spacing.md,
+    columnGap: spacing.lg,
+    rowGap: spacing.sm,
   },
   metaItem: {
     flexDirection: 'row',
@@ -380,43 +519,69 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 
-  // Address
-  addressContainer: {
-    backgroundColor: colors.borderLight,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
   addressText: {
     fontSize: typography.label.fontSize,
     color: colors.textSecondary,
   },
-
-  // Special requests
-  specialRequestContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: colors.specialRequestBg,
+  jobMapSection: {
     borderRadius: radii.md,
-    padding: spacing.md,
-    gap: spacing.sm,
+    overflow: 'hidden',
     marginBottom: spacing.md,
   },
+  jobMap: {
+    width: '100%',
+    height: 120,
+  },
+  liveMapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.primary,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  liveMapButtonText: {
+    flex: 1,
+    fontSize: typography.label.fontSize,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
   specialRequestText: {
     flex: 1,
     fontSize: typography.label.fontSize,
     color: '#92400E',
     lineHeight: 18,
   },
-
-  // Price row
-  priceRow: {
-    flexDirection: 'row',
+  quoteOriginText: {
+    flex: 1,
+    fontSize: typography.labelSmall.fontSize,
+    color: colors.textMuted,
+    lineHeight: 18,
+  },
+  completeButton: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radii.pill,
+    backgroundColor: '#10B981',
+    alignSelf: 'stretch',
     alignItems: 'center',
-    justifyContent: 'space-between',
+  },
+  completeButtonText: {
+    fontSize: typography.label.fontSize,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
+  priceAndActions: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    width: '100%',
+    marginTop: spacing.xs,
   },
   priceInfo: {
-    flex: 1,
+    marginBottom: spacing.sm,
   },
   totalPrice: {
     fontSize: typography.metricMedium.fontSize,
@@ -436,7 +601,9 @@ const styles = StyleSheet.create({
   // Action buttons
   actionButtons: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    width: '100%',
+    marginTop: spacing.sm,
+    columnGap: spacing.sm,
   },
   declineButton: {
     paddingHorizontal: spacing.lg,
@@ -467,30 +634,17 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
 
-  // Travel button
-  travelButton: {
-    borderRadius: radii.pill,
-    overflow: 'hidden',
-  },
-  travelButtonGradient: {
+  // Primary action button (same shape/color across active states)
+  arrivedButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
-  },
-  travelButtonText: {
-    fontSize: typography.label.fontSize,
-    fontWeight: '600',
-    color: colors.textInverse,
-  },
-
-  // Arrived button - amber gradient style
-  arrivedButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    minHeight: 48,
     borderRadius: radii.pill,
-    backgroundColor: '#D97706',
+    backgroundColor: colors.primary,
+    alignSelf: 'stretch',
   },
   arrivedButtonText: {
     fontSize: typography.label.fontSize,

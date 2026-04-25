@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { cleanerTheme } from '../../utils/theme';
+import { wp, hp } from '../../utils/responsive';
 
 const { colors, spacing, radii } = cleanerTheme;
 
@@ -90,7 +91,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -113,13 +114,13 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   cardSubtitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
     marginBottom: spacing.md,
   },
@@ -128,35 +129,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: colors.borderLight,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
   currency: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: colors.textPrimary,
     marginRight: 6,
   },
   unit: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: colors.textMuted,
     marginLeft: 6,
   },
   input: {
     flex: 1,
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: colors.textPrimary,
     fontWeight: '600',
   },
   saveButton: {
-    backgroundColor: '#26B7C9',
-    borderRadius: 14,
+    backgroundColor: '#FFA52F',
+    borderRadius: wp('3.5%'),
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
   saveButtonText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: '#FFFFFF',
   },

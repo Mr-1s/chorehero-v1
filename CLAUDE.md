@@ -1,4 +1,5 @@
 ### 🔄 Project Awareness & Context
+- **Read `docs/CHORE_HERO_MASTER_CONTEXT.md`** for project identity, rounds, architecture decisions, and file inventory.
 - **Always read `PLANNING.md`** at the start of a new conversation to understand the project's architecture, goals, style, and constraints.
 - **Check `TASK.md`** before starting a new task. If the task isn't listed, add it with a brief description and today's date.
 - **Use consistent naming conventions, file structure, and architecture patterns** as described in `PLANNING.md`.

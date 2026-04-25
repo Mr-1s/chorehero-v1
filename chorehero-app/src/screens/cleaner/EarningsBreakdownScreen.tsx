@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { useCleanerStore } from '../../store/cleanerStore';
 import { cleanerTheme } from '../../utils/theme';
+import { wp, hp } from '../../utils/responsive';
 
 const { colors, spacing, radii } = cleanerTheme;
 
@@ -46,7 +47,7 @@ const EarningsBreakdownScreen: React.FC<EarningsBreakdownProps> = ({ navigation 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="wallet-outline" size={18} color="#26B7C9" />
+            <Ionicons name="wallet-outline" size={18} color="#FFA52F" />
             <Text style={styles.cardTitle}>Pending Payouts</Text>
           </View>
           <Text style={styles.amountText}>${totals.pendingAmount.toFixed(2)}</Text>
@@ -57,7 +58,7 @@ const EarningsBreakdownScreen: React.FC<EarningsBreakdownProps> = ({ navigation 
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="swap-horizontal-outline" size={18} color="#26B7C9" />
+            <Ionicons name="swap-horizontal-outline" size={18} color="#FFA52F" />
             <Text style={styles.cardTitle}>Transaction History</Text>
           </View>
           {totals.recentTransactions.length === 0 ? (
@@ -77,7 +78,7 @@ const EarningsBreakdownScreen: React.FC<EarningsBreakdownProps> = ({ navigation 
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="flash-outline" size={18} color="#26B7C9" />
+            <Ionicons name="flash-outline" size={18} color="#FFA52F" />
             <Text style={styles.cardTitle}>Instant Pay</Text>
           </View>
           <View style={styles.row}>
@@ -117,7 +118,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -142,26 +143,26 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
     marginBottom: spacing.md,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '700',
     color: colors.textPrimary,
   },
   amountText: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: '800',
     color: colors.textPrimary,
-    marginBottom: 6,
+    marginBottom: hp('0.7%'),
   },
   cardCaption: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
   emptyText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
   row: {
@@ -176,7 +177,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   rowSubtitle: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
   rowAmount: {
@@ -185,7 +186,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   helperText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
   },
 });

@@ -1,32 +1,58 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authService, onAuthStateChange } from '../services/auth';
+import { authService, onAuthStateChange, hasEmbeddedResource } from '../services/auth';
 import { AuthUser, User } from '../types/user';
 import { Alert } from 'react-native';
 import { supabase } from '../services/supabase';
-import { getOrCreateGuestId, migrateGuestInteractions } from '../utils/guestSession';
+import {
+  getOrCreateGuestId,
+  migrateGuestInteractions,
+  migrateGuestToUser,
+  createGuestSession,
+  setGuestMode,
+  isGuestMode as getIsGuestMode,
+} from '../utils/guestSession';
 import { applyPendingActionToInteractions, consumePendingAuthAction } from '../utils/authPendingAction';
+import { useCleanerStore } from '../store/cleanerStore';
+import { useCustomerStore } from '../store/customerStore';
 
+/** Transient failures — do not sign user out or clear session */
+function isLikelyNetworkError(error: unknown): boolean {
+  const msg =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return (
+    msg.includes('Network request failed') ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('NetworkError') ||
+    msg.includes('timeout') ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('ENOTFOUND')
+  );
+}
 
 interface AuthContextType {
-  // Current auth state
   authUser: AuthUser | null;
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  
-  // Auth actions
+  isGuestMode: boolean;
+
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  /** Re-fetches the session user without toggling global isLoading (use after save actions). */
+  refreshUserSilent: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
-  
-  // Helper methods
+  enterGuestMode: () => Promise<void>;
+  exitGuestMode: () => Promise<void>;
+
   isCustomer: boolean;
   isCleaner: boolean;
   isVerifiedCleaner: boolean;
-  
-
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -38,6 +64,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGuestMode, setIsGuestMode] = useState(false);
 
   const getPendingRole = async (): Promise<'customer' | 'cleaner' | null> => {
     try {
@@ -59,10 +86,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  /** Only clear after `users.role` is persisted — don’t drop customer/cleaner intent on half-loaded rows. */
+  const clearPendingRoleIfResolved = async (userRow: { role?: string | null } | null | undefined) => {
+    const role = userRow?.role;
+    if (role === 'customer' || role === 'cleaner') {
+      await clearPendingRole();
+    }
+  };
+
   useEffect(() => {
-    // Check for existing session on app start
     const checkSession = async () => {
       try {
+        const guestMode = await getIsGuestMode();
+        setIsGuestMode(guestMode);
         await getOrCreateGuestId();
         const { data: { session }, error } = await supabase.auth.getSession();
 
@@ -85,18 +121,65 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
-            await clearPendingRole();
-          } else {
-            // Profile doesn't exist yet - this is normal for new signups
-            // Don't sign out, just set a minimal auth user so onboarding can proceed
-            console.log('ℹ️ No user profile yet - likely a new signup, allowing onboarding to proceed');
+            await clearPendingRoleIfResolved(response.data.user);
+            // Sync name, email, phone, username from auth + profile so the app stays in sync
+            const meta = session.user.user_metadata || {};
+            const givenName = meta.given_name;
+            const familyName = meta.family_name;
+            const fullName = meta.full_name;
+            const metaUsername = meta.username;
+            const email = session.user.email;
+            const phone = session.user.phone;
+            const nameCandidate = fullName || [givenName, familyName].filter(Boolean).join(' ');
+            const profile = response.data.user as Record<string, unknown>;
+            const profileUsername = profile?.username as string | undefined;
+            const username = metaUsername || profileUsername;
+            if (response.data.user) {
+              const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+              if (nameCandidate) payload.name = nameCandidate;
+              if (email != null) payload.email = email;
+              if (phone != null) payload.phone = phone;
+              if (username != null && String(username).trim() !== '') payload.username = String(username).trim();
+              if (Object.keys(payload).length > 1) {
+                supabase
+                  .from('users')
+                  .update(payload)
+                  .eq('id', session.user.id)
+                  .then(() => {})
+                  .catch(() => {});
+              }
+            }
+          } else if (!response.success && response.error && isLikelyNetworkError(response.error)) {
+            console.warn('📶 Could not load profile (network). Staying signed in with session metadata.');
             const pendingRole = await getPendingRole();
+            const noProfileMeta = session.user.user_metadata || {};
             setAuthUser({
               user: {
                 id: session.user.id,
                 email: session.user.email || '',
-                name: session.user.user_metadata?.full_name || '',
+                name: noProfileMeta.full_name || noProfileMeta.given_name || '',
                 phone: session.user.phone || '',
+                username: noProfileMeta.username || undefined,
+                created_at: session.user.created_at || new Date().toISOString(),
+                role: pendingRole || undefined,
+                is_active: true,
+              },
+              session: session,
+            });
+          } else {
+            // Profile doesn't exist yet - this is normal for new signups
+            // Do NOT create a users row here - it would have no role and cause returning users
+            // to see role selection every time. ProfileType creates the row with role.
+            console.log('ℹ️ No user profile yet - likely a new signup, allowing onboarding to proceed');
+            const pendingRole = await getPendingRole();
+            const noProfileMeta = session.user.user_metadata || {};
+            setAuthUser({
+              user: {
+                id: session.user.id,
+                email: session.user.email || '',
+                name: noProfileMeta.full_name || noProfileMeta.given_name || '',
+                phone: session.user.phone || '',
+                username: noProfileMeta.username || undefined,
                 created_at: session.user.created_at || new Date().toISOString(),
                 role: pendingRole || undefined,
                 is_active: true,
@@ -104,23 +187,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               session: session,
             });
           }
-          const givenName = session.user.user_metadata?.given_name;
-          const familyName = session.user.user_metadata?.family_name;
-          const fullName = session.user.user_metadata?.full_name;
-          const email = session.user.email;
-          const nameCandidate = fullName || [givenName, familyName].filter(Boolean).join(' ');
-          if (nameCandidate || email) {
-            const payload: any = { id: session.user.id };
-            if (nameCandidate) payload.name = nameCandidate;
-            if (email) payload.email = email;
-            supabase
-              .from('users')
-              .upsert(payload, { onConflict: 'id' })
-              .then(() => {})
-              .catch(() => {});
-          }
           const guestId = await getOrCreateGuestId();
-          await migrateGuestInteractions(guestId, session.user.id);
+          await migrateGuestToUser(guestId, session.user.id);
+          await setGuestMode(false);
+          setIsGuestMode(false);
           const pending = await consumePendingAuthAction();
           if (pending) {
             await applyPendingActionToInteractions(session.user.id, pending);
@@ -129,8 +199,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setAuthUser(null);
         }
       } catch (error) {
-        console.error('Session check error:', error);
-        setAuthUser(null);
+        if (isLikelyNetworkError(error)) {
+          console.warn('📶 Session check: network unavailable — keeping local session if any');
+        } else {
+          console.error('Session check error:', error);
+          setAuthUser(null);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -143,22 +217,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log('🔐 Auth state change:', event, session ? 'session exists' : 'no session');
       
       if (event === 'SIGNED_IN' && session?.user) {
-        // User signed in, get their profile
+        try {
+          const guestId = await getOrCreateGuestId();
+          await migrateGuestToUser(guestId, session.user.id);
+          await setGuestMode(false);
+          setIsGuestMode(false);
+        } catch (e) {
+          console.warn('Guest migration:', e);
+        }
         try {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
-            await clearPendingRole();
+            await clearPendingRoleIfResolved(response.data.user);
           } else {
-            // Profile doesn't exist yet - normal for new signups
             console.log('ℹ️ SIGNED_IN: No profile yet, setting minimal auth user for onboarding');
             const pendingRole = await getPendingRole();
+            const signedInMeta = session.user.user_metadata || {};
             setAuthUser({
               user: {
                 id: session.user.id,
                 email: session.user.email || '',
-                name: session.user.user_metadata?.full_name || '',
+                name: signedInMeta.full_name || signedInMeta.given_name || '',
                 phone: session.user.phone || '',
+                username: signedInMeta.username || undefined,
                 created_at: session.user.created_at || new Date().toISOString(),
                 role: pendingRole || undefined,
                 is_active: true,
@@ -167,10 +249,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
           }
         } catch (error) {
-          console.error('Error loading user profile:', error);
+          if (isLikelyNetworkError(error)) {
+            console.warn('📶 Profile load failed (network). Session kept.');
+          } else {
+            console.error('Error loading user profile:', error);
+          }
         }
       } else if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
-        // User signed out or token refresh failed, clear auth state
         console.log('🚪 Clearing auth state due to sign out or failed token refresh');
         setAuthUser(null);
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
@@ -179,12 +264,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const response = await authService.getCurrentUser();
           if (response.success && response.data) {
             setAuthUser(response.data);
-            await clearPendingRole();
+            await clearPendingRoleIfResolved(response.data.user);
           }
         } catch (error) {
-          console.error('Error loading user profile after token refresh:', error);
-          // If we can't get user profile after token refresh, sign out
-          await signOut();
+          if (isLikelyNetworkError(error)) {
+            console.warn('📶 Profile fetch after token refresh failed (network). Keeping session.');
+          } else {
+            console.error('Error loading user profile after token refresh:', error);
+            await signOut();
+          }
         }
       }
       setIsLoading(false);
@@ -198,44 +286,63 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Computed values - recalculated when authUser changes
   const user = authUser?.user || null;
   const isAuthenticated = !!authUser;
-  const isCustomer = user?.role === 'customer';
-  const isCleaner = user?.role === 'cleaner';
+  // Role + embedded 1:1 profile rows: PostgREST returns objects, not only arrays, so we must not rely on role string alone
+  const u = user as Record<string, unknown> | null | undefined;
+  const hasCleanerEmb = hasEmbeddedResource(u?.cleaner_profiles);
+  const hasCustomerEmb = hasEmbeddedResource(u?.customer_profiles);
+  const r = u?.role as string | undefined;
+  // Any linked cleaner_profiles row means pro — do not let users.role === 'customer' alone block pro features
+  // (sync bugs / legacy rows can leave role wrong while the pro profile exists).
+  const isCleaner = r === 'cleaner' || hasCleanerEmb;
+  const isCustomer =
+    (r === 'customer' && !hasCleanerEmb) ||
+    (r == null && hasCustomerEmb && !hasCleanerEmb);
   const isVerifiedCleaner = 
     isCleaner && 
     'verification_status' in user && 
     user.verification_status === 'verified';
 
-  // Debug log computed values when they change
   useEffect(() => {
-    console.log('🧮 Computed values updated:', {
-      user: user?.name,
-      role: user?.role,
-      isAuthenticated,
-      isCustomer,
-      isCleaner
-    });
+    if (__DEV__) {
+      console.log('🧮 Computed values updated:', {
+        user: user?.name,
+        role: user?.role,
+        isAuthenticated,
+        isCustomer,
+        isCleaner,
+      });
+    }
   }, [user, isAuthenticated, isCustomer, isCleaner]);
 
   // Sign out
   const signOut = async () => {
+    let remoteSignOutPromise: Promise<unknown> | null = null;
     try {
-      setIsLoading(true);
-      
-      // Check if user is authenticated with Supabase
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-        // Real user - sign out from Supabase
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-          console.error('Supabase sign out error:', error);
-          Alert.alert('Error', 'Sign out failed');
-          return;
+      const dismissUid = authUser?.user?.id;
+      if (dismissUid) {
+        try {
+          await AsyncStorage.removeItem(
+            `ch_cleaner_profile_completion_dismissed:${dismissUid}`
+          );
+        } catch {
+          // no-op
         }
       }
 
-      // Clear auth state
+      // Clear local auth state first so UI can return to Welcome immediately.
       setAuthUser(null);
+      await exitGuestMode();
+      // Reset both role stores so switching accounts gets a clean slate.
+      try {
+        useCleanerStore.getState().resetStore();
+      } catch {
+        // no-op
+      }
+      try {
+        useCustomerStore.getState().resetStore();
+      } catch {
+        // no-op
+      }
       try {
         await AsyncStorage.multiRemove([
           'interface_role_override',
@@ -247,12 +354,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } catch {
         // no-op
       }
-      
+
+      // Remote sign-out should not block UI transition.
+      remoteSignOutPromise = supabase.auth
+        .signOut()
+        .then(({ error }) => {
+          if (error) {
+            console.warn('Supabase remote sign out warning:', error);
+          }
+        })
+        .catch((error) => {
+          console.warn('Supabase remote sign out failed:', error);
+        });
     } catch (error) {
       console.error('Sign out error:', error);
       Alert.alert('Error', 'Sign out failed');
     } finally {
       setIsLoading(false);
+      if (remoteSignOutPromise) {
+        void remoteSignOutPromise;
+      }
     }
   };
 
@@ -307,7 +428,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  // Refresh user data
+  const enterGuestMode = async () => {
+    await setGuestMode(true);
+    setIsGuestMode(true);
+    await createGuestSession();
+    await AsyncStorage.setItem('guest_user_role', 'customer');
+  };
+
+  const exitGuestMode = async () => {
+    await setGuestMode(false);
+    setIsGuestMode(false);
+  };
+
   const refreshUser = async () => {
     if (!authUser) return;
     
@@ -325,22 +457,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const refreshUserSilent = async () => {
+    if (!authUser) return;
+    try {
+      const response = await authService.getCurrentUser();
+      if (response.success && response.data) {
+        setAuthUser(response.data);
+      }
+    } catch (error) {
+      console.error('Silent refresh user error:', error);
+    }
+  };
+
 
 
   const contextValue: AuthContextType = {
-    // State
     authUser,
     user,
     isLoading,
     isAuthenticated,
-    
-    // Actions
+    isGuestMode,
     signOut,
     refreshSession,
     refreshUser,
+    refreshUserSilent,
     updateProfile,
-    
-    // Computed values
+    enterGuestMode,
+    exitGuestMode,
     isCustomer,
     isCleaner,
     isVerifiedCleaner,

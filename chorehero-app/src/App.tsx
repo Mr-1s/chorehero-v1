@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
 
@@ -30,6 +30,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import { MessageProvider, useMessages } from './context/MessageContext';
 import { EnhancedMessageProvider } from './context/EnhancedMessageContext';
 import RoleBasedTabNavigator from './components/navigation/RoleBasedTabNavigator';
+import MainTabsChrome from './navigation/MainTabsChrome';
 import CleanerProfileScreen from './screens/shared/CleanerProfileScreen';
 import BookingConfirmedScreen from './screens/customer/BookingConfirmedScreen';
 import IndividualChatScreen from './screens/shared/IndividualChatScreen';
@@ -55,6 +56,7 @@ import UnifiedBookingScreen from './screens/booking/UnifiedBookingScreen';
 import { UnifiedBookingParams } from './types/bookingFlow';
 import ServiceDetailScreen from './screens/shared/ServiceDetailScreen';
 import EarningsScreen from './screens/cleaner/EarningsScreen';
+import PayoutSetupScreen from './screens/cleaner/PayoutSetupScreen';
 import ScheduleScreen from './screens/cleaner/ScheduleScreen';
 import VideoUploadScreen from './screens/cleaner/VideoUploadScreen';
 import BookingCustomizationScreen from './screens/cleaner/BookingCustomizationScreen';
@@ -75,13 +77,35 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { useRoleFeatures } from './components/RoleBasedUI';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCleanerOnboardingOverride } from './utils/onboardingOverride';
+import { validateEnv } from './utils/validateEnv';
 
-
-// Import services for initialization
+// Run boot-time env validation. In dev this throws and surfaces a red box.
+// In prod it logs the missing keys and lets the UI degrade gracefully (e.g.
+// PaymentScreen already guards Stripe).
+validateEnv();
+import { navigationRef } from './navigation/navigationRef';
+import { getResetToMainTabsChoresAction } from './navigation/mainTabsContentNavigation';
+import { resolveMainAppRole } from './navigation/mainTabsInterfaceRole';
 import { pushNotificationService } from './services/pushNotifications';
 import { enhancedLocationService } from './services/enhancedLocationService';
 import { presenceService } from './services/presenceService';
 
+/**
+ * Only these root routes are safe to persist for cold start. Everything else is a push
+ * above MainTabs — rehydrating as a single route leaves no stack to go "back" to.
+ */
+const ALLOW_PERSISTED_ROOT_ROUTE = new Set<string>([
+  'MainTabs',
+  'LocationLock',
+  'Waitlist',
+  'CustomerOnboarding',
+  'CleanerOnboarding',
+  'OnboardingComplete',
+  'ProfileType',
+  'AuthScreen',
+  'Welcome',
+  'PhoneVerify',
+]);
 
 type TabParamList = {
   Home: undefined;
@@ -110,7 +134,7 @@ type StackParamList = {
   MainTabs: undefined;
   CleanerProfile: { cleanerId: string; activeTab?: 'videos' | 'services' | 'reviews' | 'about' };
   BookingConfirmed: { bookingId: string };
-  QuoteList: { jobId: string };
+  QuoteList: { jobId: string; viewerRole?: 'customer' | 'pro' };
   QuoteAccept: { jobId: string; quoteId: string };
   IndividualChat: { cleanerId: string; bookingId: string };
   RatingReview: {
@@ -139,6 +163,7 @@ type StackParamList = {
   TermsScreen: undefined;
   AboutScreen: undefined;
   EarningsScreen: undefined;
+  PayoutSetup: undefined;
   ScheduleScreen: undefined;
   VideoUpload: undefined;
   BookingCustomization: undefined;
@@ -165,24 +190,29 @@ const Stack = createStackNavigator<StackParamList>();
 const TabNavigator = RoleBasedTabNavigator;
 
 // Wrapper that keys MainTabs by user id - forces full remount when switching accounts (fixes stale state)
-function MainTabsScreen() {
+function MainTabsScreen({ navigation }: { navigation: object }) {
   const { user } = useAuth();
-  return <TabNavigator key={user?.id ?? 'anonymous'} />;
+  return (
+    <View style={stylesMainTabsShell.root}>
+      <TabNavigator key={user?.id ?? 'anonymous'} />
+      <MainTabsChrome roleStackNavigation={navigation} />
+    </View>
+  );
 }
+
+const stylesMainTabsShell = StyleSheet.create({
+  root: { flex: 1 },
+});
 
 const AppNavigator = () => {
   const { isAuthenticated, user, isLoading, isGuestMode } = useAuth();
-  const navigationRef = useRef<any>(null);
   const [restoredRoute, setRestoredRoute] = useState<{ name: keyof StackParamList; params?: any } | null>(null);
   const [guestZip, setGuestZip] = useState<string | null>(null);
   const [cleanerOnboardingOverride, setCleanerOnboardingOverride] = useState(false);
   const [pendingRole, setPendingRole] = useState<'customer' | 'cleaner' | null>(null);
   const [bootstrapReady, setBootstrapReady] = useState(false);
 
-  const inferredRole =
-    user?.role ||
-    pendingRole ||
-    (user?.cleaner_onboarding_state || user?.cleaner_onboarding_step ? 'cleaner' : 'customer');
+  const inferredRole = resolveMainAppRole(user, { pendingAuthRole: pendingRole });
 
   const isCustomerComplete =
     inferredRole === 'customer' &&
@@ -224,17 +254,15 @@ const AppNavigator = () => {
     return "MainTabs";
   };
 
-  // Restore last known route
+  // Bootstrap guest zip / role flags. Root `last_route` is cleared on every **new
+  // process** (user fully closed the app): `loadLastRoute` only runs once per mount,
+  // so a simple app switch to background does not re-run this — only a cold start.
+  // That way reopening the app “refreshes” the navigation shell from `getInitialRoute()`.
   useEffect(() => {
     const loadLastRoute = async () => {
       try {
-        const raw = await AsyncStorage.getItem('last_route');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed?.name) {
-            setRestoredRoute(parsed);
-          }
-        }
+        await AsyncStorage.removeItem('last_route');
+        setRestoredRoute(null);
         const storedZip = await AsyncStorage.getItem('guest_zip');
         if (storedZip) {
           setGuestZip(storedZip);
@@ -279,7 +307,10 @@ const AppNavigator = () => {
       !['Welcome', 'AuthScreen', 'ProfileType'].includes(restoredRoute.name) &&
       hasChosenRole
     ) {
-      return { name: restoredRoute.name as keyof StackParamList, params: restoredRoute.params };
+      const n = String(restoredRoute.name);
+      if (ALLOW_PERSISTED_ROOT_ROUTE.has(n)) {
+        return { name: n as keyof StackParamList, params: restoredRoute.params };
+      }
     }
     return { name: getInitialRoute() };
   };
@@ -347,6 +378,13 @@ const AppNavigator = () => {
     try {
       const route = state?.routes?.[state.index];
       if (!route) return;
+      const name = String(route.name);
+      if (!ALLOW_PERSISTED_ROOT_ROUTE.has(name)) {
+        AsyncStorage.setItem('last_route', JSON.stringify({ name: 'MainTabs' })).catch(
+          () => {}
+        );
+        return;
+      }
       const payload = { name: route.name, params: route.params };
       AsyncStorage.setItem('last_route', JSON.stringify(payload)).catch(() => {});
     } catch {
@@ -354,10 +392,29 @@ const AppNavigator = () => {
     }
   };
 
+  /**
+   * Root `VideoFeed` (duplicate of Chores) unmounts `MainTabs` and hides the tab bar.
+   * Bounce back to `MainTabs` > `Content` with the same params.
+   */
+  const onNavigationStateChange = (state: any) => {
+    persistRoute(state);
+    try {
+      const route = state?.routes?.[state?.index];
+      if (route?.name === 'VideoFeed' && navigationRef.isReady()) {
+        const p = route.params;
+        queueMicrotask(() => {
+          navigationRef.dispatch(getResetToMainTabsChoresAction(p));
+        });
+      }
+    } catch {
+      // no-op
+    }
+  };
+
   return (
     <NavigationContainer
-      ref={navigationRef}
-      onStateChange={persistRoute}
+      ref={navigationRef as any}
+      onStateChange={onNavigationStateChange}
       initialState={{
         routes: [{ name: initialRoute.name, params: initialRoute.params }],
         index: 0,
@@ -401,6 +458,7 @@ const AppNavigator = () => {
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="SettingsScreen" component={SettingsScreen} />
           <Stack.Screen name="EarningsScreen" component={EarningsScreen} />
+          <Stack.Screen name="PayoutSetup" component={PayoutSetupScreen} />
           <Stack.Screen name="ScheduleScreen" component={ScheduleScreen} />
           <Stack.Screen name="VideoUpload" component={VideoUploadScreen} />
           <Stack.Screen name="BookingCustomization" component={BookingCustomizationScreen} />

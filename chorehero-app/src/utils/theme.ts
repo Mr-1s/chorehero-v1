@@ -11,10 +11,10 @@
 
 export const colors = {
   // Primary brand color (teal)
-  primaryTeal: '#3AD3DB',
-  primaryTealDark: '#2BC8D4',
+  primaryTeal: '#26B7C9',
+  primaryTealDark: '#047B9B',
   primaryTealSoft: '#E0F7FA',
-  primaryTealBorder: 'rgba(58, 211, 219, 0.3)',
+  primaryTealBorder: 'rgba(38, 183, 201, 0.3)',
   
   // Backgrounds
   neutralBg: '#FFFFFF',
@@ -46,7 +46,7 @@ export const colors = {
   awardGoldText: '#B87503',
   
   // Verification badge
-  verifiedTeal: '#3AD3DB',
+  verifiedTeal: '#26B7C9',
   verifiedTealLight: '#CCFBF1',
   verifiedTealText: '#0D9488',
   
@@ -369,8 +369,8 @@ export const cleanerTheme = {
     primaryBorder: '#FFD39A',
     primarySoft: 'rgba(255, 165, 47, 0.15)',
     
-    // Secondary accents
-    accentTeal: '#26B7C9', // Brand teal accent for cleaner UI
+    // Secondary accents (name kept for compatibility; pro UI uses brand orange, not teal)
+    accentTeal: '#FFA52F',
     success: '#10B981',
     successLight: '#D1FAE5',
     error: '#EF4444',
@@ -481,6 +481,14 @@ export const cleanerTheme = {
       shadowOpacity: 0.08,
       shadowRadius: 12,
       elevation: 4,
+    },
+    /** White cards on gray bg (matches MetricCard / My Content “floating” depth). Use on an outer view without overflow: hidden. */
+    metricFloat: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.12,
+      shadowRadius: 16,
+      elevation: 6,
     },
     pressed: {
       shadowColor: '#000',

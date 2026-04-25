@@ -19,20 +19,26 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { StackNavigationProp } from '@react-navigation/stack';
+import type { RouteProp } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../services/supabase';
+import { geocodeMailingAddress } from '../../services/addressGeocoding';
+import { uploadService } from '../../services/uploadService';
 import { milestoneNotificationService } from '../../services/milestoneNotificationService';
+import { wp, hp } from '../../utils/responsive';
 
 
 type StackParamList = {
-  CustomerOnboarding: undefined;
+  CustomerOnboarding: { zip?: string; city?: string; state?: string } | undefined;
   MainTabs: undefined;
 };
 
 type CustomerOnboardingNavigationProp = StackNavigationProp<StackParamList, 'CustomerOnboarding'>;
+type CustomerOnboardingRouteProp = RouteProp<StackParamList, 'CustomerOnboarding'>;
 
 interface CustomerOnboardingProps {
   navigation: CustomerOnboardingNavigationProp;
+  route: CustomerOnboardingRouteProp;
 }
 
 interface OnboardingData {
@@ -74,7 +80,7 @@ interface OnboardingData {
   paymentMethod: string;
 }
 
-const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigation }) => {
+const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigation, route }) => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [bypassMode, setBypassMode] = useState(false);
@@ -131,6 +137,19 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
     };
     loadProgress();
   }, [authUser?.user?.id]);
+
+  // Prefill zip, city, state from LocationLock when heroes are in the area
+  useEffect(() => {
+    const params = route?.params;
+    if (params?.zip || params?.city || params?.state) {
+      setData(prev => ({
+        ...prev,
+        zipCode: params.zip ?? prev.zipCode,
+        city: params.city ?? prev.city,
+        state: params.state ?? prev.state,
+      }));
+    }
+  }, [route?.params?.zip, route?.params?.city, route?.params?.state]);
 
   // Check username availability
   const checkUsernameAvailability = async (username: string) => {
@@ -338,6 +357,16 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
       console.log('Customer onboarding completion - resolved user:', userId, userEmail);
       
       if (userId) {
+        // Upload profile photo if local (avoids logout from upload during ImagePicker resume)
+        let avatarUrl = data.profilePhoto?.startsWith('http') ? data.profilePhoto : undefined;
+        if (data.profilePhoto && !avatarUrl) {
+          try {
+            const upload = await uploadService.uploadFile(data.profilePhoto, 'image');
+            if (upload.success && upload.url) avatarUrl = upload.url;
+          } catch (e) {
+            console.warn('Profile photo upload failed:', e);
+          }
+        }
         // Upsert user record (avoids a separate read that can hang)
         const { error: upsertUserError } = await withTimeout(
           supabase
@@ -349,6 +378,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
               name: `${data.firstName} ${data.lastName}`,
               username: data.username,
               role: 'customer',
+              avatar_url: avatarUrl,
               updated_at: new Date().toISOString(),
               customer_onboarding_state: 'ACTIVE_CUSTOMER',
               customer_onboarding_step: totalSteps,
@@ -375,8 +405,15 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           'Create customer profile'
         );
 
-        // Also create an address record
+        // Also create an address record (geocode for maps / feed distance)
         if (!customerError) {
+          const geo = await geocodeMailingAddress({
+            street: data.address,
+            city: data.city,
+            state: data.state,
+            zip_code: data.zipCode,
+            country: 'US',
+          });
           const { error: addressError } = await withTimeout(
             supabase
               .from('addresses')
@@ -388,6 +425,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
                 zip_code: data.zipCode,
                 is_default: true,
                 nickname: 'Home',
+                ...(geo ? { latitude: geo.latitude, longitude: geo.longitude } : {}),
               }]),
             15000,
             'Create address'
@@ -514,7 +552,11 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
               Alert.alert('Permission required', 'Please allow photo access to set your profile image.');
               return;
             }
-            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+            });
             if (!result.canceled && result.assets?.[0]?.uri) {
               setData(prev => ({ ...prev, profilePhoto: result.assets[0].uri }));
             }
@@ -604,7 +646,7 @@ const CustomerOnboardingScreen: React.FC<CustomerOnboardingProps> = ({ navigatio
           )}
           {usernameStatus === 'taken' && (
             <View style={styles.usernameTaken}>
-              <Ionicons name="close-circle" size={18} color="#FF6B6B" />
+              <Ionicons name="close-circle" size={18} color="#E6B200" />
               <Text style={styles.usernameTakenText}>Already taken</Text>
             </View>
           )}
@@ -1046,15 +1088,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#F9FAFB',
   },
   backButton: {
     padding: 4,
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -1062,8 +1104,8 @@ const styles = StyleSheet.create({
     width: 32,
   },
   progressContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#F9FAFB',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1075,10 +1117,10 @@ const styles = StyleSheet.create({
   bypassContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   bypassLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#6B7280',
     fontWeight: '500',
   },
@@ -1086,7 +1128,7 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: '#E5E7EB',
     borderRadius: 2,
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   progressFill: {
     height: '100%',
@@ -1094,7 +1136,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   progressText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
   },
@@ -1106,33 +1148,33 @@ const styles = StyleSheet.create({
   },
   stepContainer: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('3%'),
   },
   scrollContent: {
     paddingBottom: 120, // Extra padding so content isn't hidden by keyboard
   },
   stepTitle: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   stepSubtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#6B7280',
-    marginBottom: 32,
+    marginBottom: hp('4%'),
     lineHeight: 24,
   },
   photoContainer: {
     alignSelf: 'center',
-    marginBottom: 32,
+    marginBottom: hp('4%'),
     position: 'relative',
   },
   profilePhoto: {
     width: 80,
     height: 80,
-    borderRadius: 40,
+    borderRadius: wp('10%'),
     borderWidth: 3,
     borderColor: '#E5E7EB',
   },
@@ -1148,19 +1190,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inputLabel: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 8,
-    marginTop: 16,
+    marginBottom: hp('1%'),
+    marginTop: hp('2%'),
   },
   textInput: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: wp('2%'),
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
+    fontSize: wp('4%'),
     color: '#1F2937',
     backgroundColor: '#ffffff',
   },
@@ -1170,7 +1212,7 @@ const styles = StyleSheet.create({
   },
   inputRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: wp('3%'),
   },
   inputHalf: {
     flex: 1,
@@ -1184,20 +1226,20 @@ const styles = StyleSheet.create({
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 8,
+    gap: wp('2%'),
+    marginTop: hp('1%'),
   },
   optionColumn: {
-    gap: 12,
-    marginTop: 8,
+    gap: wp('3%'),
+    marginTop: hp('1%'),
   },
   optionButton: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: hp('1.5%'),
+    paddingHorizontal: wp('4%'),
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     alignItems: 'center',
     backgroundColor: '#ffffff',
     minWidth: 80,
@@ -1207,7 +1249,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDFA',
   },
   optionText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     fontWeight: '500',
     color: '#374151',
   },
@@ -1218,7 +1260,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: hp('2%'),
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
@@ -1227,27 +1269,27 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   switchLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   switchDescription: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginTop: 24,
-    marginBottom: 12,
+    marginTop: hp('3%'),
+    marginBottom: hp('1.5%'),
   },
   choiceCard: {
     padding: 16,
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     backgroundColor: '#ffffff',
   },
   selectedCard: {
@@ -1255,13 +1297,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDFA',
   },
   choiceLabel: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#374151',
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   choiceDescription: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   selectedCardText: {
@@ -1272,7 +1314,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderRadius: wp('2%'),
     alignItems: 'center',
     backgroundColor: '#ffffff',
   },
@@ -1280,18 +1322,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#F0FDFA',
-    borderRadius: 12,
-    marginBottom: 24,
+    borderRadius: wp('3%'),
+    marginBottom: hp('3%'),
   },
   safetyTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '600',
     color: '#1F2937',
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: hp('1%'),
+    marginBottom: hp('1%'),
   },
   safetyDescription: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
@@ -1300,18 +1342,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#FEF3F2',
-    borderRadius: 12,
-    marginTop: 24,
-    marginBottom: 24,
+    borderRadius: wp('3%'),
+    marginTop: hp('3%'),
+    marginBottom: hp('3%'),
   },
   agreementSection: {
     padding: 16,
     backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    marginTop: 24,
+    borderRadius: wp('2%'),
+    marginTop: hp('3%'),
   },
   agreementText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,
@@ -1321,14 +1363,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bottomContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: wp('5%'),
+    paddingVertical: hp('2%'),
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
   },
   continueButton: {
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     overflow: 'hidden',
   },
   continueButtonDisabled: {
@@ -1338,12 +1380,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 8,
+    paddingVertical: hp('2%'),
+    paddingHorizontal: wp('6%'),
+    gap: wp('2%'),
   },
   continueButtonText: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -1366,7 +1408,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   usernameInput: {
-    paddingRight: 100,
+    paddingRight: wp('25%'),
   },
   usernameStatusContainer: {
     position: 'absolute',
@@ -1375,40 +1417,40 @@ const styles = StyleSheet.create({
     transform: [{ translateY: -10 }],
   },
   usernameChecking: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
     fontStyle: 'italic',
   },
   usernameAvailable: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   usernameAvailableText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#00D4AA',
     fontWeight: '600',
   },
   usernameTaken: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
   },
   usernameTakenText: {
-    fontSize: 12,
-    color: '#FF6B6B',
+    fontSize: wp('3%'),
+    color: '#E6B200',
     fontWeight: '600',
   },
   usernameHint: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#9CA3AF',
-    marginTop: 4,
+    marginTop: hp('0.5%'),
   },
   inputAvailable: {
     borderColor: '#00D4AA',
   },
   inputTaken: {
-    borderColor: '#FF6B6B',
+    borderColor: '#E6B200',
   },
 });
 

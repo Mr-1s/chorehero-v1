@@ -21,6 +21,7 @@ import { supabase } from '../../services/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import { contentService } from '../../services/contentService';
 import * as Haptics from 'expo-haptics';
+import { wp, hp } from '../../utils/responsive';
 
 interface FollowUser {
   id: string;
@@ -200,7 +201,7 @@ const FollowListScreen: React.FC = () => {
       >
         <Image
           source={{ 
-            uri: item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.name)}&background=3ad3db&color=ffffff`
+            uri: item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.name)}&background=26B7C9&color=ffffff`
           }}
           style={styles.avatar}
         />
@@ -210,7 +211,7 @@ const FollowListScreen: React.FC = () => {
             <Text style={styles.userName} numberOfLines={1}>{item.name}</Text>
             {item.role === 'cleaner' && (
               <View style={styles.cleanerBadge}>
-                <Ionicons name="sparkles" size={10} color="#3AD3DB" />
+                <Ionicons name="sparkles" size={10} color="#26B7C9" />
                 <Text style={styles.cleanerBadgeText}>Cleaner</Text>
               </View>
             )}
@@ -301,7 +302,7 @@ const FollowListScreen: React.FC = () => {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3AD3DB" />
+          <ActivityIndicator size="large" color="#26B7C9" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       ) : (
@@ -315,7 +316,7 @@ const FollowListScreen: React.FC = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor="#3AD3DB"
+              tintColor="#26B7C9"
             />
           }
           ListEmptyComponent={renderEmptyState}
@@ -334,20 +335,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1.5%'),
     backgroundColor: '#FFFFFF',
   },
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: wp('5%'),
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
   },
@@ -362,13 +363,13 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: hp('1.7%'),
     alignItems: 'center',
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
   activeTab: {
-    borderBottomColor: '#3AD3DB',
+    borderBottomColor: '#26B7C9',
   },
   tabText: {
     fontSize: 15,
@@ -376,7 +377,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   activeTabText: {
-    color: '#3AD3DB',
+    color: '#26B7C9',
   },
   loadingContainer: {
     flex: 1,
@@ -384,8 +385,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: hp('1.5%'),
+    fontSize: wp('3.5%'),
     color: '#6B7280',
   },
   listContent: {
@@ -397,8 +398,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: wp('3%'),
+    marginBottom: hp('1.2%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -417,10 +418,10 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: wp('2%'),
   },
   userName: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
     color: '#1F2937',
     flexShrink: 1,
@@ -428,16 +429,16 @@ const styles = StyleSheet.create({
   cleanerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: wp('1%'),
     backgroundColor: '#E0F7F8',
-    paddingHorizontal: 8,
+    paddingHorizontal: wp('2%'),
     paddingVertical: 3,
-    borderRadius: 10,
+    borderRadius: wp('2.5%'),
   },
   cleanerBadgeText: {
-    fontSize: 10,
+    fontSize: wp('2.5%'),
     fontWeight: '600',
-    color: '#3AD3DB',
+    color: '#26B7C9',
   },
   userBio: {
     fontSize: 13,
@@ -445,10 +446,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   followButton: {
-    backgroundColor: '#3AD3DB',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+    backgroundColor: '#26B7C9',
+    paddingHorizontal: wp('4%'),
+    paddingVertical: hp('1%'),
+    borderRadius: wp('2%'),
   },
   followingButton: {
     backgroundColor: '#F3F4F6',
@@ -465,8 +466,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
-    paddingTop: 60,
+    paddingHorizontal: wp('10%'),
+    paddingTop: hp('7.5%'),
   },
   emptyIcon: {
     width: 100,
@@ -475,16 +476,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: hp('2.5%'),
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#6B7280',
     textAlign: 'center',
     lineHeight: 20,

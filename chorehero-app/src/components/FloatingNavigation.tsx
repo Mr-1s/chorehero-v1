@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMessages } from '../context/MessageContext';
 import { useAuth } from '../hooks/useAuth';
 import { notificationService } from '../services/notificationService';
 import { jobQuoteService } from '../services/jobQuoteService';
+import { getRoleStackTopRouteName } from '../navigation/mainTabsRouteUtils';
+import {
+  MAIN_TAB_BAR_BOTTOM_INSET_MIN,
+  MAIN_TAB_BAR_INNER_HEIGHT,
+} from '../navigation/mainTabsChromeLayout';
 
 const { width } = Dimensions.get('window');
 const BRAND_TEAL = '#26B7C9';
@@ -26,15 +32,18 @@ type TabParamList = {
 type FloatingNavigationProps = {
   navigation: BottomTabNavigationProp<TabParamList, any>;
   currentScreen: keyof TabParamList;
-  variant?: 'glass' | 'transparent';
+  /** `solid` matches cleaner chrome (white bar, no heavy blur). `transparent` floats over full-bleed video. */
+  variant?: 'solid' | 'glass' | 'transparent';
   blurIntensity?: number;
   glassOpacity?: number;
 };
 
+const ACTIVE_PILL_BG = 'rgba(38, 183, 201, 0.14)';
+
 const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
   navigation,
   currentScreen,
-  variant = 'glass',
+  variant = 'solid',
   blurIntensity = 20,
   glassOpacity = 0.85,
 }) => {
@@ -55,71 +64,79 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
     return navigation as any;
   };
   const safeNavigate = (name: keyof TabParamList, params?: any) => {
-    console.log('Tab Pressed:', name);
-    const targetNav = resolveNavigatorFor(name as string);
-    targetNav.navigate(name as any, params);
+    const targetNav = resolveNavigatorFor(name as string) as {
+      getState?: () => unknown;
+      navigate: (n: string, p?: any) => void;
+    } | null;
+    if (!targetNav?.navigate) return;
+    if (targetNav.getState) {
+      const current = getRoleStackTopRouteName(targetNav.getState() as any, false);
+      if (current && String(current) === String(name)) {
+        if (params?.scrollToTop) {
+          // fall through — re-dispatch for Videos (Content) scroll-to-top
+        } else {
+          return;
+        }
+      }
+    }
+    targetNav.navigate(name as string, params);
   };
 
-  useEffect(() => {
-    const loadBookingAlerts = async () => {
-      if (!user?.id) {
-        setHasBookingAlert(false);
-        return;
-      }
+  const refreshBookingAlerts = useCallback(async () => {
+    if (!user?.id) {
+      setHasBookingAlert(false);
+      return;
+    }
+    try {
       const notifications = await notificationService.getNotificationsForUser(user.id);
       const hasUnreadBooking = notifications.some(
         note => note.type === 'booking' && !note.read
       );
       setHasBookingAlert(hasUnreadBooking);
-    };
-    loadBookingAlerts();
-  }, [user?.id, unreadCount, currentScreen]);
+    } catch {
+      setHasBookingAlert(false);
+    }
+  }, [user?.id]);
 
-  useEffect(() => {
-    const loadNewQuotesCount = async () => {
-      if (!user?.id || !isCustomer) {
-        setNewQuotesCount(0);
-        return;
-      }
+  const refreshNewQuotesCount = useCallback(async () => {
+    if (!user?.id || !isCustomer) {
+      setNewQuotesCount(0);
+      return;
+    }
+    try {
       const res = await jobQuoteService.getCustomerQuotes(user.id);
       if (res.success && res.data) setNewQuotesCount(res.data.length);
-    };
-    loadNewQuotesCount();
-  }, [user?.id, isCustomer, currentScreen]);
+    } catch {
+      // leave previous count; transient failure
+    }
+  }, [user?.id, isCustomer]);
+
+  useEffect(() => {
+    void refreshBookingAlerts();
+  }, [refreshBookingAlerts, unreadCount, currentScreen]);
+
+  useEffect(() => {
+    void refreshNewQuotesCount();
+  }, [refreshNewQuotesCount, currentScreen]);
+
+  // Re-pull badge state every time the host tab regains focus. Pushing
+  // NotificationsScreen on the root stack does not change `currentScreen`,
+  // so without this the dot stays stale after the user reads notifications.
+  useFocusEffect(
+    useCallback(() => {
+      void refreshBookingAlerts();
+      void refreshNewQuotesCount();
+      return undefined;
+    }, [refreshBookingAlerts, refreshNewQuotesCount])
+  );
   const isTransparent = variant === 'transparent';
-  /** Dark “chrome” only when the tab bar floats over full-bleed video (transparent). Glass bars are always light. */
-  const isDarkSurface = currentScreen === 'Content' && isTransparent;
-  const safeBottomPadding = Math.max(insets.bottom, 26);
-  const getButtonColor = (screen: keyof TabParamList) => {
-    if (currentScreen === screen) {
-      return BRAND_TEAL;
-    }
-    if (isTransparent) {
-      return '#FFFFFF';
-    }
-    return isDarkSurface ? 'rgba(255, 255, 255, 0.6)' : '#444444';
-  };
-
-  const getTextStyle = (screen: keyof TabParamList) => {
-    if (currentScreen === screen) {
-      return isTransparent ? styles.activeButtonTextTransparent : styles.activeButtonText;
-    }
-    if (isTransparent) {
-      return styles.navButtonTextTransparent;
-    }
-    return isDarkSurface ? styles.navButtonTextDark : styles.navButtonTextLight;
-  };
-
-  const getButtonStyle = (screen: keyof TabParamList) => {
-    return currentScreen === screen ? styles.activeNavButton : styles.navButton;
-  };
-
-  const getIconStyle = (screen: keyof TabParamList) => {
-    if (screen === 'Content' && currentScreen === 'Content') {
-      return styles.activeContentIcon;
-    }
-    return styles.iconDefault;
-  };
+  /**
+   * Video feed tab: fully transparent chrome (no BlurView on Android — expo-blur often renders a dark slab).
+   * Other customer tabs use the solid white shell.
+   */
+  const useTransparentVideoNav = isTransparent;
+  const useSolidShell = variant === 'solid' || variant === 'glass';
+  const safeBottomPadding = Math.max(insets.bottom, MAIN_TAB_BAR_BOTTOM_INSET_MIN);
 
   const getIconName = (screen: keyof TabParamList) => {
     const isActive = currentScreen === screen;
@@ -145,31 +162,23 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
     options?: { badgeCount?: number; showDot?: boolean; onPress?: () => void; flex?: number }
   ) => {
     const isActive = currentScreen === screen;
-    const color = isActive
-      ? BRAND_TEAL
-      : isTransparent
-        ? '#FFFFFF'
-        : isDarkSurface
-          ? 'rgba(255, 255, 255, 0.65)'
-          : '#64748B';
-    // Active label: white only on transparent overlay (video); glass/light surfaces use teal (readable on empty feed)
-    const labelColor = isActive
-      ? isTransparent
-        ? '#FFFFFF'
-        : BRAND_TEAL
-      : isTransparent
-        ? '#FFFFFF'
-        : isDarkSurface
-          ? 'rgba(255, 255, 255, 0.7)'
-          : '#64748B';
+    const onVideo = useTransparentVideoNav;
+    const color = isActive ? BRAND_TEAL : '#64748B';
+    const labelColor = isActive ? BRAND_TEAL : '#64748B';
+    const pillBg = ACTIVE_PILL_BG;
     return (
       <TouchableOpacity
         key={screen}
         style={[styles.tabItem, options?.flex ? { flex: options.flex } : null]}
-        activeOpacity={0.7}
+        activeOpacity={1}
         onPress={options?.onPress ?? (() => safeNavigate(screen))}
       >
-        <View style={[styles.iconPill, isActive && styles.iconPillActive]}>
+        <View
+          style={[
+            styles.iconPill,
+            isActive && (variant === 'solid' || useTransparentVideoNav) && { backgroundColor: pillBg },
+          ]}
+        >
           <Ionicons name={getIconName(screen)} size={26} color={color} />
           {options?.badgeCount && options.badgeCount > 0 ? (
             <View style={styles.badge}>
@@ -181,7 +190,17 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
         </View>
         {!shouldHideLabels && (
           <Text
-            style={[styles.tabLabel, { color: labelColor, fontWeight: isActive ? '700' : '500' }]}
+            style={[
+              styles.tabLabel,
+              {
+                color: labelColor,
+                fontWeight: isActive ? '700' : '500',
+                // Subtle lift over full-bleed video without the old white “ghost” treatment.
+                textShadowColor: onVideo ? 'rgba(255,255,255,0.5)' : 'transparent',
+                textShadowOffset: { width: 0, height: 0.5 },
+                textShadowRadius: onVideo ? 3 : 0,
+              },
+            ]}
             numberOfLines={1}
             maxFontSizeMultiplier={1.1}
           >
@@ -194,45 +213,61 @@ const FloatingNavigation: React.FC<FloatingNavigationProps> = ({
 
   return (
     <View
-      style={[styles.navigationWrapper, { height: 58 + safeBottomPadding }]}
+      style={[styles.navigationWrapper, { height: MAIN_TAB_BAR_INNER_HEIGHT + safeBottomPadding }]}
       pointerEvents="box-none"
     >
       <View
         style={[styles.navigationContainer, variant === 'transparent' && styles.navigationContainerTransparent]}
         pointerEvents="auto"
       >
-        <BlurView
-          intensity={isTransparent ? 0 : isDarkSurface ? blurIntensity : 0}
-          tint={isTransparent ? 'default' : isDarkSurface ? 'dark' : 'light'}
-          style={[
-            styles.blurContainer,
-            variant === 'transparent' ? styles.blurTransparent : styles.blurGlass,
-            { paddingBottom: safeBottomPadding },
-            variant === 'glass'
-              ? {
-                  backgroundColor: isDarkSurface
-                    ? 'rgba(0, 0, 0, 0.85)'
-                    : '#FFFFFF',
-                  borderTopWidth: 1,
-                  borderTopColor: isDarkSurface ? 'rgba(255,255,255,0.08)' : '#F1F5F9',
-                }
-              : null,
-          ]}
-        >
-          <View style={styles.navigationContent}>
-            {renderTab('Content', 'Chores', {
-              onPress: () => safeNavigate('Content', { scrollToTop: currentScreen === 'Content' }),
-            })}
-            {renderTab('Discover', 'Discover')}
-            {renderTab('Bookings', 'Bookings', {
-              badgeCount: newQuotesCount,
-              showDot: hasBookingAlert && newQuotesCount === 0,
-              flex: 1.05,
-            })}
-            {renderTab('Messages', 'Messages', { badgeCount: unreadCount })}
-            {renderTab('Profile', 'Profile')}
+        {useTransparentVideoNav ? (
+          <View style={[styles.blurContainer, styles.transparentVideoNav, { paddingBottom: safeBottomPadding }]}>
+            <View style={styles.navigationContent}>
+              {renderTab('Content', 'Videos', {
+                onPress: () => safeNavigate('Content', { scrollToTop: currentScreen === 'Content' }),
+              })}
+              {renderTab('Discover', 'Discover')}
+              {renderTab('Bookings', 'Bookings', {
+                badgeCount: newQuotesCount,
+                showDot: hasBookingAlert && newQuotesCount === 0,
+                flex: 1.05,
+              })}
+              {renderTab('Messages', 'Messages', { badgeCount: unreadCount })}
+              {renderTab('Profile', 'Profile')}
+            </View>
           </View>
-        </BlurView>
+        ) : (
+          <BlurView
+            intensity={useSolidShell && !isTransparent ? 0 : blurIntensity}
+            tint="light"
+            style={[
+              styles.blurContainer,
+              styles.blurGlass,
+              { paddingBottom: safeBottomPadding },
+              useSolidShell && !isTransparent
+                ? {
+                    backgroundColor: '#FFFFFF',
+                    borderTopWidth: 1,
+                    borderTopColor: '#F1F5F9',
+                  }
+                : null,
+            ]}
+          >
+            <View style={styles.navigationContent}>
+              {renderTab('Content', 'Videos', {
+                onPress: () => safeNavigate('Content', { scrollToTop: currentScreen === 'Content' }),
+              })}
+              {renderTab('Discover', 'Discover')}
+              {renderTab('Bookings', 'Bookings', {
+                badgeCount: newQuotesCount,
+                showDot: hasBookingAlert && newQuotesCount === 0,
+                flex: 1.05,
+              })}
+              {renderTab('Messages', 'Messages', { badgeCount: unreadCount })}
+              {renderTab('Profile', 'Profile')}
+            </View>
+          </BlurView>
+        )}
       </View>
     </View>
   );
@@ -274,8 +309,9 @@ const styles = StyleSheet.create({
   blurGlass: {
     backgroundColor: '#FFFFFF',
   },
-  blurTransparent: {
-    backgroundColor: 'rgba(255, 255, 255, 0)',
+  /** Full transparency over video — avoids Android BlurView dark fallback. */
+  transparentVideoNav: {
+    backgroundColor: 'transparent',
   },
   navigationContent: {
     flex: 1,
@@ -290,6 +326,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 2,
+    minHeight: 48,
   },
   iconPill: {
     width: 60,
@@ -299,9 +336,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
     position: 'relative',
-  },
-  iconPillActive: {
-    backgroundColor: '#E6FAFB',
   },
   tabLabel: {
     fontSize: 12,

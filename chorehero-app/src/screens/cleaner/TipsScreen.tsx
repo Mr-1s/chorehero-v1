@@ -14,7 +14,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Dimensions,
   SafeAreaView,
   StatusBar,
   Animated,
@@ -22,15 +21,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import CleanerFloatingNavigation from '../../components/CleanerFloatingNavigation';
-import { CleanerStatTile } from '../../components/cleaner';
 import { cleanerTheme } from '../../utils/theme';
 import { useCleanerStore } from '../../store/cleanerStore';
+import { wp, hp } from '../../utils/responsive';
 
-const { width } = Dimensions.get('window');
-const { colors, typography, radii, shadows } = cleanerTheme;
-const BRAND_TEAL = '#26B7C9';
-const BRAND_TEAL_DARK = '#1C9FB1';
+const { colors, typography, radii, shadows, spacing } = cleanerTheme;
+const BRAND_ORANGE = '#FFA52F';
+const BRAND_ORANGE_DARK = '#E8941A';
 
 // Tips data
 const TIPS_CATEGORIES = [
@@ -38,7 +35,7 @@ const TIPS_CATEGORIES = [
     id: 'filming',
     title: 'Filming Basics',
     icon: 'videocam',
-    color: colors.accentTeal,
+    color: BRAND_ORANGE,
     tips: [
       {
         title: 'Good Lighting is Key',
@@ -94,7 +91,7 @@ const TIPS_CATEGORIES = [
     id: 'engagement',
     title: 'Boost Engagement',
     icon: 'heart',
-    color: '#EF4444',
+    color: BRAND_ORANGE_DARK,
     tips: [
       {
         title: 'Keep It Short',
@@ -122,7 +119,7 @@ const TIPS_CATEGORIES = [
     id: 'professional',
     title: 'Pro Tips',
     icon: 'star',
-    color: '#8B5CF6',
+    color: '#F59E0B',
     tips: [
       {
         title: 'Wear Your Brand',
@@ -207,15 +204,14 @@ const CategorySection: React.FC<CategorySectionProps> = ({ category, isExpanded,
 
 const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['filming']));
-  const { currentCleaner, pastBookings, fetchDashboard, isLoading } = useCleanerStore();
+  const { currentCleaner, availableBookings, activeBookings, fetchDashboard, isLoading } = useCleanerStore();
+  const openJobsCount = availableBookings.length;
+  const hasLiveDemand = openJobsCount > 0;
 
   // Animation refs
   const bannerFade = useRef(new Animated.Value(0)).current;
   const bannerSlide = useRef(new Animated.Value(-20)).current;
-  const statsFade = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
-    // Banner animation
     Animated.parallel([
       Animated.timing(bannerFade, {
         toValue: 1,
@@ -229,14 +225,6 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Stats animation (delayed)
-    Animated.timing(statsFade, {
-      toValue: 1,
-      duration: 400,
-      delay: 300,
-      useNativeDriver: true,
-    }).start();
   }, []);
 
   useEffect(() => {
@@ -260,123 +248,106 @@ const TipsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
-      
-      {/* Earnings Header */}
-      <View style={styles.earningsHeader}>
-        <View style={styles.earningsBlock}>
-          <Text style={styles.earningsLabel}>Earned this Week</Text>
-          <Text style={styles.earningsValue}>
-            {currentCleaner ? `$${Math.round(currentCleaner.weeklyEarnings)}` : '$0'}
-          </Text>
-        </View>
-        <View style={styles.earningsDivider} />
-        <View style={styles.earningsBlock}>
-          <Text style={styles.earningsLabel}>Completed Chores</Text>
-          <Text style={styles.earningsValue}>{pastBookings.length}</Text>
-        </View>
-      </View>
 
-      {/* Header Banner */}
-      <Animated.View 
-        style={[
-          styles.header, 
-          { 
-            opacity: bannerFade, 
-            transform: [{ translateY: bannerSlide }] 
-          }
-        ]}
-      >
-        <LinearGradient
-          colors={[BRAND_TEAL, BRAND_TEAL_DARK]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.headerGradient}
-        >
-          {/* Subtle pattern overlay */}
-          <View style={styles.patternOverlay} />
-          
-          <View style={styles.headerContent}>
-            <Ionicons name="sparkles" size={28} color="#FFFFFF" />
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.headerTitle}>Pro Dashboard</Text>
-              <Text style={styles.headerSubtitle}>Your performance at a glance</Text>
-            </View>
-          </View>
-        </LinearGradient>
-      </Animated.View>
-
-      {/* Quick Stats */}
-      <Animated.View style={[styles.statsContainer, { opacity: statsFade }]}>
-        <TouchableOpacity onPress={() => navigation.navigate('Content')}>
-          <CleanerStatTile
-            icon="eye"
-            value="3x"
-            label="Views"
-            color={BRAND_TEAL}
-            animateIn
-            animationDelay={400}
-          />
-        </TouchableOpacity>
-        <CleanerStatTile
-          icon="calendar"
-          value="2x"
-          label="More Bookings"
-          color={colors.primary}
-          animateIn
-          animationDelay={500}
-        />
-        <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
-          <CleanerStatTile
-            icon="star"
-            value="Top"
-            label="Performer"
-            color="#8B5CF6"
-            animateIn
-            animationDelay={600}
-          />
-        </TouchableOpacity>
-      </Animated.View>
-
-      {/* Tips Categories */}
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+      <ScrollView
+        style={styles.mainScroll}
+        contentContainerStyle={styles.mainScrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.sectionTitle}>Master Your Content</Text>
-        
-        {TIPS_CATEGORIES.map((category) => (
-          <CategorySection
-            key={category.id}
-            category={category}
-            isExpanded={expandedCategories.has(category.id)}
-            onToggle={() => toggleCategory(category.id)}
-          />
-        ))}
+        {/* Earnings Header */}
+        <View style={styles.earningsHeader}>
+          <View style={styles.earningsBlock}>
+            <Text style={styles.earningsLabel}>Earned this Week</Text>
+            <Text style={styles.earningsValue}>
+              {currentCleaner ? `$${Math.round(currentCleaner.weeklyEarnings)}` : '$0'}
+            </Text>
+          </View>
+          <View style={styles.earningsDivider} />
+          <View style={styles.earningsBlock}>
+            <Text style={styles.earningsLabel}>Open Jobs Nearby</Text>
+            <Text style={styles.earningsValue}>{openJobsCount}</Text>
+          </View>
+        </View>
 
-        {/* CTA */}
+        {/* Get booked: compact card (not full-width orange) */}
+        <Animated.View
+          style={[
+            styles.header,
+            {
+              opacity: bannerFade,
+              transform: [{ translateY: bannerSlide }],
+            },
+          ]}
+        >
+          <View style={styles.getBookedCard}>
+            <View style={styles.getBookedAccent} />
+            <View style={styles.getBookedInner}>
+              <Ionicons name="sparkles" size={26} color={BRAND_ORANGE} />
+              <View style={styles.headerTextContainer}>
+                <Text style={styles.getBookedTitle}>Get Booked Fast</Text>
+                <Text style={styles.getBookedSubtitle}>
+                  {hasLiveDemand
+                    ? `${openJobsCount} open jobs nearby right now`
+                    : 'New local jobs will appear here first—check Jobs often.'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Primary CTA: quote jobs */}
         <TouchableOpacity
-          style={styles.ctaButton}
-          onPress={() => navigation.navigate('VideoUpload')}
+          style={styles.quoteJobsBanner}
+          onPress={() => navigation.navigate('Jobs', { initialTab: 'available' })}
           activeOpacity={0.9}
         >
           <LinearGradient
-            colors={[BRAND_TEAL, BRAND_TEAL_DARK]}
+            colors={[BRAND_ORANGE, BRAND_ORANGE_DARK]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={styles.ctaGradient}
+            style={styles.quoteJobsGradient}
           >
-            <Ionicons name="videocam" size={24} color="#FFFFFF" />
-            <Text style={styles.ctaText}>Start Recording Now</Text>
+            <Ionicons name="videocam" size={24} color="#fff" />
+            <View style={styles.quoteJobsText}>
+              <Text style={styles.quoteJobsTitle}>
+                {hasLiveDemand ? `Browse quote jobs (${openJobsCount} new)` : 'Browse quote jobs'}
+              </Text>
+              <Text style={styles.quoteJobsSubtitle}>
+                {activeBookings.length > 0
+                  ? `You have ${activeBookings.length} active job${activeBookings.length > 1 ? 's' : ''} in progress`
+                  : 'Send quick video quotes and get booked.'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.9)" />
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Bottom spacing for nav */}
+        {/* Tips Categories */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Content Playbook</Text>
+
+          {TIPS_CATEGORIES.map((category) => (
+            <CategorySection
+              key={category.id}
+              category={category}
+              isExpanded={expandedCategories.has(category.id)}
+              onToggle={() => toggleCategory(category.id)}
+            />
+          ))}
+        </View>
+
+        <TouchableOpacity
+          style={styles.ctaButtonOutline}
+          onPress={() => navigation.navigate('VideoUpload')}
+          activeOpacity={0.9}
+        >
+          <Ionicons name="videocam" size={22} color={BRAND_ORANGE} />
+          <Text style={styles.ctaTextOutline}>Start recording</Text>
+        </TouchableOpacity>
+
         <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* Navigation */}
-      <CleanerFloatingNavigation navigation={navigation} currentScreen="Dashboard" />
     </SafeAreaView>
   );
 };
@@ -387,18 +358,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   earningsHeader: {
-    marginHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 12,
+    marginHorizontal: wp('5%'),
+    marginTop: hp('2%'),
+    marginBottom: hp('1.5%'),
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    borderRadius: wp('4.5%'),
+    paddingVertical: hp('1.7%'),
+    paddingHorizontal: wp('4%'),
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: 'rgba(38, 183, 201, 0.35)',
+    borderColor: 'rgba(15, 23, 42, 0.08)',
     ...shadows.soft,
   },
   earningsBlock: {
@@ -411,74 +382,76 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(148, 163, 184, 0.4)',
   },
   earningsLabel: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: colors.textMuted,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
     fontWeight: '600',
   },
   earningsValue: {
-    fontSize: 20,
+    fontSize: wp('5%'),
     fontWeight: '800',
     color: colors.textPrimary,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 16,
+    paddingHorizontal: wp('5%'),
+    paddingTop: hp('1.2%'),
+    paddingBottom: hp('1%'),
   },
-  headerGradient: {
+  getBookedCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.08)',
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
+    overflow: 'hidden',
+    ...shadows.soft,
+  },
+  getBookedAccent: { width: 4, backgroundColor: BRAND_ORANGE },
+  getBookedInner: { flex: 1, flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  headerTextContainer: { flex: 1 },
+  getBookedTitle: { fontSize: 16, fontWeight: '800', color: colors.textPrimary, letterSpacing: -0.2 },
+  getBookedSubtitle: { ...typography.label, color: colors.textSecondary, marginTop: 4 },
+  quoteJobsBanner: {
+    marginHorizontal: wp('5%'),
+    marginBottom: hp('2%'),
     borderRadius: radii.card,
     overflow: 'hidden',
+    shadowColor: BRAND_ORANGE,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  patternOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.1,
-    backgroundColor: 'transparent',
-    // Subtle diagonal stripes pattern effect
-    borderWidth: 0,
-  },
-  headerContent: {
+  quoteJobsGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 1,
+    padding: wp('4%'),
+    gap: wp('3%'),
   },
-  headerTextContainer: {
-    marginLeft: 16,
-  },
-  headerTitle: {
-    ...typography.headingXL,
-    color: '#FFFFFF',
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    ...typography.label,
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginTop: 2,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 12,
-    marginBottom: 20,
-  },
-  scrollView: {
+  quoteJobsText: { flex: 1 },
+  quoteJobsTitle: { fontSize: wp('4%'), fontWeight: '700', color: '#fff' },
+  quoteJobsSubtitle: { fontSize: wp('3%'), color: 'rgba(255,255,255,0.9)', marginTop: 2 },
+  mainScroll: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 20,
+  mainScrollContent: {
+    flexGrow: 1,
+  },
+  section: {
+    marginTop: hp('2%'),
+    paddingHorizontal: wp('5%'),
   },
   sectionTitle: {
-    ...typography.headingL,
-    color: colors.textPrimary,
-    marginBottom: 16,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: spacing.lg,
+    letterSpacing: -0.2,
   },
   categoryContainer: {
     backgroundColor: colors.cardBg,
     borderRadius: radii.card,
-    marginBottom: 12,
+    marginBottom: hp('1.5%'),
     borderWidth: 1,
     borderColor: colors.borderSubtle,
     ...shadows.soft,
@@ -497,7 +470,7 @@ const styles = StyleSheet.create({
   categoryIcon: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -507,22 +480,22 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   tipsContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingHorizontal: wp('4%'),
+    paddingBottom: hp('2%'),
   },
   tipCard: {
     flexDirection: 'row',
     backgroundColor: colors.bg,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     padding: 14,
-    marginTop: 10,
+    marginTop: hp('1.2%'),
     borderWidth: 1,
     borderColor: colors.borderSubtle,
   },
   tipIconContainer: {
     width: 44,
     height: 44,
-    borderRadius: 12,
+    borderRadius: wp('3%'),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -534,7 +507,7 @@ const styles = StyleSheet.create({
     ...typography.label,
     fontWeight: '700',
     color: colors.textPrimary,
-    marginBottom: 4,
+    marginBottom: hp('0.5%'),
   },
   tipDescription: {
     fontSize: 13,
@@ -542,24 +515,21 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 18,
   },
-  ctaButton: {
-    marginTop: 24,
+  ctaButtonOutline: {
+    marginTop: hp('2%'),
+    marginHorizontal: wp('5%'),
     borderRadius: radii.card,
-    overflow: 'hidden',
-    ...shadows.soft,
-  },
-  ctaGradient: {
+    borderWidth: 2,
+    borderColor: BRAND_ORANGE,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     gap: 10,
   },
-  ctaText: {
-    ...typography.cardTitle,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  ctaTextOutline: { fontSize: 16, fontWeight: '700', color: BRAND_ORANGE },
 });
 
 export default TipsScreen;

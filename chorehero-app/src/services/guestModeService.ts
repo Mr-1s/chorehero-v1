@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { contentService } from './contentService';
 import { categoryService } from './category';
+import { FEATURE_DEMO_FALLBACK } from '../config';
 
 export interface GuestModeData {
   videos: GuestVideo[];
@@ -16,11 +17,31 @@ export interface GuestVideo {
   thumbnail_url: string;
   cleaner_name: string;
   cleaner_avatar: string;
+  /** Demo: links video to one of 3 demo accounts (demo-sarah, demo-marcus, demo-emily) */
+  cleaner_id?: string;
   duration: number;
   view_count: number;
   like_count: number;
   category: string;
   created_at: string;
+  /** Demo-only: booking form type */
+  package_type?: 'fixed' | 'hourly' | 'contact';
+  base_price_cents?: number;
+  estimated_hours?: number;
+  is_bookable?: boolean;
+}
+
+/** Demo account for feed → profile navigation. Exactly 3 accounts. */
+export interface DemoAccount {
+  id: string;
+  name: string;
+  username: string;
+  avatar_url: string;
+  bio: string;
+  rating_average: number;
+  total_jobs: number;
+  specialties: string[];
+  hourly_rate: number;
 }
 
 export interface GuestService {
@@ -265,29 +286,290 @@ class GuestModeService {
     }
   }
 
+  /** Exactly 3 demo accounts. Feed videos map to one of these; profile click opens their page. */
+  private readonly DEMO_ACCOUNTS: DemoAccount[] = [
+    {
+      id: 'demo-sarah',
+      name: 'Sarah J.',
+      username: 'sarahj',
+      avatar_url: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      bio: 'Kitchen & deep clean specialist. 8+ years experience. Eco-friendly products.',
+      rating_average: 4.9,
+      total_jobs: 247,
+      specialties: ['Kitchen', 'Deep Clean', 'Eco-Friendly'],
+      hourly_rate: 55,
+    },
+    {
+      id: 'demo-marcus',
+      name: 'Marcus R.',
+      username: 'marcusr',
+      avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      bio: 'Bathroom & grout restoration expert. Tile, sanitization, mold prevention.',
+      rating_average: 4.8,
+      total_jobs: 189,
+      specialties: ['Bathroom', 'Grout', 'Tile'],
+      hourly_rate: 65,
+    },
+    {
+      id: 'demo-emily',
+      name: 'Emily C.',
+      username: 'emilyc',
+      avatar_url: 'https://images.unsplash.com/photo-1494790108755-2616b612b754?w=100&h=100&fit=crop&crop=face&auto=format&q=80',
+      bio: 'Pet stain & carpet specialist. Upholstery, odor removal, custom quotes.',
+      rating_average: 4.7,
+      total_jobs: 156,
+      specialties: ['Carpet', 'Pet Stains', 'Upholstery'],
+      hourly_rate: 75,
+    },
+  ];
+
+  getDemoAccounts(): DemoAccount[] {
+    return [...this.DEMO_ACCOUNTS];
+  }
+
+  getDemoAccountById(cleanerId: string): DemoAccount | null {
+    return this.DEMO_ACCOUNTS.find((a) => a.id === cleanerId) ?? null;
+  }
+
   /**
-   * Get videos for guest mode - always shows professional videos for demo purposes
+   * Demo feed: many videos with different pricing points and booking forms.
+   * All map to one of 3 demo accounts. Variety in captions, package types, prices.
+   */
+  getDemoVideos(): GuestVideo[] {
+    // Gate all demo content behind explicit flag. Production returns [].
+    if (!FEATURE_DEMO_FALLBACK) return [];
+    const sarah = this.DEMO_ACCOUNTS[0];
+    const marcus = this.DEMO_ACCOUNTS[1];
+    const emily = this.DEMO_ACCOUNTS[2];
+
+    return [
+      // Sarah – fixed, $85
+      {
+        id: 'demo-vid-sarah-1',
+        title: 'Kitchen Deep Clean',
+        description: 'Full degrease, appliance clean, cabinet wipe-down. One flat rate. Book now!',
+        video_url: 'https://videos.pexels.com/video-files/4109347/4109347-uhd_4096_2160_25fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: sarah.name,
+        cleaner_avatar: sarah.avatar_url,
+        cleaner_id: sarah.id,
+        duration: 90,
+        view_count: 1247,
+        like_count: 89,
+        category: 'Kitchen',
+        created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'fixed',
+        base_price_cents: 8500,
+        estimated_hours: 2,
+        is_bookable: true,
+      },
+      // Marcus – hourly, $55/hr
+      {
+        id: 'demo-vid-marcus-1',
+        title: 'Bathroom Grout Restoration',
+        description: 'Professional grout scrub, tile polish, mold prevention. Pay by the hour.',
+        video_url: 'https://videos.pexels.com/video-files/9472831/9472831-uhd_2160_3840_24fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: marcus.name,
+        cleaner_avatar: marcus.avatar_url,
+        cleaner_id: marcus.id,
+        duration: 120,
+        view_count: 1567,
+        like_count: 134,
+        category: 'Bathroom',
+        created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'hourly',
+        base_price_cents: 5500,
+        estimated_hours: 2,
+        is_bookable: true,
+      },
+      // Emily – contact
+      {
+        id: 'demo-vid-emily-1',
+        title: 'Pet Stain Removal',
+        description: 'Carpet & upholstery deep clean. Stains, odors, pet hair. Message for a custom quote.',
+        video_url: 'https://assets.mixkit.co/videos/29385/29385-720.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: emily.name,
+        cleaner_avatar: emily.avatar_url,
+        cleaner_id: emily.id,
+        duration: 110,
+        view_count: 2103,
+        like_count: 178,
+        category: 'Carpet',
+        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'contact',
+        is_bookable: true,
+      },
+      // Sarah – fixed $65
+      {
+        id: 'demo-vid-sarah-2',
+        title: 'Express Kitchen Wipe-Down',
+        description: 'Quick kitchen refresh: counters, sink, stovetop. Budget-friendly flat rate.',
+        video_url: 'https://videos.pexels.com/video-files/5176975/5176975-uhd_2560_1440_30fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1581579188871-45ea61f2a0c8?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: sarah.name,
+        cleaner_avatar: sarah.avatar_url,
+        cleaner_id: sarah.id,
+        duration: 60,
+        view_count: 3420,
+        like_count: 210,
+        category: 'Kitchen',
+        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'fixed',
+        base_price_cents: 6500,
+        estimated_hours: 1,
+        is_bookable: true,
+      },
+      // Marcus – hourly $65/hr
+      {
+        id: 'demo-vid-marcus-2',
+        title: 'Tile & Shower Deep Clean',
+        description: 'Shower doors, tile, caulk refresh. Hourly rate – book the time you need.',
+        video_url: 'https://videos.pexels.com/video-files/6872072/6872072-uhd_2160_3840_25fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: marcus.name,
+        cleaner_avatar: marcus.avatar_url,
+        cleaner_id: marcus.id,
+        duration: 95,
+        view_count: 2890,
+        like_count: 198,
+        category: 'Bathroom',
+        created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'hourly',
+        base_price_cents: 6500,
+        estimated_hours: 1.5,
+        is_bookable: true,
+      },
+      // Emily – fixed $125
+      {
+        id: 'demo-vid-emily-2',
+        title: 'Full Carpet Steam Clean',
+        description: 'Whole-room steam clean, stain treatment, deodorizer. One flat price.',
+        video_url: 'https://videos.pexels.com/video-files/27452018/12146938_1080_1920_30fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: emily.name,
+        cleaner_avatar: emily.avatar_url,
+        cleaner_id: emily.id,
+        duration: 75,
+        view_count: 4120,
+        like_count: 312,
+        category: 'Carpet',
+        created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'fixed',
+        base_price_cents: 12500,
+        estimated_hours: 3,
+        is_bookable: true,
+      },
+      // Sarah – fixed $110
+      {
+        id: 'demo-vid-sarah-3',
+        title: 'Whole Kitchen Deep Clean',
+        description: 'Inside fridge, oven, cabinets. Full transformation. Premium flat rate.',
+        video_url: 'https://videos.pexels.com/video-files/4109347/4109347-uhd_4096_2160_25fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: sarah.name,
+        cleaner_avatar: sarah.avatar_url,
+        cleaner_id: sarah.id,
+        duration: 150,
+        view_count: 5670,
+        like_count: 445,
+        category: 'Kitchen',
+        created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'fixed',
+        base_price_cents: 11000,
+        estimated_hours: 3,
+        is_bookable: true,
+      },
+      // Marcus – contact
+      {
+        id: 'demo-vid-marcus-3',
+        title: 'Full Bathroom Renovation Clean',
+        description: 'Post-renovation deep clean, grout seal, fixture polish. Message for quote.',
+        video_url: 'https://videos.pexels.com/video-files/9472831/9472831-uhd_2160_3840_24fps.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: marcus.name,
+        cleaner_avatar: marcus.avatar_url,
+        cleaner_id: marcus.id,
+        duration: 180,
+        view_count: 2340,
+        like_count: 167,
+        category: 'Bathroom',
+        created_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'contact',
+        is_bookable: true,
+      },
+      // Emily – hourly $75/hr
+      {
+        id: 'demo-vid-emily-3',
+        title: 'Upholstery & Fabric Clean',
+        description: 'Sofas, chairs, curtains. Pet-safe products. Hourly rate.',
+        video_url: 'https://assets.mixkit.co/videos/29385/29385-720.mp4',
+        thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=600&fit=crop&auto=format&q=80',
+        cleaner_name: emily.name,
+        cleaner_avatar: emily.avatar_url,
+        cleaner_id: emily.id,
+        duration: 100,
+        view_count: 3890,
+        like_count: 289,
+        category: 'Upholstery',
+        created_at: new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString(),
+        package_type: 'hourly',
+        base_price_cents: 7500,
+        estimated_hours: 2,
+        is_bookable: true,
+      },
+    ];
+  }
+
+  /** Videos for a specific demo account (profile page). */
+  getDemoVideosByCleanerId(cleanerId: string): GuestVideo[] {
+    return this.getDemoVideos().filter((v) => v.cleaner_id === cleanerId);
+  }
+
+  /**
+   * Fetch demo videos for feed population fallback.
+   * city: nearest launch city (NYC, Atlanta, Austin) - for display only, all demo videos are same set
+   * mixWithReal: when true, used to supplement real pros; when false, full demo feed
+   * labelAs: 'sample' for subtle badge
+   * limit: max videos to return
+   */
+  fetchDemoVideos(params: {
+    city?: string;
+    mixWithReal?: boolean;
+    labelAs?: 'sample';
+    limit?: number;
+  } = {}): GuestVideo[] {
+    const { limit = 20 } = params;
+    return this.getDemoVideos().slice(0, limit);
+  }
+
+  /** Launch cities for nearest-city fallback. */
+  static readonly LAUNCH_CITIES = ['NYC', 'Atlanta', 'Austin'] as const;
+  static readonly PRIMARY_LAUNCH_CITY = 'NYC';
+
+  /**
+   * Get videos for guest mode. Prefers demo videos (3 demo accounts) when feed is empty
+   * so users always see bookable pros. Falls back to professionalVideos if needed.
    */
   async getGuestVideos(): Promise<GuestVideo[]> {
     try {
-      // Always return professional cleaning videos for guest users
-      // This ensures demo mode is always on for guests regardless of real data
-      console.log('🎬 Returning professional videos for guest demo mode');
-      // Feature priority: ensure requested Pexels clips show first
-      const featuredIds = [
-        'pexels-5176975',
-        'pexels-6872072',
-        'pexels-27452018-12146938',
-      ];
-      const rank = (v: GuestVideo) => {
-        const idx = featuredIds.indexOf(v.id);
-        return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
-      };
-      return [...this.professionalVideos].sort((a, b) => rank(a) - rank(b));
+      // Only return demo content when demo fallback is explicitly enabled.
+      // In production this returns [] so real empty-state UI is shown instead of mock data.
+      if (FEATURE_DEMO_FALLBACK) {
+        return this.getDemoVideos();
+      }
+      return [];
     } catch (error) {
       console.error('Error getting guest videos:', error);
-      return this.professionalVideos; // Fallback to professional videos
+      return [];
     }
+  }
+
+  private rank(v: GuestVideo): number {
+    const featuredIds = ['pexels-5176975', 'pexels-6872072', 'pexels-27452018-12146938'];
+    const idx = featuredIds.indexOf(v.id);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
   }
 
   /**
@@ -432,14 +714,11 @@ class GuestModeService {
   async isGuestUser(): Promise<boolean> {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      console.log('🔍 GuestModeService: Checking user auth status');
-      console.log('🔍 Raw user data:', user);
-      console.log('🔍 User exists:', !!user);
-      console.log('🔍 User ID:', user?.id);
-      console.log('🔍 User email:', user?.email);
-      
+      // Don't log the raw user object, id, or email (audit F-21: PII).
       const isGuest = !user;
-      console.log('🔍 Final isGuest result:', isGuest);
+      if (__DEV__) {
+        console.log('🔍 GuestModeService.isGuestUser →', isGuest);
+      }
       return isGuest;
     } catch (error) {
       console.error('🔍 Error checking guest status:', error);
